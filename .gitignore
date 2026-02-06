@@ -3,6 +3,10 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # Build outputs
 dist/
@@ -15,19 +19,53 @@ build/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Environment
+# Environment & Secrets
 .env
-.env.local
+.env.*
+!.env.example
+*.key
+*.secret
+config.local.js
+secrets.json
 
-# Chrome extension
+# Chrome extension sensitive files
 *.pem
 *.crx
+key.pem
+oauth_token.json
+
+# API Keys & Credentials
+**/api_keys.json
+**/credentials.json
+**/token.json
+**/*_secret.json
+**/*_key.json
 
 # Logs
 logs/
 *.log
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# User data
+user_data/
+profile/
+storage/
+
+# Backup files
+*.bak
+*.backup
+*~
