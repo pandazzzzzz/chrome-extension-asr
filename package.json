@@ -1,0 +1,26 @@
+{
+  "name": "chrome-extension",
+  "version": "1.0.0",
+  "description": "A Chrome extension built with Manifest V3",
+  "scripts": {
+    "build": "echo 'No build step required for basic extension'",
+    "pack": "zip -r extension.zip . -x '*.git*' -x 'node_modules/*' -x '*.zip'",
+    "lint": "echo 'Add your linting tool here'"
+  },
+  "keywords": [
+    "chrome",
+    "extension",
+    "manifest-v3",
+    "browser-extension"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/your-repo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/your-repo/issues"
+  },
+  "homepage": "https://github.com/yourusername/your-repo#readme"
+}
