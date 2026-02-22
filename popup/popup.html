@@ -3,16 +3,49 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Chrome Extension</title>
+  <title>Qwen ASR</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="container">
-    <h1>Chrome Extension</h1>
-    <p>欢迎使用这个Chrome插件！</p>
-    <button id="actionBtn">点击我</button>
+    <h1>Qwen ASR</h1>
+
+    <label for="apiKey">DashScope API Key</label>
+    <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+
+    <div class="row">
+      <div class="field">
+        <label for="region">区域</label>
+        <select id="region">
+          <option value="cn">中国内地（北京）</option>
+          <option value="intl">国际（新加坡）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="audioType">音频格式</label>
+        <select id="audioType">
+          <option value="audio/webm">webm</option>
+          <option value="audio/mp4">mp4</option>
+          <option value="audio/wav">wav</option>
+        </select>
+      </div>
+    </div>
+
+    <label for="model">模型</label>
+    <input id="model" type="text" value="qwen3-asr-flash">
+
+    <div class="btn-row">
+      <button id="recordBtn" class="primary">开始录音</button>
+      <button id="transcribeBtn" class="secondary" disabled>转写</button>
+    </div>
+
+    <label for="result">识别结果</label>
+    <textarea id="result" rows="6" placeholder="录音并转写后显示结果"></textarea>
+
+    <button id="copyBtn" class="ghost">复制文本</button>
     <div id="status"></div>
   </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

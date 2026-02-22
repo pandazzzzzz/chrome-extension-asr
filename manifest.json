@@ -30,5 +30,8 @@
     "storage",
     "activeTab"
   ],
-  "host_permissions": []
+  "host_permissions": [
+    "https://dashscope.aliyuncs.com/*",
+    "https://dashscope-intl.aliyuncs.com/*"
+  ]
 }
