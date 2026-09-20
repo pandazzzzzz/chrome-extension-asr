@@ -8,13 +8,33 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
+# Python (if a local Whisper/ASR backend is added later)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+
+# Package manager (if added later)
+.bun/
+.pnpm-store/
+.npmrc
+.yarnrc
+
 # Build outputs
 dist/
 build/
+out/
 *.zip
+*.tgz
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -22,6 +42,9 @@ build/
 .project
 .classpath
 .settings/
+# Track .vscode/settings.json, ignore the rest
+.vscode/*
+!.vscode/settings.json
 
 # OS
 .DS_Store
@@ -49,6 +72,9 @@ oauth_token.json
 **/token.json
 **/*_secret.json
 **/*_key.json
+**/service-account*.json
+*.p12
+*.pfx
 
 # Logs
 logs/
@@ -60,12 +86,56 @@ logs/
 .cache/
 .temp/
 
+# Local temp directory (track structure only, ignore contents)
+# temp/** 忽略所有层级内容，再显式恢复结构文件
+temp/**
+!temp/**/
+!temp/README.md
+!temp/**/.gitkeep
+
 # User data
 user_data/
 profile/
 storage/
 
+# AI / ML model files (large binaries, never commit)
+# 临时/本地模型放 temp/models/（已忽略）；samples/ 下豁免，可提交小体积样例
+/models/
+*.onnx
+*.bin
+*.gguf
+*.safetensors
+*.ckpt
+*.pth
+*.h5
+*.tflite
+*.pb
+# 例外：测试/示例样例可提交
+!samples/**
+
+# Audio recordings (captured audio, temp files)
+# 测试样例音频放在 samples/ 目录下可被 git 跟踪；临时音频放 temp/audio/
+*.wav
+*.mp3
+*.ogg
+*.webm
+*.m4a
+*.flac
+*.pcm
+# 例外：测试/示例样例可提交
+!samples/**
+!samples/**/*
+
+# ML framework caches
+.huggingface/
+huggingface/**
+
+# Local dev server runtime data
+coverage/
+.nyc_output/
+.eslintcache
+.prettiercache
+
 # Backup files
 *.bak
 *.backup
-*~

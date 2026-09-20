@@ -1,0 +1,25 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    "temp/cache": true,
+    "temp/models": true,
+    "temp/audio": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/*.crx": true,
+    "**/*.pem": true,
+    "temp/cache": true,
+    "temp/models": true,
+    "temp/audio": true
+  }
+}
