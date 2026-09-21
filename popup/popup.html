@@ -1,51 +1,58 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Qwen ASR</title>
+  <title>ASR Demo</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="container">
-    <h1>Qwen ASR</h1>
+    <h1>ASR Demo</h1>
 
-    <label for="apiKey">DashScope API Key</label>
+    <label for="provider">Provider</label>
+    <select id="provider"></select>
+
+    <label for="apiKey">API Key</label>
     <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+
+    <div id="endpointRow" class="field">
+      <label for="endpoint">Endpoint URL</label>
+      <input id="endpoint" type="text" placeholder="https://...">
+    </div>
 
     <div class="row">
       <div class="field">
-        <label for="region">区域</label>
-        <select id="region">
-          <option value="cn">中国内地（北京）</option>
-          <option value="intl">国际（新加坡）</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="audioType">音频格式</label>
+        <label for="audioType">Audio format</label>
         <select id="audioType">
           <option value="audio/webm">webm</option>
           <option value="audio/mp4">mp4</option>
           <option value="audio/wav">wav</option>
         </select>
       </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <input id="model" type="text" value="">
+      </div>
     </div>
-
-    <label for="model">模型</label>
-    <input id="model" type="text" value="qwen3-asr-flash">
 
     <div class="btn-row">
-      <button id="recordBtn" class="primary">开始录音</button>
-      <button id="transcribeBtn" class="secondary" disabled>转写</button>
+      <button id="recordBtn" class="primary">Start Recording</button>
+      <button id="transcribeBtn" class="secondary" disabled>Transcribe</button>
     </div>
 
-    <label for="result">识别结果</label>
-    <textarea id="result" rows="6" placeholder="录音并转写后显示结果"></textarea>
+    <label for="result">Result</label>
+    <textarea id="result" rows="6" placeholder="Transcription will appear here..."></textarea>
 
-    <button id="copyBtn" class="ghost">复制文本</button>
+    <button id="copyBtn" class="ghost">Copy text</button>
     <div id="status"></div>
   </div>
 
-  <script src="popup.js"></script>
+  <script src="providers/base.js"></script>
+  <script src="providers/qwen.js"></script>
+  <script src="providers/openai.js"></script>
+  <script src="providers/deepgram.js"></script>
+  <script src="providers/index.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
