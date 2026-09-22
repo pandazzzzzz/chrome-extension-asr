@@ -38,6 +38,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 └── temp/                     # Local-only temp files (not tracked by git)
 ```
 
+> 架构设计与按功能划分的模块规划见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 ## Quick Start
 
 1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select this project directory.
