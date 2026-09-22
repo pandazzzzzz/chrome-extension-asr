@@ -7,8 +7,6 @@
  * To add a new provider, see popup/providers/index.js.
  */
 
-const STORAGE_KEY = 'asrConfig';
-
 // State
 let mediaRecorder = null;
 let mediaStream = null;
@@ -216,9 +214,9 @@ function getDefaultConfig() {
 }
 
 async function loadConfig() {
-  const stored = await chrome.storage.sync.get([STORAGE_KEY]);
   const base = getDefaultConfig();
-  return { ...base, ...(stored[STORAGE_KEY] || {}) };
+  const stored = await window.ConfigStore.load();
+  return { ...base, ...stored };
 }
 
 function applyConfigToUI(config) {
@@ -243,7 +241,7 @@ async function persistConfig() {
     model: els.modelInput.value.trim(),
     audioType: els.audioTypeSelect.value,
   };
-  await chrome.storage.sync.set({ [STORAGE_KEY]: config });
+  await window.ConfigStore.save(config);
 }
 
 function getCurrentProvider() {
