@@ -10,6 +10,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 - **Background API proxy** — transcription goes through the service worker; API keys are never exposed to content scripts
 - **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current tab
 - **Tab audio recording** — record tab audio (meetings, videos) via `chrome.tabCapture` + offscreen document
+- **Live streaming transcription** — mic PCM → energy-threshold VAD segments → each segment transcribed and shown incrementally
 - **One-click copy** of the transcription result
 - **Pluggable provider system** — add a new provider by dropping in one file under `transcription/providers/`
 - **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
@@ -37,7 +38,11 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 │   ├── offscreen.html
 │   └── offscreen.js
 ├── audio/                    # Audio layer
-│   └── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
+│   ├── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
+│   ├── vad.js                # Energy-threshold VAD state machine (pure logic, testable)
+│   ├── convert.js            # Float32 PCM → WAV blob, chunk concat
+│   ├── pcm-capture.js        # PCM frame capture (AudioWorklet, ScriptProcessor fallback)
+│   └── pcm-worklet.js        # AudioWorklet processor (loaded via web_accessible_resources)
 ├── content/                  # Content scripts (page dictation injection)
 │   ├── content.js
 │   └── content.css
@@ -65,7 +70,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 3. Choose a **Provider** from the dropdown (Qwen / OpenAI / Deepgram).
 4. Enter your **API Key** for that provider (stored encrypted in `storage.local`, never synced).
 5. Adjust **Endpoint URL** / **Model** if needed (defaults are pre-filled).
-6. Click **Start Recording**, speak, then **Stop Recording**, then **Transcribe** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video), then **Transcribe**.
+6. Click **Start Recording**, speak, then **Stop Recording**, then **Transcribe** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video), then **Transcribe**. **Live Stream** transcribes your speech segment-by-segment while you talk (no separate Transcribe step).
 7. Optional: click **Fill into page** to inject the transcription into the currently focused input field on the active tab.
 
 ## Built-in Providers
