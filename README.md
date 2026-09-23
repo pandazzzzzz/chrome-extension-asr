@@ -6,34 +6,44 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 
 - **Vendor-agnostic popup framework** — switch providers from a dropdown
 - **Voice recording** directly from the popup (webm / mp4 / wav)
-- **Real-time transcription** via configurable API endpoints
+- **Cloud transcription** via configurable API endpoints (Qwen / OpenAI Whisper / Deepgram)
+- **Background API proxy** — transcription goes through the service worker; API keys are never exposed to content scripts
+- **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current page
 - **One-click copy** of the transcription result
 - **Pluggable provider system** — add a new provider by dropping in one file under `popup/providers/`
+- **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
 
 ## Project Structure
 
 ```
 .
 ├── manifest.json             # Extension configuration (MV3)
-├── popup/                    # Popup window
+├── popup/                    # Popup UI (recording + transcription)
 │   ├── popup.html
 │   ├── popup.css
-│   ├── app.js                # Main UI logic (provider-agnostic)
-│   └── providers/            # Provider implementations
+│   ├── app.js                # Main UI logic
+│   └── providers/            # Cloud ASR providers (also used by background)
 │       ├── base.js           # BaseProvider (abstract)
-│       ├── qwen.js           # Qwen (DashScope, OpenAI-compatible)
+│       ├── qwen.js           # Qwen (DashScope)
 │       ├── openai.js         # OpenAI Whisper
 │       ├── deepgram.js       # Deepgram
 │       └── index.js          # Provider registry
-├── background/               # Background service worker
-│   └── background.js
-├── content/                  # Content scripts injected into web pages
+├── background/
+│   └── background.js         # Service worker — message router + API proxy
+├── content/                  # Content scripts (page dictation injection)
 │   ├── content.js
 │   └── content.css
+├── store/                    # Storage layer
+│   ├── config.js             # Config read/write (all in storage.local)
+│   └── crypto.js             # WebCrypto AES-GCM encryption for API keys
+├── messaging/                # Cross-context message contract
+│   ├── messages.js           # Action type constants
+│   └── client.js             # sendMessage Promise wrapper
+├── shared/
+│   └── errors.js             # Unified error codes
 ├── icons/                    # Extension icons
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
+├── docs/
+│   └── ARCHITECTURE.md       # Full architecture design doc
 ├── samples/                  # Committed test samples (audio, models)
 └── temp/                     # Local-only temp files (not tracked by git)
 ```
@@ -45,9 +55,10 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select this project directory.
 2. Click the extension icon in the toolbar.
 3. Choose a **Provider** from the dropdown (Qwen / OpenAI / Deepgram).
-4. Enter your **API Key** for that provider.
+4. Enter your **API Key** for that provider (stored encrypted in `storage.local`, never synced).
 5. Adjust **Endpoint URL** / **Model** if needed (defaults are pre-filled).
-6. Click **Start recording**, speak, then click **Stop recording**, and then **Transcribe**.
+6. Click **Start recording**, speak, then **Stop recording**, then **Transcribe**.
+7. Optional: click **Fill into page** to inject the transcription into the currently focused input field on the active tab.
 
 ## Built-in Providers
 
@@ -66,8 +77,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 
 ## Permissions
 
-- `storage` — persist configuration (provider, API key, endpoint, model, audio format)
-- `activeTab` — access the currently active tab
+- `storage` — persist configuration locally (provider, API key, endpoint, model, audio format); API keys are encrypted in `storage.local` (no cloud sync)
+- `activeTab` — query the active tab for the "Fill into page" feature
 - Host permissions for each built-in provider endpoint
 
 ## License

@@ -28,16 +28,16 @@ class BaseProvider {
 
   /**
    * Helper — convert a Blob to a base64 data URL.
+   * 用 Blob.arrayBuffer()（window 与 service worker 均支持），避免依赖 FileReader。
    * @param {Blob} blob
    * @returns {Promise<string>}
    */
-  static blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('Failed to read blob as data URL'));
-      reader.readAsDataURL(blob);
-    });
+  static async blobToDataUrl(blob) {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`;
   }
 
   /**
@@ -56,4 +56,4 @@ class BaseProvider {
   }
 }
 
-window.BaseProvider = BaseProvider;
+globalThis.BaseProvider = BaseProvider;

@@ -13,7 +13,7 @@
  *   "读 IDB 密钥 + 调用解密 API"。真正的纵深防御依赖 background 代理
  *   (P1) 把密钥限制在 service worker 上下文。
  */
-window.CryptoStore = (() => {
+globalThis.CryptoStore = (() => {
   const DB_NAME = 'asr-crypto';
   const STORE = 'keys';
   const KEY_RECORD = 'main';

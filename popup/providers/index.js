@@ -6,9 +6,9 @@
  *   3. Add it to the PROVIDERS array below.
  */
 const PROVIDERS = [
-  window.QwenProvider,
-  window.OpenAIProvider,
-  window.DeepgramProvider,
+  globalThis.QwenProvider,
+  globalThis.OpenAIProvider,
+  globalThis.DeepgramProvider,
 ];
 
-window.PROVIDERS = PROVIDERS;
+globalThis.PROVIDERS = PROVIDERS;

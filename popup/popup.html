@@ -44,7 +44,10 @@
     <label for="result">Result</label>
     <textarea id="result" rows="6" placeholder="Transcription will appear here..."></textarea>
 
-    <button id="copyBtn" class="ghost">Copy text</button>
+    <div class="btn-row">
+      <button id="copyBtn" class="ghost">Copy text</button>
+      <button id="fillBtn" class="ghost" disabled>Fill into page</button>
+    </div>
     <div id="status"></div>
   </div>
 
@@ -53,6 +56,9 @@
   <script src="providers/openai.js"></script>
   <script src="providers/deepgram.js"></script>
   <script src="providers/index.js"></script>
+  <script src="../shared/errors.js"></script>
+  <script src="../messaging/messages.js"></script>
+  <script src="../messaging/client.js"></script>
   <script src="../store/crypto.js"></script>
   <script src="../store/config.js"></script>
   <script src="app.js"></script>

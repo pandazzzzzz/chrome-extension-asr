@@ -41,11 +41,12 @@ function gatherElements() {
   els.transcribeBtn = document.getElementById('transcribeBtn');
   els.resultText = document.getElementById('result');
   els.copyBtn = document.getElementById('copyBtn');
+  els.fillBtn = document.getElementById('fillBtn');
   els.statusDiv = document.getElementById('status');
 }
 
 function populateProviderSelect() {
-  window.PROVIDERS.forEach((provider) => {
+  globalThis.PROVIDERS.forEach((provider) => {
     const option = document.createElement('option');
     option.value = provider.id;
     option.textContent = provider.name;
@@ -86,6 +87,7 @@ function bindEvents() {
   els.recordBtn.addEventListener('click', toggleRecording);
   els.transcribeBtn.addEventListener('click', handleTranscribe);
   els.copyBtn.addEventListener('click', handleCopy);
+  els.fillBtn.addEventListener('click', handleFillIntoPage);
 }
 
 // ---------- Recording ----------
@@ -102,6 +104,7 @@ async function startRecording() {
   try {
     audioBlob = null;
     els.transcribeBtn.disabled = true;
+    els.fillBtn.disabled = true;
     chunks = [];
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const mimeType = pickMimeType(els.audioTypeSelect.value);
@@ -146,16 +149,11 @@ function releaseMic() {
 
 async function handleTranscribe() {
   const provider = getCurrentProvider();
-  const apiKey = els.apiKeyInput.value.trim();
   const model = els.modelInput.value.trim();
   const endpoint = els.endpointInput.value.trim();
 
   if (!provider) {
     showStatus('No provider selected.', 'error');
-    return;
-  }
-  if (!apiKey) {
-    showStatus('API key is required.', 'error');
     return;
   }
   if (!audioBlob) {
@@ -168,19 +166,37 @@ async function handleTranscribe() {
   els.resultText.value = '';
 
   try {
-    const text = await provider.transcribe({
+    // 转录经 background 代理：密钥在 service worker 内解密，popup 不传递明文
+    const text = await globalThis.MessageClient.send(globalThis.MESSAGES.TRANSCRIBE, {
       audioBlob,
-      apiKey,
+      provider: provider.id,
       model,
       endpoint: endpoint || undefined,
     });
     els.resultText.value = text;
+    els.fillBtn.disabled = false;
     showStatus('Transcription complete.', 'success');
   } catch (error) {
     showStatus(`Transcription failed: ${error.message}`, 'error');
   } finally {
     els.transcribeBtn.disabled = false;
     els.transcribeBtn.textContent = 'Transcribe';
+  }
+}
+
+// ---------- Fill into page ----------
+
+async function handleFillIntoPage() {
+  const text = els.resultText.value.trim();
+  if (!text) {
+    showStatus('Nothing to fill.', 'error');
+    return;
+  }
+  try {
+    await globalThis.MessageClient.send(globalThis.MESSAGES.FILL_TEXT, { text });
+    showStatus('Filled into page input.', 'success');
+  } catch (error) {
+    showStatus(`Fill failed: ${error.message}`, 'error');
   }
 }
 
@@ -203,7 +219,7 @@ async function handleCopy() {
 // ---------- Config ----------
 
 function getDefaultConfig() {
-  const firstProvider = window.PROVIDERS?.[0];
+  const firstProvider = globalThis.PROVIDERS?.[0];
   return {
     provider: firstProvider?.id || '',
     apiKey: '',
@@ -215,7 +231,7 @@ function getDefaultConfig() {
 
 async function loadConfig() {
   const base = getDefaultConfig();
-  const stored = await window.ConfigStore.load();
+  const stored = await globalThis.ConfigStore.load();
   return { ...base, ...stored };
 }
 
@@ -241,12 +257,12 @@ async function persistConfig() {
     model: els.modelInput.value.trim(),
     audioType: els.audioTypeSelect.value,
   };
-  await window.ConfigStore.save(config);
+  await globalThis.ConfigStore.save(config);
 }
 
 function getCurrentProvider() {
   const id = els.providerSelect.value;
-  return window.PROVIDERS?.find((p) => p.id === id) || null;
+  return globalThis.PROVIDERS?.find((p) => p.id === id) || null;
 }
 
 // ---------- Helpers ----------

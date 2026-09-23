@@ -1,39 +1,71 @@
-// Content script - 运行在网页上下文中
-console.log('Content script loaded');
+// Content script — 页面内听写注入。
+//
+// 职责：接收 background 转发的 asr:fill-text 消息，把转录文本注入当前
+// 聚焦的输入元素（input / textarea / contenteditable）。
+//
+// 注意：content script 运行在网页上下文，无 chrome.storage 等扩展 API 之外
+// 能力，也不加载共享脚本（manifest 里逐个注入，无 importScripts），故此处
+// 用与 messaging/messages.js 一致的字面量 action 值。
 
-// 监听来自popup或background的消息
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Content script received message:', request);
-  
-  if (request.action === 'performAction') {
-    // 在页面上执行操作
-    performPageAction();
-    sendResponse({ success: true });
+const FILL_TEXT = 'asr:fill-text';
+
+// 找到当前聚焦的可输入元素
+function getActiveField() {
+  const el = document.activeElement;
+  if (!el) return null;
+
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
+    // 排除不可输入文本的 input 类型
+    if (['button', 'checkbox', 'radio', 'file', 'hidden', 'image', 'submit', 'reset', 'range', 'color'].includes(type)) {
+      return null;
+    }
+    return { kind: 'value', el };
   }
-  
-  return true;
+
+  if (el.isContentEditable) {
+    return { kind: 'contenteditable', el };
+  }
+
+  return null;
+}
+
+// 把文本注入目标元素（触发 input/change 事件，兼容 React/Vue 受控组件）
+function fillField(field, text) {
+  if (field.kind === 'value') {
+    const el = field.el;
+    // 用原生 setter 触发框架事件
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
+  if (field.kind === 'contenteditable') {
+    field.el.focus();
+    document.execCommand('insertText', false, text);
+    return true;
+  }
+
+  return false;
+}
+
+// 监听来自 background 的注入消息
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request && request.type === FILL_TEXT) {
+    const text = request.payload?.text || '';
+    const field = getActiveField();
+    if (!field) {
+      sendResponse({ ok: false, error: { code: 'NO_FIELD', message: 'No focused input field' } });
+      return true;
+    }
+    const done = fillField(field, text);
+    sendResponse({ ok: done, data: done });
+    return true;
+  }
+  return false;
 });
 
-// 在页面上执行的示例操作
-function performPageAction() {
-  // 示例：改变页面背景色
-  document.body.style.transition = 'background-color 0.3s';
-  document.body.style.backgroundColor = '#f0f8ff';
-  
-  // 3秒后恢复
-  setTimeout(() => {
-    document.body.style.backgroundColor = '';
-  }, 3000);
-}
-
-// 页面加载完成后的初始化
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initialize);
-} else {
-  initialize();
-}
-
-function initialize() {
-  console.log('Content script initialized on:', window.location.href);
-  // 在这里添加页面加载后的初始化逻辑
-}
+console.log('Content script loaded (ASR fill-text)');

@@ -70,4 +70,4 @@ class QwenProvider extends BaseProvider {
   }
 }
 
-window.QwenProvider = QwenProvider;
+globalThis.QwenProvider = QwenProvider;

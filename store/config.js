@@ -6,7 +6,7 @@
  * 迁移：早期版本把配置存于 storage.sync 的 `asrConfig` 键（apiKey 明文）。
  * load() 首次调用时迁移到 local、对明文 apiKey 加密、并清除云端旧键。
  */
-window.ConfigStore = (() => {
+globalThis.ConfigStore = (() => {
   const CONFIG_KEY = 'asrConfig'; // 本地配置键
   const LEGACY_SYNC_KEY = 'asrConfig'; // 旧版 storage.sync 同名键（需迁移清除）
 
@@ -15,7 +15,7 @@ window.ConfigStore = (() => {
     const { [LEGACY_SYNC_KEY]: legacy } = await chrome.storage.sync.get(LEGACY_SYNC_KEY);
     if (!legacy) return;
     if (legacy.apiKey) {
-      legacy.apiKey = await window.CryptoStore.encrypt(legacy.apiKey);
+      legacy.apiKey = await globalThis.CryptoStore.encrypt(legacy.apiKey);
     }
     await chrome.storage.local.set({ [CONFIG_KEY]: legacy });
     await chrome.storage.sync.remove(LEGACY_SYNC_KEY);
@@ -29,7 +29,7 @@ window.ConfigStore = (() => {
     const result = { ...config };
     if (result.apiKey) {
       try {
-        result.apiKey = await window.CryptoStore.decrypt(result.apiKey);
+        result.apiKey = await globalThis.CryptoStore.decrypt(result.apiKey);
       } catch {
         result.apiKey = ''; // 解密失败置空，避免把密文当明文用
       }
@@ -43,7 +43,7 @@ window.ConfigStore = (() => {
    */
   async function save(config) {
     const { apiKey = '', ...prefs } = config;
-    const encKey = apiKey ? await window.CryptoStore.encrypt(apiKey) : '';
+    const encKey = apiKey ? await globalThis.CryptoStore.encrypt(apiKey) : '';
     await chrome.storage.local.set({ [CONFIG_KEY]: { ...prefs, apiKey: encKey } });
   }
 
