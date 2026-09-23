@@ -27,7 +27,7 @@
 
 1. Fork 这个仓库
 2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交你的改动 (`git commit -m 'Add some AmazingFeature'`)
+3. 提交你的改动 (`git commit -m 'feat: 添加新功能'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启一个 Pull Request
 
@@ -40,7 +40,7 @@
 
 ### 提交信息规范
 
-使用清晰的提交信息：
+使用清晰的提交信息（仓库有 commit-msg 钩子校验，格式必须为 `<type>: <subject>`）：
 
 - `feat: 添加新功能`
 - `fix: 修复 bug`
@@ -49,6 +49,8 @@
 - `refactor: 代码重构`
 - `test: 添加测试`
 - `chore: 构建或辅助工具的变动`
+
+注意：**subject 必须单行**（≤80 字符，docs/style/chore 为 ≤50），**不支持 scope 括号**（`feat(P1): xxx` 会被拒绝）。如需说明细节，请放在 commit body 或 PR 描述里。
 
 ## 开发流程
 
