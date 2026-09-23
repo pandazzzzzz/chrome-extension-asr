@@ -104,7 +104,7 @@
 > 标记：**〔已有〕** 已落地实现；**〔新增〕** 规划中尚未实现；**〔保留〕** 沿用现状；**〔修改〕** 现状需重构。目录均在仓库顶层落地。
 
 ```
-├── manifest.json            # 〔修改〕补 sidePanel / tabCapture / offscreen 声明
+├── manifest.json            #  〔已有〕permissions + side_panel + options_ui + web_accessible_resources
 │
 # ── 入口层 ──────────────────────────────────────────────
 ├── popup/                   # 〔保留〕快速录音窗口
@@ -154,6 +154,11 @@
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
 │   └── utils.js            #  〔新增〕blob↔base64、格式化、时间戳
 │
+├── docs/                    #  〔已有〕架构设计与交接文档
+│   ├── ARCHITECTURE.md     #  架构图 / 模块划分 / 演进路线
+│   └── HANDOFF.md          #  任务进度 / 已完成 / 未完成 / 未验证清单
+├── tests/                   #  〔已有〕浏览器可直接打开的冒烟测试
+│   └── p1-smoke-test.html
 └── samples/ , temp/        # 〔保留〕样例素材与本地临时文件
 ```
 

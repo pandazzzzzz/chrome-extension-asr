@@ -34,7 +34,7 @@ Scripts attach to `globalThis` (never `window`) so the same file works in popup,
 ## Build, Test, and Development Commands
 - `npm run build`: placeholder (no compile step — load the directory unpacked).
 - `npm run lint`: placeholder; wire a linter before enforcing CI.
-- `npm run pack`: creates `extension.zip` for distribution.
+- `npm run pack`: creates `extension.zip` for distribution. **Requires the `zip` CLI**, which is not present by default on Windows. Windows alternative: `powershell -c "Compress-Archive -Path * -DestinationPath extension.zip -Force"`.
 
 Local development:
 1. Open `chrome://extensions`.
@@ -72,6 +72,12 @@ Follow the commit prefixes documented in `CONTRIBUTING.md`:
 - `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`.
 
 A commit-msg hook enforces: `<type>: <subject>` — subject on a single line, ≤80 chars for `feat`/`fix`/`test`, ≤50 for `docs`/`style`/`chore`, 20–200 for `refactor`. **No scope parentheses** (e.g. `feat(P1): …` is rejected).
+
+> **Hook scope warning**: the enforcing hook lives at the *global* `core.hooksPath`
+> (`C:/Users/panda-zzz/.git-hooks/commit-msg`) on the original dev machine, **not**
+> inside this repository. A fresh clone or CI **will not be checked** unless you
+> install your own hook (e.g. `npx husky init` + commitlint) and update
+> `npm run lint` / CI accordingly. Format is still binding by convention either way.
 
 PR checklist:
 - Clear summary of behavior changes.
