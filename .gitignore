@@ -127,8 +127,6 @@ temp/**
 *.npz
 *.npy
 *.pkl
-# 例外：测试/示例样例可提交
-!samples/**
 
 # Audio recordings (captured audio, temp files)
 # 测试样例音频放在 samples/ 目录下可被 git 跟踪；临时音频放 temp/audio/
