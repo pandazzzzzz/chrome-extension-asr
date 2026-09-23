@@ -11,6 +11,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 - **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current tab
 - **Tab audio recording** — record tab audio (meetings, videos) via `chrome.tabCapture` + offscreen document
 - **Live streaming transcription** — mic PCM → energy-threshold VAD segments → each segment transcribed and shown incrementally
+- **Side panel + options page** — persistent panel for long sessions (reuses popup logic); options page for settings, history, and storage status
+- **Transcription history** — recent results kept in IndexedDB (max 50), browsable in options
 - **One-click copy** of the transcription result
 - **Pluggable provider system** — add a new provider by dropping in one file under `transcription/providers/`
 - **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
@@ -32,6 +34,11 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 │   │   ├── deepgram.js       # Deepgram
 │   │   └── index.js          # Provider registry + lookup
 │   └── transcriber.js        # Unified dispatch: validation, call, result normalization
+├── sidepanel/                 # Side panel UI (persistent; reuses popup/app.js + popup.css)
+│   └── sidepanel.html
+├── options/                   # Options page (settings + history + storage status)
+│   ├── options.html
+│   └── options.js
 ├── background/
 │   └── background.js         # Service worker — message router + API proxy + offscreen coordinator
 ├── offscreen/                # Offscreen document (tab audio capture, MV3 requirement)
@@ -48,7 +55,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 │   └── content.css
 ├── store/                    # Storage layer
 │   ├── config.js             # Config read/write (all in storage.local)
-│   └── crypto.js             # WebCrypto AES-GCM encryption for API keys
+│   ├── crypto.js             # WebCrypto AES-GCM encryption for API keys
+│   └── history.js            # Transcription history (IndexedDB, max 50 entries)
 ├── messaging/                # Cross-context message contract
 │   ├── messages.js           # Action type constants
 │   └── client.js             # sendMessage Promise wrapper

@@ -12,7 +12,7 @@
 
 | 模块 | 现状 | 问题 |
 |---|---|---|
-| `popup/app.js` + `popup/providers/` | 唯一完整可用的功能；`BaseProvider` 静态类 + qwen/openai/deepgram | 依赖全局 `window.PROVIDERS`；错误处理各自为政；仅"录完再转"，无流式/VAD |
+| `popup/app.js` + `popup/providers/` | **原**唯一完整可用的功能；`BaseProvider` 静态类 + qwen/openai/deepgram（P2a 已下沉至 `transcription/providers/`） | 依赖全局 `window.PROVIDERS`；错误处理各自为政；仅"录完再转"，无流式/VAD |
 | `background/background.js` | 模板 demo（`getData`/`setData`） | 未承担 API 代理、密钥管理、消息路由 |
 | `content/content.js` + `.css` | 模板 demo（改背景色）+ 未使用的 overlay 样式 | 无"页面内听写"能力 |
 | 配置存储 | `chrome.storage.sync` 保存 `asrConfig`（含 API Key） | API Key 云同步，有泄露面 |
@@ -110,8 +110,8 @@
 ├── popup/                   # 〔保留〕快速录音窗口
 │   ├── popup.html / popup.css
 │   └── app.js              # 〔修改〕接入 messaging，下沉录音/转录逻辑
-├── sidepanel/               # 〔新增·可选〕实时转录/长会话面板
-├── options/                 # 〔新增·可选〕全局设置页
+├── sidepanel/               #  〔已有〕实时转录/长会话面板（复用 popup/app.js + popup.css）
+├── options/                 #  〔已有〕全局设置 + 转录历史 + 存储状态
 ├── content/                 # 〔已有〕页面听写注入（监听 asr:fill-text 注入聚焦输入框）
 │   └── content.js / content.css
 ├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder）
@@ -144,7 +144,7 @@
 ├── store/
 │   ├── config.js           #  〔已有〕配置读写（全部存 storage.local，apiKey 经 WebCrypto 加密）
 │   ├── crypto.js           #  〔已有〕WebCrypto AES-GCM 加解密（密钥存 IndexedDB）
-│   ├── history.js          #  〔新增〕转录历史（IndexedDB）
+│   ├── history.js          #  〔已有〕转录历史（IndexedDB，上限 50 条自动裁剪）
 │   └── model-cache.js      #  〔新增〕本地模型缓存（Cache API / IDB）
 │
 # ── 契约与共享层 ─────────────────────────────────────────
@@ -173,7 +173,7 @@
 | P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
 | P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/`、`manifest.json` | ✅ 已落地 |
 | P3 | **实时流式 + VAD**：边录边转（VAD 分段增量式；真 WebSocket 流式见 supportsStreaming 预留） | `audio/vad`、`audio/pcm-capture`、`popup/` | ✅ 已落地 |
-| P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ⏳ 待做 |
+| P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ✅ 已落地 |
 | 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |
 
 ---

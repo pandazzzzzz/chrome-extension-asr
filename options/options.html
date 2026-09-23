@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASR — Options</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --border: #d8e0ec;
+      --text: #10233a;
+      --muted: #57708d;
+      --primary: #0e6dfd;
+      --primary-hover: #0858cd;
+      --ok-bg: #e8f7ee;
+      --ok-text: #1b6f3d;
+      --err-bg: #fdecec;
+      --err-text: #8a2430;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .container { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 28px 0 10px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 6px; }
+    input, select, textarea {
+      box-sizing: border-box; width: 100%;
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; font-size: 13px;
+      background: var(--card); color: var(--text);
+    }
+    textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+    .row { display: flex; gap: 10px; }
+    .field { flex: 1; }
+    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    button {
+      cursor: pointer; padding: 10px 14px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--card); font-size: 13px; color: var(--text);
+    }
+    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    button.primary:hover { background: var(--primary-hover); }
+    button.danger { color: var(--err-text); border-color: var(--err-bg); background: var(--err-bg); }
+    #status { margin-top: 12px; padding: 8px 10px; border-radius: 8px; font-size: 12px; display: none; }
+    #status.success { display: block; background: var(--ok-bg); color: var(--ok-text); }
+    #status.error { display: block; background: var(--err-bg); color: var(--err-text); }
+    .history-item {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+      font-size: 13px; line-height: 1.5;
+    }
+    .history-meta { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+    .history-text { white-space: pre-wrap; word-break: break-word; }
+    .empty { color: var(--muted); font-size: 13px; }
+    code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    table.storage { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.storage td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    table.storage td:first-child { color: var(--muted); width: 40%; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ASR — Options</h1>
+    <div class="sub">全局设置、转录历史与本地存储状态。配置存 <code>storage.local</code>（不云同步），API Key 经 WebCrypto 加密。</div>
+
+    <h2>1. Provider 配置</h2>
+    <label for="provider">Provider</label>
+    <select id="provider"></select>
+
+    <label for="apiKey">API Key</label>
+    <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+
+    <div id="endpointRow" class="field">
+      <label for="endpoint">Endpoint URL</label>
+      <input id="endpoint" type="text" placeholder="https://...">
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="audioType">Audio format</label>
+        <select id="audioType">
+          <option value="audio/webm">webm</option>
+          <option value="audio/mp4">mp4</option>
+          <option value="audio/wav">wav</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <input id="model" type="text">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="saveBtn" class="primary">Save settings</button>
+    </div>
+
+    <h2>2. Transcription history</h2>
+    <div id="historyList"><div class="empty">No history yet.</div></div>
+    <div class="btn-row">
+      <button id="clearHistoryBtn" class="danger">Clear history</button>
+      <button id="refreshHistoryBtn">Refresh</button>
+    </div>
+
+    <h2>3. Local storage status</h2>
+    <table class="storage">
+      <tr><td>API key storage</td><td id="keyStatus">—</td></tr>
+      <tr><td>Crypto key (IndexedDB)</td><td id="cryptoKeyStatus">—</td></tr>
+      <tr><td>History entries</td><td id="historyCount">—</td></tr>
+      <tr><td>Cloud sync</td><td>disabled (all config is local)</td></tr>
+    </table>
+
+    <div id="status"></div>
+  </div>
+
+  <script src="../transcription/providers/base.js"></script>
+  <script src="../transcription/providers/qwen.js"></script>
+  <script src="../transcription/providers/openai.js"></script>
+  <script src="../transcription/providers/deepgram.js"></script>
+  <script src="../transcription/providers/index.js"></script>
+  <script src="../shared/errors.js"></script>
+  <script src="../messaging/messages.js"></script>
+  <script src="../store/crypto.js"></script>
+  <script src="../store/config.js"></script>
+  <script src="../store/history.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
