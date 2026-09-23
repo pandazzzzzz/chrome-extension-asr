@@ -3,11 +3,16 @@
  *
  * 用法:
  *   const text = await MessageClient.send(MESSAGES.TRANSCRIBE, { audioBlob, ... });
+ *   await MessageClient.sendOffscreen(MESSAGES.TAB_RECORD_START, { streamId });
  *
  * 自动:
  *   - 生成 requestId
  *   - 解包响应 { ok, data, error }
  *   - 失败时 reject 一个带 code 的 Error
+ *   - 可选指定 target（background 缺省 / offscreen 定向）
+ *
+ * 注意：runtime.sendMessage 会广播给 background 和 offscreen，两者各自
+ * 按 target 过滤；发给 offscreen 的消息 background 会忽略，反之亦然。
  */
 globalThis.MessageClient = (() => {
   let counter = 0;
@@ -21,19 +26,19 @@ globalThis.MessageClient = (() => {
    * 发送消息并等待响应。
    * @param {string} type    MESSAGES 中定义的动作
    * @param {object} payload 动作参数
+   * @param {string} [target] TARGETS 中的目标（缺省 background）
    * @returns {Promise<any>} 成功时 resolve data
    */
-  function send(type, payload = {}) {
-    const message = { type, payload, requestId: nextId() };
+  function send(type, payload = {}, target = globalThis.TARGETS.BACKGROUND) {
+    const message = { type, payload, requestId: nextId(), target };
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(message, (response) => {
-        // chrome.runtime.lastError 在接收方未返回/通道关闭时设置
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
         if (!response) {
-          reject(new Error('No response from background'));
+          reject(new Error('No response'));
           return;
         }
         if (response.ok) {
@@ -47,5 +52,10 @@ globalThis.MessageClient = (() => {
     });
   }
 
-  return { send };
+  /** 发消息给 offscreen document。 */
+  function sendOffscreen(type, payload = {}) {
+    return send(type, payload, globalThis.TARGETS.OFFSCREEN);
+  }
+
+  return { send, sendOffscreen };
 })();

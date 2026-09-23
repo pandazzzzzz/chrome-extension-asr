@@ -1,9 +1,10 @@
-// Background service worker — 消息路由 + API 代理。
+// Background service worker — 消息路由 + API 代理 + offscreen 协调。
 //
 // 职责：
-//   - 接收 popup/content 发来的 asr:transcribe 消息
-//   - 从本地存储读取配置（含解密 apiKey），找到对应 provider
-//   - 代为调用 provider API，返回转录文本
+//   - 接收 popup/content 发来的 asr:* 消息（按 target 过滤，只处理发给 background 的）
+//   - asr:transcribe：从本地存储读取配置（含解密 apiKey），委托 Transcriber 转录
+//   - asr:tab-record-*：创建/复用 offscreen document，经 tabCapture 取 streamId
+//   - asr:fill-text：转发给当前活动 tab 的 content script
 //
 // 安全边界（如实说明）：
 //   转录 API 调用收敛到本 service worker，popup/content 发转录请求时不再
@@ -26,6 +27,8 @@ importScripts(
 );
 
 console.log('Background service worker started');
+
+const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 
 // 插件安装/更新时的初始化
 chrome.runtime.onInstalled.addListener((details) => {
@@ -72,6 +75,7 @@ async function handleFillText(payload) {
     await chrome.tabs.sendMessage(tab.id, {
       type: globalThis.MESSAGES.FILL_TEXT,
       payload: { text },
+      target: globalThis.TARGETS.CONTENT,
     });
     return { ok: true, data: true };
   } catch (error) {
@@ -80,9 +84,89 @@ async function handleFillText(payload) {
   }
 }
 
+// ---------- Offscreen 协调（标签页录音） ----------
+// offscreen 单例创建，避免并发重复 createDocument
+let creatingOffscreen = null;
+
+async function ensureOffscreenDocument() {
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_PATH);
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [offscreenUrl],
+  });
+  if (existing.length > 0) return;
+
+  if (creatingOffscreen) {
+    await creatingOffscreen;
+    return;
+  }
+  creatingOffscreen = chrome.offscreen.createDocument({
+    url: OFFSCREEN_PATH,
+    reasons: ['USER_MEDIA'],
+    justification: 'Recording tab audio via chrome.tabCapture for transcription',
+  }).finally(() => {
+    creatingOffscreen = null;
+  });
+  await creatingOffscreen;
+}
+
+// 开始录标签页：取 streamId → 通知 offscreen 开始
+async function handleTabRecordStart(payload) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    return { ok: false, error: { code: 'NO_TAB', message: 'No active tab' } };
+  }
+
+  // getMediaStreamId 需要用户手势（点击扩展图标）授予的 activeTab
+  let streamId;
+  try {
+    streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+  } catch (error) {
+    return {
+      ok: false,
+      error: { code: 'TAB_CAPTURE', message: error.message || 'Cannot capture tab (activeTab?)' },
+    };
+  }
+
+  await ensureOffscreenDocument();
+  return sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_START, { streamId });
+}
+
+// 停止录标签页：offscreen 返回录制 Blob
+async function handleTabRecordStop() {
+  return sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_STOP, {});
+}
+
+// 给 offscreen 发消息并按 { ok, data, error } 归一化
+function sendToOffscreen(type, payload) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      { type, payload, target: globalThis.TARGETS.OFFSCREEN, requestId: Date.now().toString(36) },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({
+            ok: false,
+            error: { code: 'NO_OFFSCREEN', message: chrome.runtime.lastError.message },
+          });
+          return;
+        }
+        if (!response) {
+          resolve({ ok: false, error: { code: 'NO_RESPONSE', message: 'No response from offscreen' } });
+          return;
+        }
+        resolve(response);
+      },
+    );
+  });
+}
+
 // 统一消息入口
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  const { type, payload } = request || {};
+  const { type, payload, target } = request || {};
+
+  // target 过滤：runtime.sendMessage 是广播，offscreen/content 收到的
+  // background 消息也在这里触发，非 background 的直接忽略
+  if (target !== undefined && target !== globalThis.TARGETS.BACKGROUND) return false;
 
   (async () => {
     try {
@@ -91,6 +175,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return await handleTranscribe(payload);
         case globalThis.MESSAGES.FILL_TEXT:
           return await handleFillText(payload);
+        case globalThis.MESSAGES.TAB_RECORD_START:
+          return await handleTabRecordStart(payload);
+        case globalThis.MESSAGES.TAB_RECORD_STOP:
+          return await handleTabRecordStop();
         default:
           return { ok: false, error: globalThis.Errors.UNKNOWN_ACTION };
       }
