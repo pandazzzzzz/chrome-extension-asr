@@ -154,9 +154,8 @@
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
 │   └── utils.js            #  〔新增〕blob↔base64、格式化、时间戳
 │
-├── docs/                    #  〔已有〕架构设计与交接文档
-│   ├── ARCHITECTURE.md     #  架构图 / 模块划分 / 演进路线
-│   └── HANDOFF.md          #  任务进度 / 已完成 / 未完成 / 未验证清单
+├── docs/                    #  〔已有〕架构设计文档（进度/交接笔记见本地 docs/HANDOFF.md，不入库）
+│   └── ARCHITECTURE.md     #  架构图 / 模块划分 / 演进路线
 ├── tests/                   #  〔已有〕浏览器可直接打开的冒烟测试
 │   └── p1-smoke-test.html
 └── samples/ , temp/        # 〔保留〕样例素材与本地临时文件
