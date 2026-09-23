@@ -4,9 +4,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+# Note: lock files (package-lock.json / yarn.lock / pnpm-lock.yaml) are
+# INTENTIONALLY tracked — needed for reproducible installs.
 
 # Python (if a local Whisper/ASR backend is added later)
 __pycache__/
@@ -19,7 +18,9 @@ __pycache__/
 .ruff_cache/
 venv/
 .venv/
-env/
+# Legacy Python venv name — root-only so a source dir like src/env/ isn't dropped.
+# (Modern nested venvs are covered by unanchored venv/ and .venv/ above.)
+/env/
 
 # Package manager (if added later)
 .bun/
@@ -28,9 +29,9 @@ env/
 .yarnrc
 
 # Build outputs
-dist/
-build/
-out/
+# Build outputs — root-only so a source dir like docs/out/ isn't dropped.
+# Nested build output is covered by unanchored dist/ and build/ above.
+/out/
 *.zip
 *.tgz
 
@@ -76,6 +77,10 @@ oauth_token.json
 *.p12
 *.pfx
 
+# Claude Code local overrides (personal permissions — never share).
+# .claude/settings.json stays tracked; only the local one is ignored.
+.claude/settings.local.json
+
 # Logs
 logs/
 *.log
@@ -93,10 +98,12 @@ temp/**
 !temp/README.md
 !temp/**/.gitkeep
 
-# User data
-user_data/
-profile/
-storage/
+# User data — root-level ONLY (leading slash).
+# Without the slash these would match ANY directory of that name anywhere in the
+# tree, silently dropping a real source dir (e.g. src/storage/).
+/user_data/
+/profile/
+/storage/
 
 # AI / ML model files (large binaries, never commit)
 # 临时/本地模型放 temp/models/（已忽略）；samples/ 下豁免，可提交小体积样例
@@ -110,6 +117,10 @@ storage/
 *.h5
 *.tflite
 *.pb
+*.pt
+*.npz
+*.npy
+*.pkl
 # 例外：测试/示例样例可提交
 !samples/**
 
@@ -117,6 +128,7 @@ storage/
 # 测试样例音频放在 samples/ 目录下可被 git 跟踪；临时音频放 temp/audio/
 *.wav
 *.mp3
+*.mp4
 *.ogg
 *.webm
 *.m4a

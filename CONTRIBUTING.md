@@ -52,6 +52,11 @@
 
 注意：**subject 必须单行**（≤80 字符，docs/style/chore 为 ≤50），**不支持 scope 括号**（`feat(P1): xxx` 会被拒绝）。如需说明细节，请放在 commit body 或 PR 描述里。
 
+> **关于校验钩子**：当前的 commit-msg 钩子配置在原开发机的**全局** `core.hooksPath`
+> （`C:/Users/panda-zzz/.git-hooks/commit-msg`），**不在本仓库内**。因此新克隆或 CI
+> 环境**不会自动校验**——但上述格式仍是强制约定，请自行遵守。如需在自己的环境启用，
+> 可自行安装 commitlint + husky 并更新 `core.hooksPath`。
+
 ## 开发流程
 
 1. 克隆仓库
