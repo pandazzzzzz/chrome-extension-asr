@@ -27,8 +27,10 @@ globalThis.Errors = Object.freeze({
  * 保留 provider 原始错误信息（message），code 缺省为 API_ERROR。
  */
 globalThis.normalizeError = function normalizeError(error, fallback = globalThis.Errors.API_ERROR) {
-  if (error && error.code && globalThis.Errors[error.code]) {
-    return { code: error.code, message: error.message };
+  const code = error?.code;
+  // 仅认可 Errors 中真实定义的错误码（Object.hasOwn 避免原型属性名误查）
+  if (code && Object.hasOwn(globalThis.Errors, code) && globalThis.Errors[code].code === code) {
+    return { code, message: error.message };
   }
   return { code: fallback.code, message: error?.message || fallback.message };
 };
