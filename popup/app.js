@@ -66,6 +66,8 @@ function gatherElements() {
   els.resultText = document.getElementById('result');
   els.copyBtn = document.getElementById('copyBtn');
   els.fillBtn = document.getElementById('fillBtn');
+  els.optionsBtn = document.getElementById('optionsBtn'); // 可选：sidepanel/options 有
+  els.panelBtn = document.getElementById('panelBtn'); // 可选：popup 有
   els.statusDiv = document.getElementById('status');
 }
 
@@ -114,6 +116,9 @@ function bindEvents() {
   els.transcribeBtn.addEventListener('click', handleTranscribe);
   els.copyBtn.addEventListener('click', handleCopy);
   els.fillBtn.addEventListener('click', handleFillIntoPage);
+  // 这两个按钮只在部分入口页存在（popup: options+panel；sidepanel: options）
+  els.optionsBtn?.addEventListener('click', handleOpenOptions);
+  els.panelBtn?.addEventListener('click', handleOpenPanel);
 }
 
 // ---------- Recording ----------
@@ -301,6 +306,11 @@ async function stopStreaming() {
   } else {
     showStatus('Streaming stopped.', 'success');
   }
+  // 流式结束：把最终合并文本作为一条历史记录（含仍在途段落）
+  const finalText = els.resultText.value.trim();
+  if (finalText) {
+    saveToHistory(finalText, streamSession.providerId, streamSession.model);
+  }
 }
 
 async function teardownStreaming() {
@@ -428,11 +438,31 @@ async function handleTranscribe() {
     els.resultText.value = text;
     els.fillBtn.disabled = false;
     showStatus('Transcription complete.', 'success');
+    saveToHistory(text, provider.id, els.modelInput.value.trim());
   } catch (error) {
     showStatus(`Transcription failed: ${error.message}`, 'error');
   } finally {
     els.transcribeBtn.disabled = false;
     els.transcribeBtn.textContent = 'Transcribe';
+  }
+}
+
+// ---------- Navigation (optional buttons) ----------
+
+function handleOpenOptions() {
+  chrome.runtime.openOptionsPage();
+}
+
+// chrome.sidePanel.open 需要用户手势；popup 内点击即满足
+async function handleOpenPanel() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.windowId != null) {
+      await chrome.sidePanel.open({ windowId: tab.windowId });
+      window.close(); // 侧栏已打开，收起 popup
+    }
+  } catch (error) {
+    showStatus(`Cannot open side panel: ${error.message}`, 'error');
   }
 }
 
@@ -469,6 +499,12 @@ async function handleCopy() {
 }
 
 // ---------- Config ----------
+
+// 写入转录历史（失败不影响主流程；HistoryStore 自身也会吞掉存储错误）
+function saveToHistory(text, provider, model) {
+  if (!text || !globalThis.HistoryStore) return;
+  globalThis.HistoryStore.add({ text, provider, model });
+}
 
 function getDefaultConfig() {
   const firstProvider = globalThis.PROVIDERS?.[0];
