@@ -77,6 +77,12 @@ oauth_token.json
 *.p12
 *.pfx
 
+# Docs — handoff/notes stay local (internal state, unfinished work, decisions)
+# ARCHITECTURE.md remains tracked (it is the public architecture record).
+docs/HANDOFF.md
+docs/notes/
+docs/*.local.md
+
 # Claude Code local overrides (personal permissions — never share).
 # .claude/settings.json stays tracked; only the local one is ignored.
 .claude/settings.local.json
