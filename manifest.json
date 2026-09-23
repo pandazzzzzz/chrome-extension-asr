@@ -29,6 +29,12 @@
       "css": ["content/content.css"]
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["audio/pcm-worklet.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "permissions": [
     "storage",
     "activeTab",

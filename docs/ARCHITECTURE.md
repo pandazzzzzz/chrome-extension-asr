@@ -123,8 +123,10 @@
 ├── audio/
 │   ├── recorder.js         #  〔已有〕MediaRecorder 封装（popup 麦克风 + offscreen 标签页共用）
 │   ├── tab-capture.js      #  〔并入 background/offscreen〕streamId 获取与消费
-│   ├── vad.js              #  〔新增〕静音检测（能量阈值起步，可升级 Silero VAD）
-│   └── convert.js          #  〔新增〕WebM→WAV/PCM、重采样、分片（可基于 ffmpeg.wasm）
+│   ├── vad.js              #  〔已有〕能量阈值 VAD（滞回 + 最短语音/静音时长，纯逻辑可测）
+│   ├── convert.js          #  〔已有〕Float32 PCM → WAV、分片拼接
+│   ├── pcm-capture.js      #  〔已有〕PCM 帧采集（AudioWorklet，回退 ScriptProcessor）
+│   └── pcm-worklet.js      #  〔已有〕AudioWorklet 处理器（web_accessible_resources 暴露）
 │
 # ── 转录层 ──────────────────────────────────────────────
 ├── transcription/
@@ -170,7 +172,7 @@
 | P2 | **转录层下沉与统一**：provider 迁移 + 调度层 + 错误标准化 | `transcription/` | ✅ 已落地 |
 | P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
 | P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/`、`manifest.json` | ✅ 已落地 |
-| P3 | **实时流式 + VAD**：边录边转 | `audio/vad`、`transcription/transcriber` | ⏳ 待做 |
+| P3 | **实时流式 + VAD**：边录边转（VAD 分段增量式；真 WebSocket 流式见 supportsStreaming 预留） | `audio/vad`、`audio/pcm-capture`、`popup/` | ✅ 已落地 |
 | P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ⏳ 待做 |
 | 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |
 
