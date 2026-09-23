@@ -10,7 +10,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 - **Background API proxy** — transcription goes through the service worker; API keys are never exposed to content scripts
 - **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current page
 - **One-click copy** of the transcription result
-- **Pluggable provider system** — add a new provider by dropping in one file under `popup/providers/`
+- **Pluggable provider system** — add a new provider by dropping in one file under `transcription/providers/`
 - **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
 
 ## Project Structure
@@ -21,13 +21,15 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 ├── popup/                    # Popup UI (recording + transcription)
 │   ├── popup.html
 │   ├── popup.css
-│   ├── app.js                # Main UI logic
-│   └── providers/            # Cloud ASR providers (also used by background)
-│       ├── base.js           # BaseProvider (abstract)
-│       ├── qwen.js           # Qwen (DashScope)
-│       ├── openai.js         # OpenAI Whisper
-│       ├── deepgram.js       # Deepgram
-│       └── index.js          # Provider registry
+│   └── app.js                # Main UI logic
+├── transcription/            # Transcription layer (used by popup + background)
+│   ├── providers/            # Cloud ASR providers
+│   │   ├── base.js           # BaseProvider (abstract + capability metadata)
+│   │   ├── qwen.js           # Qwen (DashScope)
+│   │   ├── openai.js         # OpenAI Whisper
+│   │   ├── deepgram.js       # Deepgram
+│   │   └── index.js          # Provider registry + lookup
+│   └── transcriber.js        # Unified dispatch: validation, call, result normalization
 ├── background/
 │   └── background.js         # Service worker — message router + API proxy
 ├── content/                  # Content scripts (page dictation injection)
@@ -70,9 +72,9 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 
 ## Adding a New Provider
 
-1. Create `popup/providers/<id>.js` extending `BaseProvider`.
-2. Register it in `popup/providers/index.js`.
-3. Import the script in `popup/popup.html` (before `app.js`).
+1. Create `transcription/providers/<id>.js` extending `BaseProvider`.
+2. Register it in `transcription/providers/index.js`.
+3. Import the script in `popup/popup.html` **and** in `background/background.js` (via `importScripts`) — both before their main logic.
 4. Add the provider's host domain to `host_permissions` in `manifest.json`.
 
 ## Permissions

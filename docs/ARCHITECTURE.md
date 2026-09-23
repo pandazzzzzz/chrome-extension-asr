@@ -128,15 +128,15 @@
 │
 # ── 转录层 ──────────────────────────────────────────────
 ├── transcription/
-│   ├── providers/          #  〔新增〕由 popup/providers/ 迁入并扩展
-│   │   ├── base.js         #  BaseProvider：补 schema 校验 + 错误规范化
+│   ├── providers/          #  〔已有〕由 popup/providers/ 迁入并扩展
+│   │   ├── base.js         #  〔已有〕BaseProvider：补能力元数据（isLocal/supportsStreaming）
 │   │   ├── qwen.js / openai.js / deepgram.js   # 现有实现迁移
 │   │   ├── groq.js / google.js                 # 按 .env 预留补齐（可选）
-│   │   └── index.js        #  注册表 + 能力元数据
+│   │   └── index.js        #  〔已有〕注册表 + getProviderById 查询
 │   ├── local/
 │   │   ├── whisper-worker.js   # Web Worker：transformers.js 本地推理
 │   │   └── whisper.js         # worker 调用端封装（进度/错误/生命周期）
-│   └── transcriber.js      #  调度：批量 vs 流式、重试、错误标准化
+│   └── transcriber.js      #  〔已有〕统一调度：校验 + 调用 + 结果归一（能力感知）
 │
 # ── 存储层 ──────────────────────────────────────────────
 ├── store/
@@ -150,7 +150,7 @@
 │   ├── messages.js         #  〔已有〕类型化 action（asr:transcribe / asr:fill-text）
 │   └── client.js           #  〔已有〕sendMessage 封装（promise + 错误）
 ├── shared/
-│   ├── errors.js           #  〔已有〕统一错误码（NO_PROVIDER / NO_API_KEY / ...）
+│   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
 │   └── utils.js            #  〔新增〕blob↔base64、格式化、时间戳
 │
 └── samples/ , temp/        # 〔保留〕样例素材与本地临时文件
@@ -167,8 +167,8 @@
 | P0 | **密钥安全**：全部配置存 `storage.local`，apiKey 经 WebCrypto 加密 | `store/config.js`、`store/crypto.js`、`popup/app.js` | ✅ 已落地 |
 | P1 | **background 职责落地**：消息路由 + API 代理 | `background/background.js`、`messaging/` | ✅ 已落地 |
 | P1 | **content 职责落地**：页面听写注入 | `content/` | ✅ 已落地 |
-| P2 | **转录层下沉与统一**：provider 迁移 + 错误标准化 | `transcription/`、`popup/providers/` | ⏳ 待做 |
-| P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做 |
+| P2 | **转录层下沉与统一**：provider 迁移 + 调度层 + 错误标准化 | `transcription/` | ✅ 已落地 |
+| P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
 | P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/tab-capture`、`manifest.json` | ⏳ 待做 |
 | P3 | **实时流式 + VAD**：边录边转 | `audio/vad`、`transcription/transcriber` | ⏳ 待做 |
 | P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ⏳ 待做 |

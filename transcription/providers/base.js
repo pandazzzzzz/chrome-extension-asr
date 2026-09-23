@@ -1,18 +1,27 @@
 /**
  * BaseProvider — base class for all ASR providers.
  *
+ * Each provider must declare (static):
+ *   - id:                string    unique identifier
+ *   - name:              string    display name
+ *   - defaultModel:      string    default model name
+ *   - hasEndpoint:       boolean   whether an endpoint URL is required
+ *   - isLocal:           boolean   local inference (no API key, no upload) [default false]
+ *   - supportsStreaming: boolean  whether provider supports streaming chunks [default false]
+ *
  * Each provider must implement:
- *   - id:            string                unique identifier
- *   - name:          string                display name
- *   - defaultModel:  string                default model name
- *   - hasEndpoint:   boolean               whether an endpoint URL is required
  *   - transcribe({ audioBlob, apiKey, model, endpoint }): Promise<string>
+ *
+ * Capability metadata (isLocal / supportsStreaming) drives dispatch in
+ * transcriber.js and UI affordances; defaults keep existing providers valid.
  */
 class BaseProvider {
   static id = 'base';
   static name = 'Base';
   static defaultModel = '';
   static hasEndpoint = false;
+  static isLocal = false;
+  static supportsStreaming = false;
 
   /**
    * @param {Blob} audioBlob

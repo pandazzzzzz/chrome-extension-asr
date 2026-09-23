@@ -11,14 +11,15 @@
 //   脚本不读取密钥。
 
 // MV3 service worker 为经典脚本，用 importScripts 同步加载依赖。
-// 顺序：共享错误 → provider → 存储 → 消息契约
+// 顺序：共享错误 → provider → 调度层 → 存储 → 消息契约
 importScripts(
   '../shared/errors.js',
-  '../popup/providers/base.js',
-  '../popup/providers/qwen.js',
-  '../popup/providers/openai.js',
-  '../popup/providers/deepgram.js',
-  '../popup/providers/index.js',
+  '../transcription/providers/base.js',
+  '../transcription/providers/qwen.js',
+  '../transcription/providers/openai.js',
+  '../transcription/providers/deepgram.js',
+  '../transcription/providers/index.js',
+  '../transcription/transcriber.js',
   '../store/crypto.js',
   '../store/config.js',
   '../messaging/messages.js',
@@ -37,33 +38,24 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-// 找到指定 id 的 provider
-function getProvider(id) {
-  return (globalThis.PROVIDERS || []).find((p) => p.id === id) || null;
-}
-
-// 处理 asr:transcribe —— 读取配置 + 调用 provider 转录
+// 处理 asr:transcribe —— 读配置 + 委托 Transcriber 调度（校验/调用/归一均在调度层）
 async function handleTranscribe(payload) {
   const { audioBlob, provider: providerId, model, endpoint } = payload || {};
 
-  if (!audioBlob) return { ok: false, error: globalThis.Errors.NO_AUDIO };
-
   const config = await globalThis.ConfigStore.load();
-  const apiKey = config.apiKey || '';
 
-  const provider = getProvider(providerId || config.provider);
-  if (!provider) return { ok: false, error: globalThis.Errors.NO_PROVIDER };
-  if (!apiKey) return { ok: false, error: globalThis.Errors.NO_API_KEY };
-
-  const text = await provider.transcribe({
-    audioBlob,
-    apiKey,
-    model: model || config.model || provider.defaultModel,
-    endpoint: endpoint || config.endpoint || undefined,
-  });
-
-  if (!text) return { ok: false, error: globalThis.Errors.EMPTY_RESULT };
-  return { ok: true, data: text };
+  try {
+    const text = await globalThis.Transcriber.transcribe({
+      audioBlob,
+      providerId: providerId || config.provider,
+      apiKey: config.apiKey || '',
+      model: model || config.model,
+      endpoint: endpoint || config.endpoint,
+    });
+    return { ok: true, data: text };
+  } catch (error) {
+    return { ok: false, error: globalThis.normalizeError(error) };
+  }
 }
 
 // 转发 asr:fill-text 到当前活动 tab 的 content script
