@@ -1,41 +1,110 @@
-// Background service worker
+// Background service worker — 消息路由 + API 代理。
+//
+// 职责：
+//   - 接收 popup/content 发来的 asr:transcribe 消息
+//   - 从本地存储读取配置（含解密 apiKey），找到对应 provider
+//   - 代为调用 provider API，返回转录文本
+//   - 密钥仅在此 service worker 上下文解密使用，popup/content 不持有明文密钥
+
+// MV3 service worker 为经典脚本，用 importScripts 同步加载依赖。
+// 顺序：共享错误 → provider → 存储 → 消息契约
+importScripts(
+  '../shared/errors.js',
+  '../popup/providers/base.js',
+  '../popup/providers/qwen.js',
+  '../popup/providers/openai.js',
+  '../popup/providers/deepgram.js',
+  '../popup/providers/index.js',
+  '../store/crypto.js',
+  '../store/config.js',
+  '../messaging/messages.js',
+);
+
 console.log('Background service worker started');
 
-// 监听插件安装事件
+// 插件安装/更新时的初始化
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('Extension installed:', details.reason);
-  
   if (details.reason === 'install') {
-    // 首次安装时的初始化
-    chrome.storage.sync.set({ data: 'Initial data' });
-  } else if (details.reason === 'update') {
-    // 更新时的处理
-    console.log('Extension updated');
-  }
-});
-
-// 监听来自content script或popup的消息
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Message received:', request);
-  
-  if (request.action === 'getData') {
+    // 首次安装：清理早期模板遗留的 storage.sync 演示数据
     chrome.storage.sync.get(['data'], (result) => {
-      sendResponse({ data: result.data });
+      if (result.data !== undefined) chrome.storage.sync.remove(['data']);
     });
-    return true; // 保持消息通道开启以进行异步响应
-  }
-  
-  if (request.action === 'setData') {
-    chrome.storage.sync.set({ data: request.data }, () => {
-      sendResponse({ success: true });
-    });
-    return true;
   }
 });
 
-// 监听标签页更新
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete') {
-    console.log('Tab loaded:', tab.url);
+// 找到指定 id 的 provider
+function getProvider(id) {
+  return (globalThis.PROVIDERS || []).find((p) => p.id === id) || null;
+}
+
+// 处理 asr:transcribe —— 读取配置 + 调用 provider 转录
+async function handleTranscribe(payload) {
+  const { audioBlob, provider: providerId, model, endpoint } = payload || {};
+
+  if (!audioBlob) return { ok: false, error: globalThis.Errors.NO_AUDIO };
+
+  const config = await globalThis.ConfigStore.load();
+  const apiKey = config.apiKey || '';
+
+  const provider = getProvider(providerId || config.provider);
+  if (!provider) return { ok: false, error: globalThis.Errors.NO_PROVIDER };
+  if (!apiKey) return { ok: false, error: globalThis.Errors.NO_API_KEY };
+
+  const text = await provider.transcribe({
+    audioBlob,
+    apiKey,
+    model: model || config.model || provider.defaultModel,
+    endpoint: endpoint || config.endpoint || undefined,
+  });
+
+  if (!text) return { ok: false, error: globalThis.Errors.EMPTY_RESULT };
+  return { ok: true, data: text };
+}
+
+// 转发 asr:fill-text 到当前活动 tab 的 content script
+async function handleFillText(payload) {
+  const { text } = payload || {};
+  if (!text) return { ok: false, error: globalThis.Errors.EMPTY_RESULT };
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    return { ok: false, error: { code: 'NO_TAB', message: 'No active tab' } };
   }
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: globalThis.MESSAGES.FILL_TEXT,
+      payload: { text },
+    });
+    return { ok: true, data: true };
+  } catch (error) {
+    // content script 未注入（如 chrome:// 页面）时 sendMessage 会失败
+    return { ok: false, error: { code: 'NO_CONTENT', message: 'Cannot fill text on this page' } };
+  }
+}
+
+// 统一消息入口
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  const { type, payload } = request || {};
+
+  (async () => {
+    try {
+      switch (type) {
+        case globalThis.MESSAGES.TRANSCRIBE:
+          return await handleTranscribe(payload);
+        case globalThis.MESSAGES.TRANSCRIBE_AND_FILL:
+          return await handleTranscribe(payload);
+        case globalThis.MESSAGES.FILL_TEXT:
+          return await handleFillText(payload);
+        default:
+          return { ok: false, error: globalThis.Errors.UNKNOWN_ACTION };
+      }
+    } catch (error) {
+      console.error('Background handler error:', error);
+      return { ok: false, error: globalThis.normalizeError(error) };
+    }
+  })().then(sendResponse);
+
+  return true; // 保持消息通道开启以异步响应
 });

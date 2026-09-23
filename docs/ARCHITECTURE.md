@@ -112,23 +112,23 @@
 │   └── app.js              # 〔修改〕接入 messaging，下沉录音/转录逻辑
 ├── sidepanel/               # 〔新增·可选〕实时转录/长会话面板
 ├── options/                 # 〔新增·可选〕全局设置页
-├── content/                 # 〔修改〕页面听写注入、浮动控件（替换 demo）
+├── content/                 # 〔已有〕页面听写注入（监听 asr:fill-text 注入聚焦输入框）
 │   └── content.js / content.css
 ├── offscreen/               # 〔新增〕tabCapture + MediaRecorder 采集宿主
 │   └── offscreen.html / offscreen.js
 ├── background/
-│   └── background.js        # 〔修改〕消息路由 + API 代理 + 生命周期（替换 demo）
+│   └── background.js        # 〔已有〕消息路由 + API 代理 + 生命周期
 │
 # ── 音频层 ──────────────────────────────────────────────
 ├── audio/
-│   ├── recorder.js         #  MediaRecorder 封装（麦克风）
-│   ├── tab-capture.js      #  tabCapture 采集封装
-│   ├── vad.js              #  静音检测（能量阈值起步，可升级 Silero VAD）
-│   └── convert.js          #  WebM→WAV/PCM、重采样、分片（可基于 ffmpeg.wasm）
+│   ├── recorder.js         #  〔新增〕MediaRecorder 封装（麦克风）
+│   ├── tab-capture.js      #  〔新增〕tabCapture 采集封装
+│   ├── vad.js              #  〔新增〕静音检测（能量阈值起步，可升级 Silero VAD）
+│   └── convert.js          #  〔新增〕WebM→WAV/PCM、重采样、分片（可基于 ffmpeg.wasm）
 │
 # ── 转录层 ──────────────────────────────────────────────
 ├── transcription/
-│   ├── providers/          #  〔修改〕由 popup/providers/ 迁入并扩展
+│   ├── providers/          #  〔新增〕由 popup/providers/ 迁入并扩展
 │   │   ├── base.js         #  BaseProvider：补 schema 校验 + 错误规范化
 │   │   ├── qwen.js / openai.js / deepgram.js   # 现有实现迁移
 │   │   ├── groq.js / google.js                 # 按 .env 预留补齐（可选）
@@ -140,17 +140,18 @@
 │
 # ── 存储层 ──────────────────────────────────────────────
 ├── store/
-│   ├── config.js           #  配置读写（全部存 storage.local，apiKey 经 WebCrypto 加密）
-│   ├── history.js          #  转录历史（IndexedDB）
-│   └── model-cache.js      #  本地模型缓存（Cache API / IDB）
+│   ├── config.js           #  〔已有〕配置读写（全部存 storage.local，apiKey 经 WebCrypto 加密）
+│   ├── crypto.js           #  〔已有〕WebCrypto AES-GCM 加解密（密钥存 IndexedDB）
+│   ├── history.js          #  〔新增〕转录历史（IndexedDB）
+│   └── model-cache.js      #  〔新增〕本地模型缓存（Cache API / IDB）
 │
 # ── 契约与共享层 ─────────────────────────────────────────
-├── messaging/
-│   ├── messages.js         #  类型化 action 定义（请求/响应 schema）
-│   └── client.js           #  sendMessage 封装（promise + 错误）
+├── messaging/               # 〔已有〕跨上下文消息契约
+│   ├── messages.js         #  〔已有〕类型化 action（asr:transcribe / asr:fill-text）
+│   └── client.js           #  〔已有〕sendMessage 封装（promise + 错误）
 ├── shared/
-│   ├── errors.js           #  统一错误码（NO_KEY / NETWORK / EMPTY_RESULT / ...）
-│   └── utils.js            #  blob↔base64、格式化、时间戳
+│   ├── errors.js           #  〔已有〕统一错误码（NO_PROVIDER / NO_API_KEY / ...）
+│   └── utils.js            #  〔新增〕blob↔base64、格式化、时间戳
 │
 └── samples/ , temp/        # 〔保留〕样例素材与本地临时文件
 ```
@@ -159,19 +160,19 @@
 
 ## 5. 演进路线（渐进式，无构建）
 
-按优先级排序，每项可独立作为一个重构计划：
+按优先级排序，每项可独立作为一个重构计划。
 
-| 优先级 | 事项 | 涉及 |
-|---|---|---|
-| P0 | **密钥安全**：全部配置存 `storage.local`，apiKey 经 WebCrypto 加密 | `store/config.js`、`store/crypto.js`、`popup/app.js` |
-| P1 | **background 职责落地**：消息路由 + API 代理 | `background/background.js`、`messaging/` |
-| P1 | **content 职责落地**：页面听写注入 | `content/` |
-| P2 | **转录层下沉与统一**：provider 迁移 + 错误标准化 | `transcription/`、`popup/providers/` |
-| P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` |
-| P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/tab-capture`、`manifest.json` |
-| P3 | **实时流式 + VAD**：边录边转 | `audio/vad`、`transcription/transcriber` |
-| P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` |
-| 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 |
+| 优先级 | 事项 | 涉及 | 状态 |
+|---|---|---|---|
+| P0 | **密钥安全**：全部配置存 `storage.local`，apiKey 经 WebCrypto 加密 | `store/config.js`、`store/crypto.js`、`popup/app.js` | ✅ 已落地 |
+| P1 | **background 职责落地**：消息路由 + API 代理 | `background/background.js`、`messaging/` | ✅ 已落地 |
+| P1 | **content 职责落地**：页面听写注入 | `content/` | ✅ 已落地 |
+| P2 | **转录层下沉与统一**：provider 迁移 + 错误标准化 | `transcription/`、`popup/providers/` | ⏳ 待做 |
+| P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做 |
+| P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/tab-capture`、`manifest.json` | ⏳ 待做 |
+| P3 | **实时流式 + VAD**：边录边转 | `audio/vad`、`transcription/transcriber` | ⏳ 待做 |
+| P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ⏳ 待做 |
+| 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |
 
 ---
 

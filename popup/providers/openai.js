@@ -44,4 +44,4 @@ class OpenAIProvider extends BaseProvider {
   }
 }
 
-window.OpenAIProvider = OpenAIProvider;
+globalThis.OpenAIProvider = OpenAIProvider;

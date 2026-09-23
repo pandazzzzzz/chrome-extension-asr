@@ -43,4 +43,4 @@ class DeepgramProvider extends BaseProvider {
   }
 }
 
-window.DeepgramProvider = DeepgramProvider;
+globalThis.DeepgramProvider = DeepgramProvider;
