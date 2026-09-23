@@ -8,11 +8,10 @@
  */
 
 // State
-let mediaRecorder = null;
-let mediaStream = null;
-let chunks = [];
-let audioBlob = null;
-let isRecording = false;
+let recorder = null;          // AudioRecorder 实例（麦克风）
+let audioBlob = null;         // 录音结果
+let isRecording = false;      // 麦克风录音中
+let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
 
 // DOM references
 const els = {};
@@ -38,6 +37,7 @@ function gatherElements() {
   els.modelInput = document.getElementById('model');
   els.audioTypeSelect = document.getElementById('audioType');
   els.recordBtn = document.getElementById('recordBtn');
+  els.tabRecordBtn = document.getElementById('tabRecordBtn');
   els.transcribeBtn = document.getElementById('transcribeBtn');
   els.resultText = document.getElementById('result');
   els.copyBtn = document.getElementById('copyBtn');
@@ -85,6 +85,7 @@ function bindEvents() {
   els.audioTypeSelect.addEventListener('change', persistConfig);
 
   els.recordBtn.addEventListener('click', toggleRecording);
+  els.tabRecordBtn.addEventListener('click', toggleTabRecording);
   els.transcribeBtn.addEventListener('click', handleTranscribe);
   els.copyBtn.addEventListener('click', handleCopy);
   els.fillBtn.addEventListener('click', handleFillIntoPage);
@@ -92,11 +93,13 @@ function bindEvents() {
 
 // ---------- Recording ----------
 
+// ---------- Recording (microphone) ----------
+
 async function toggleRecording() {
   if (!isRecording) {
     await startRecording();
   } else {
-    stopRecording();
+    await stopRecording();
   }
 }
 
@@ -105,44 +108,80 @@ async function startRecording() {
     audioBlob = null;
     els.transcribeBtn.disabled = true;
     els.fillBtn.disabled = true;
-    chunks = [];
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = pickMimeType(els.audioTypeSelect.value);
-    mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : {});
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) chunks.push(event.data);
-    };
-    mediaRecorder.onstop = () => {
-      const type = mediaRecorder.mimeType || els.audioTypeSelect.value;
-      audioBlob = new Blob(chunks, { type });
-      els.transcribeBtn.disabled = audioBlob.size === 0;
-      releaseMic();
-      showStatus('Recording complete. Click "Transcribe".', 'success');
-    };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recorder = new AudioRecorder({ mimeType: els.audioTypeSelect.value });
+    recorder.attach(stream);
+    recorder.start();
 
-    mediaRecorder.start();
     isRecording = true;
     els.recordBtn.textContent = 'Stop Recording';
+    els.tabRecordBtn.disabled = true; // 互斥：同一时刻只能录一路
     showStatus('Recording... speak now.', 'success');
   } catch (error) {
     showStatus(`Cannot start recording: ${error.message}`, 'error');
-    releaseMic();
+    recorder?.release();
+    recorder = null;
   }
 }
 
-function stopRecording() {
-  if (!mediaRecorder) return;
-  mediaRecorder.stop();
-  isRecording = false;
+async function stopRecording() {
+  if (!recorder) return;
   els.recordBtn.textContent = 'Start Recording';
+  els.tabRecordBtn.disabled = false;
+  isRecording = false;
+  try {
+    audioBlob = await recorder.stop();
+    recorder.release();
+    recorder = null;
+    els.transcribeBtn.disabled = !audioBlob || audioBlob.size === 0;
+    showStatus('Recording complete. Click "Transcribe".', 'success');
+  } catch (error) {
+    showStatus(`Recording failed: ${error.message}`, 'error');
+  }
 }
 
-function releaseMic() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((track) => track.stop());
+// ---------- Recording (tab audio, via offscreen) ----------
+
+async function toggleTabRecording() {
+  if (!isTabRecording) {
+    await startTabRecording();
+  } else {
+    await stopTabRecording();
   }
-  mediaStream = null;
+}
+
+async function startTabRecording() {
+  try {
+    audioBlob = null;
+    els.transcribeBtn.disabled = true;
+    els.fillBtn.disabled = true;
+
+    // background 取 tabCapture streamId → 创建 offscreen → offscreen 开始录
+    await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_START, {});
+
+    isTabRecording = true;
+    els.tabRecordBtn.textContent = 'Stop Tab Rec';
+    els.recordBtn.disabled = true; // 互斥：同一时刻只能录一路
+    showStatus('Recording tab audio... play something in the tab.', 'success');
+  } catch (error) {
+    showStatus(`Tab record failed: ${error.message}`, 'error');
+  }
+}
+
+async function stopTabRecording() {
+  isTabRecording = false;
+  els.tabRecordBtn.textContent = 'Record Tab';
+  els.recordBtn.disabled = false;
+  els.tabRecordBtn.disabled = false;
+  try {
+    // offscreen 返回录制的 Blob
+    audioBlob = await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STOP, {});
+    els.transcribeBtn.disabled = !audioBlob || audioBlob.size === 0;
+    showStatus('Tab recording complete. Click "Transcribe".', 'success');
+  } catch (error) {
+    showStatus(`Tab record stop failed: ${error.message}`, 'error');
+  }
 }
 
 // ---------- Transcription ----------
@@ -274,12 +313,4 @@ function showStatus(message, type) {
   showStatus.timer = setTimeout(() => {
     els.statusDiv.className = '';
   }, 3500);
-}
-
-function pickMimeType(preferredType) {
-  const candidates = [preferredType, 'audio/webm', 'audio/mp4', 'audio/wav'];
-  for (const type of candidates) {
-    if (type && MediaRecorder.isTypeSupported(type)) return type;
-  }
-  return '';
 }

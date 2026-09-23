@@ -31,7 +31,8 @@
   ],
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "tabCapture"
   ],
   "host_permissions": [
     "https://dashscope.aliyuncs.com/*",

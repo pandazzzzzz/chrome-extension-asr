@@ -114,15 +114,15 @@
 ├── options/                 # 〔新增·可选〕全局设置页
 ├── content/                 # 〔已有〕页面听写注入（监听 asr:fill-text 注入聚焦输入框）
 │   └── content.js / content.css
-├── offscreen/               # 〔新增〕tabCapture + MediaRecorder 采集宿主
+├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder）
 │   └── offscreen.html / offscreen.js
 ├── background/
-│   └── background.js        # 〔已有〕消息路由 + API 代理 + 生命周期
+│   └── background.js        # 〔已有〕消息路由 + API 代理 + offscreen 协调
 │
 # ── 音频层 ──────────────────────────────────────────────
 ├── audio/
-│   ├── recorder.js         #  〔新增〕MediaRecorder 封装（麦克风）
-│   ├── tab-capture.js      #  〔新增〕tabCapture 采集封装
+│   ├── recorder.js         #  〔已有〕MediaRecorder 封装（popup 麦克风 + offscreen 标签页共用）
+│   ├── tab-capture.js      #  〔并入 background/offscreen〕streamId 获取与消费
 │   ├── vad.js              #  〔新增〕静音检测（能量阈值起步，可升级 Silero VAD）
 │   └── convert.js          #  〔新增〕WebM→WAV/PCM、重采样、分片（可基于 ffmpeg.wasm）
 │
@@ -147,7 +147,7 @@
 │
 # ── 契约与共享层 ─────────────────────────────────────────
 ├── messaging/               # 〔已有〕跨上下文消息契约
-│   ├── messages.js         #  〔已有〕类型化 action（asr:transcribe / asr:fill-text）
+│   ├── messages.js         #  〔已有〕类型化 action + target 路由（transcribe / fill-text / tab-record-*）
 │   └── client.js           #  〔已有〕sendMessage 封装（promise + 错误）
 ├── shared/
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
@@ -169,7 +169,7 @@
 | P1 | **content 职责落地**：页面听写注入 | `content/` | ✅ 已落地 |
 | P2 | **转录层下沉与统一**：provider 迁移 + 调度层 + 错误标准化 | `transcription/` | ✅ 已落地 |
 | P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
-| P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/tab-capture`、`manifest.json` | ⏳ 待做 |
+| P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/`、`manifest.json` | ✅ 已落地 |
 | P3 | **实时流式 + VAD**：边录边转 | `audio/vad`、`transcription/transcriber` | ⏳ 待做 |
 | P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ⏳ 待做 |
 | 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |

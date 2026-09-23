@@ -8,7 +8,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 - **Voice recording** directly from the popup (webm / mp4 / wav)
 - **Cloud transcription** via configurable API endpoints (Qwen / OpenAI Whisper / Deepgram)
 - **Background API proxy** — transcription goes through the service worker; API keys are never exposed to content scripts
-- **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current page
+- **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current tab
+- **Tab audio recording** — record tab audio (meetings, videos) via `chrome.tabCapture` + offscreen document
 - **One-click copy** of the transcription result
 - **Pluggable provider system** — add a new provider by dropping in one file under `transcription/providers/`
 - **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
@@ -31,7 +32,12 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 │   │   └── index.js          # Provider registry + lookup
 │   └── transcriber.js        # Unified dispatch: validation, call, result normalization
 ├── background/
-│   └── background.js         # Service worker — message router + API proxy
+│   └── background.js         # Service worker — message router + API proxy + offscreen coordinator
+├── offscreen/                # Offscreen document (tab audio capture, MV3 requirement)
+│   ├── offscreen.html
+│   └── offscreen.js
+├── audio/                    # Audio layer
+│   └── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
 ├── content/                  # Content scripts (page dictation injection)
 │   ├── content.js
 │   └── content.css
@@ -59,7 +65,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 3. Choose a **Provider** from the dropdown (Qwen / OpenAI / Deepgram).
 4. Enter your **API Key** for that provider (stored encrypted in `storage.local`, never synced).
 5. Adjust **Endpoint URL** / **Model** if needed (defaults are pre-filled).
-6. Click **Start recording**, speak, then **Stop recording**, then **Transcribe**.
+6. Click **Start Recording**, speak, then **Stop Recording**, then **Transcribe** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video), then **Transcribe**.
 7. Optional: click **Fill into page** to inject the transcription into the currently focused input field on the active tab.
 
 ## Built-in Providers
@@ -80,7 +86,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 ## Permissions
 
 - `storage` — persist configuration locally (provider, API key, endpoint, model, audio format); API keys are encrypted in `storage.local` (no cloud sync)
-- `activeTab` — query the active tab for the "Fill into page" feature
+- `activeTab` — query the active tab for the "Fill into page" feature and for tab audio capture
+- `tabCapture` — capture tab audio (paired with an offscreen document, which needs no extra permission)
 - Host permissions for each built-in provider endpoint
 
 ## License

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ASR Offscreen (Tab Recording)</title>
+</head>
+<body>
+  <!--
+    Offscreen document — 标签页音频采集宿主。
+    MV3 中 tabCapture/MediaRecorder 无法在 service worker 运行，故放此处。
+    由 background 创建（reason: USER_MEDIA），无 UI。
+  -->
+  <script src="../messaging/messages.js"></script>
+  <script src="../audio/recorder.js"></script>
+  <script src="offscreen.js"></script>
+</body>
+</html>
