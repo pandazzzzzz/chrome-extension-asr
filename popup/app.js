@@ -4,7 +4,7 @@
  * The app itself is provider-agnostic. It records audio and delegates
  * transcription to the active provider selected by the user.
  *
- * To add a new provider, see popup/providers/index.js.
+ * To add a new provider, see transcription/providers/index.js.
  */
 
 // State

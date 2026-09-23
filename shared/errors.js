@@ -34,3 +34,15 @@ globalThis.normalizeError = function normalizeError(error, fallback = globalThis
   }
   return { code: fallback.code, message: error?.message || fallback.message };
 };
+
+/**
+ * 由 Errors 定义构造带 code 的 Error 实例。
+ * @param {{code:string,message:string}} def   Errors 中的某项
+ * @param {string} [message]                   覆盖默认 message（保留原始错误详情）
+ * @returns {Error & {code:string}}
+ */
+globalThis.createError = function createError(def, message) {
+  const e = new Error(message || def.message);
+  e.code = def.code;
+  return e;
+};
