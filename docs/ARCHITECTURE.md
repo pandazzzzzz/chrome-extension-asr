@@ -72,9 +72,9 @@
       ┌────────────▼───────────┐   ┌──────────▼──────────────────────┐
       │       audio 音频层       │   │      transcription 转录层        │
       │  recorder    麦克风     │   │  ┌───────────────────────────┐  │
-      │  tab-capture 标签页     │   │  │ providers/ 云提供商         │  │
-      │  vad         静音检测   │   │  │  base / qwen / openai /    │  │
-      │  convert     转码/重采样 │   │  │  deepgram / groq / google  │  │
+      │  pcm-capture PCM帧采集  │   │  │ providers/ 云提供商         │  │
+      │  vad         语音切分   │   │  │  base / qwen / openai /    │  │
+      │  convert     PCM→WAV   │   │  │  deepgram / groq / google  │  │
       └────────────┬───────────┘   │  └─────────────┬─────────────┘  │
                    │               │  ┌─────────────▼─────────────┐  │
                    │               │  │ local/ 本地推理            │  │
@@ -92,8 +92,8 @@
                    │
                    ▼
        ┌──────────────────── storage 存储层 ─────────────────────┐
-       │ config  (storage.local 密钥 + 偏好分离)  history (IDB)  │
-       │ model-cache (Cache API / IDB 本地模型缓存)               │
+       │ config  (全部存 storage.local, apiKey 经 AES-GCM 加密)  │
+       │ history (IDB, 转录历史, 上限 50)  model-cache (P2b)     │
        └─────────────────────────────────────────────────────────┘
 ```
 
@@ -101,7 +101,7 @@
 
 ## 4. 按功能划分的模块清单
 
-> 标记：**〔保留〕**沿用现状；**〔修改〕**现状需重构/补全；**〔新增〕**本次新增。目录均在仓库顶层落地。
+> 标记：**〔已有〕** 已落地实现；**〔新增〕** 规划中尚未实现；**〔保留〕** 沿用现状；**〔修改〕** 现状需重构。目录均在仓库顶层落地。
 
 ```
 ├── manifest.json            # 〔修改〕补 sidePanel / tabCapture / offscreen 声明
@@ -122,7 +122,6 @@
 # ── 音频层 ──────────────────────────────────────────────
 ├── audio/
 │   ├── recorder.js         #  〔已有〕MediaRecorder 封装（popup 麦克风 + offscreen 标签页共用）
-│   ├── tab-capture.js      #  〔并入 background/offscreen〕streamId 获取与消费
 │   ├── vad.js              #  〔已有〕能量阈值 VAD（滞回 + 最短语音/静音时长，纯逻辑可测）
 │   ├── convert.js          #  〔已有〕Float32 PCM → WAV、分片拼接
 │   ├── pcm-capture.js      #  〔已有〕PCM 帧采集（AudioWorklet，回退 ScriptProcessor）

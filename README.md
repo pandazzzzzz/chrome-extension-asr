@@ -65,6 +65,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 ├── icons/                    # Extension icons
 ├── docs/
 │   └── ARCHITECTURE.md       # Full architecture design doc
+├── tests/
+│   └── p1-smoke-test.html    # Browser-runnable smoke tests (open directly in Chrome)
 ├── samples/                  # Committed test samples (audio, models)
 └── temp/                     # Local-only temp files (not tracked by git)
 ```
@@ -81,6 +83,8 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 6. Click **Start Recording**, speak, then **Stop Recording**, then **Transcribe** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video), then **Transcribe**. **Live Stream** transcribes your speech segment-by-segment while you talk (no separate Transcribe step).
 7. Optional: click **Fill into page** to inject the transcription into the currently focused input field on the active tab.
 
+Other entry points: the **Side panel** button keeps the panel open for long sessions (recommended for Live Stream); **Options** opens the settings/history/storage page (also available via `chrome://extensions` → Details → Extension options).
+
 ## Built-in Providers
 
 | Provider | Endpoint field | Default model | Host permission |
@@ -93,7 +97,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 
 1. Create `transcription/providers/<id>.js` extending `BaseProvider`.
 2. Register it in `transcription/providers/index.js`.
-3. Import the script in `popup/popup.html` **and** in `background/background.js` (via `importScripts`) — both before their main logic.
+3. Import the script **before** main logic in every entry page: `popup/popup.html`, `sidepanel/sidepanel.html`, `options/options.html`, and via `importScripts` in `background/background.js`.
 4. Add the provider's host domain to `host_permissions` in `manifest.json`.
 
 ## Permissions
@@ -101,6 +105,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 - `storage` — persist configuration locally (provider, API key, endpoint, model, audio format); API keys are encrypted in `storage.local` (no cloud sync)
 - `activeTab` — query the active tab for the "Fill into page" feature and for tab audio capture
 - `tabCapture` — capture tab audio (paired with an offscreen document, which needs no extra permission)
+- `sidePanel` — open the persistent side panel (`chrome.sidePanel.open()`)
 - Host permissions for each built-in provider endpoint
 
 ## License
