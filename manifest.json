@@ -22,7 +22,10 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
+      "js": [
+        "messaging/messages.js",
+        "content/content.js"
+      ],
       "css": ["content/content.css"]
     }
   ],

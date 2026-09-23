@@ -3,11 +3,7 @@
 // 职责：接收 background 转发的 asr:fill-text 消息，把转录文本注入当前
 // 聚焦的输入元素（input / textarea / contenteditable）。
 //
-// 注意：content script 运行在网页上下文，无 chrome.storage 等扩展 API 之外
-// 能力，也不加载共享脚本（manifest 里逐个注入，无 importScripts），故此处
-// 用与 messaging/messages.js 一致的字面量 action 值。
-
-const FILL_TEXT = 'asr:fill-text';
+// 消息常量 MESSAGES 由 manifest 在 content.js 之前注入 messaging/messages.js。
 
 // 找到当前聚焦的可输入元素
 function getActiveField() {
@@ -54,7 +50,7 @@ function fillField(field, text) {
 
 // 监听来自 background 的注入消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request && request.type === FILL_TEXT) {
+  if (request && request.type === globalThis.MESSAGES.FILL_TEXT) {
     const text = request.payload?.text || '';
     const field = getActiveField();
     if (!field) {

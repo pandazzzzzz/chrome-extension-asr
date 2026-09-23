@@ -4,7 +4,11 @@
 //   - 接收 popup/content 发来的 asr:transcribe 消息
 //   - 从本地存储读取配置（含解密 apiKey），找到对应 provider
 //   - 代为调用 provider API，返回转录文本
-//   - 密钥仅在此 service worker 上下文解密使用，popup/content 不持有明文密钥
+//
+// 安全边界（如实说明）：
+//   转录 API 调用收敛到本 service worker，popup/content 发转录请求时不再
+//   传递 apiKey。popup 为编辑配置仍会读取/回填密钥（UX 需求）；content
+//   脚本不读取密钥。
 
 // MV3 service worker 为经典脚本，用 importScripts 同步加载依赖。
 // 顺序：共享错误 → provider → 存储 → 消息契约
@@ -92,8 +96,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try {
       switch (type) {
         case globalThis.MESSAGES.TRANSCRIBE:
-          return await handleTranscribe(payload);
-        case globalThis.MESSAGES.TRANSCRIBE_AND_FILL:
           return await handleTranscribe(payload);
         case globalThis.MESSAGES.FILL_TEXT:
           return await handleFillText(payload);
