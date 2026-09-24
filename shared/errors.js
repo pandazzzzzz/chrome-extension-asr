@@ -18,6 +18,18 @@ globalThis.Errors = Object.freeze({
   UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION', message: 'Unknown message type' },
   NO_RESPONSE: { code: 'NO_RESPONSE', message: 'No response' },
 
+  // 注入 / 采集类（background / content / offscreen 内联返回，统一登记）
+  NO_TAB: { code: 'NO_TAB', message: 'No active tab' },
+  NO_TEXT: { code: 'NO_TEXT', message: 'No text to fill' },
+  NO_CONTENT: { code: 'NO_CONTENT', message: 'Cannot fill text on this page' },
+  NO_FIELD: { code: 'NO_FIELD', message: 'No focused input field' },
+  TAB_CAPTURE: { code: 'TAB_CAPTURE', message: 'Cannot capture tab audio' },
+  NO_OFFSCREEN: { code: 'NO_OFFSCREEN', message: 'No offscreen document' },
+  ALREADY_RECORDING: { code: 'ALREADY_RECORDING', message: 'Already recording' },
+  NOT_RECORDING: { code: 'NOT_RECORDING', message: 'Not recording' },
+  RECORD_ERROR: { code: 'RECORD_ERROR', message: 'Recording failed' },
+  OFFSCREEN_ERROR: { code: 'OFFSCREEN_ERROR', message: 'Offscreen error' },
+
   // 未知
   UNKNOWN: { code: 'UNKNOWN', message: 'Unknown error' },
 });

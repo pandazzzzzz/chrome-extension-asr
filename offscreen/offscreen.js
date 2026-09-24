@@ -13,13 +13,15 @@
 // 依赖 messaging/messages.js、audio/recorder.js（由 offscreen.html 的 <script> 加载）。
 (() => {
   const MESSAGES = globalThis.MESSAGES;
+  const TARGETS = globalThis.TARGETS;
+  const Errors = globalThis.Errors;
   const AudioRecorder = globalThis.AudioRecorder;
 
   let recorder = null;
   let audioContext = null;
 
   async function startRecording(streamId) {
-    if (recorder) return { ok: false, error: { code: 'ALREADY_RECORDING', message: 'Already recording' } };
+    if (recorder) return { ok: false, error: Errors.ALREADY_RECORDING };
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -43,7 +45,7 @@
   }
 
   async function stopRecording() {
-    if (!recorder) return { ok: false, error: { code: 'NOT_RECORDING', message: 'Not recording' } };
+    if (!recorder) return { ok: false, error: Errors.NOT_RECORDING };
 
     try {
       const blob = await recorder.stop();
@@ -55,13 +57,13 @@
       }
       return { ok: true, data: blob };
     } catch (e) {
-      return { ok: false, error: { code: 'RECORD_ERROR', message: e.message || 'Recording failed' } };
+      return { ok: false, error: globalThis.createError(Errors.RECORD_ERROR, e.message || '') };
     }
   }
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // 只处理发给 offscreen 的消息（target 过滤，避免与 background 重复响应）
-    if (request?.target !== 'offscreen') return false;
+    if (request?.target !== TARGETS.OFFSCREEN) return false;
 
     (async () => {
       try {
@@ -71,11 +73,11 @@
           case MESSAGES.TAB_RECORD_STOP:
             return await stopRecording();
           default:
-            return { ok: false, error: { code: 'UNKNOWN_ACTION', message: 'Unknown message type' } };
+            return { ok: false, error: globalThis.createError(Errors.UNKNOWN_ACTION, 'Unknown message type') };
         }
       } catch (e) {
         console.error('Offscreen error:', e);
-        return { ok: false, error: { code: 'OFFSCREEN_ERROR', message: e.message } };
+        return { ok: false, error: globalThis.createError(Errors.OFFSCREEN_ERROR, e.message || '') };
       }
     })().then(sendResponse);
 

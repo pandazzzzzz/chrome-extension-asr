@@ -24,7 +24,7 @@ Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 Keep feature logic close to its runtime context (popup/sidepanel/options vs content vs background vs offscreen), and prefer small, focused files.
 
 ### Cross-context messaging
-All messages are `{ type, payload, requestId, target? }`. `target` is **required in practice**: `chrome.runtime.sendMessage` broadcasts, so `background` and `offscreen` each filter by `target` (`messaging/messages.js` → `TARGETS`). Missing `target` means "to background".
+All messages are `{ type, payload, requestId, target? }`. `target` is **required in practice**: `chrome.runtime.sendMessage` broadcasts, so `background`, `offscreen`, and `content` each filter by `target` (`messaging/messages.js` → `TARGETS`). Missing `target` means "to background".
 
 Current actions: `asr:transcribe`, `asr:fill-text`, `asr:tab-record-start`, `asr:tab-record-stop`. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
 
