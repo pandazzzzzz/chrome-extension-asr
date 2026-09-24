@@ -89,9 +89,9 @@ Other entry points: the **Side panel** button keeps the panel open for long sess
 
 | Provider | Endpoint field | Default model | Host permission |
 |---|---|---|---|
-| Qwen (DashScope) | required | `qwen3-asr-flash` | `dashscope.aliyuncs.com` / `dashscope-intl.aliyuncs.com` |
-| OpenAI Whisper | required | `whisper-1` | `api.openai.com` |
-| Deepgram | required | `nova-2` | `api.deepgram.com` |
+| Qwen (DashScope) | optional (defaults to DashScope) | `qwen3-asr-flash` | `dashscope.aliyuncs.com` / `dashscope-intl.aliyuncs.com` |
+| OpenAI Whisper | optional (defaults to OpenAI) | `whisper-1` | `api.openai.com` |
+| Deepgram | optional (defaults to Deepgram) | `nova-2` | `api.deepgram.com` |
 
 ## Adding a New Provider
 

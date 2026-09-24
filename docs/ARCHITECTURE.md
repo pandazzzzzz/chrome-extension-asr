@@ -17,7 +17,7 @@
 | `content/content.js` + `.css` | 模板 demo（改背景色）+ 未使用的 overlay 样式 | 无"页面内听写"能力 |
 | 配置存储 | `chrome.storage.sync` 保存 `asrConfig`（含 API Key） | API Key 云同步，有泄露面 |
 | 构建 / 质量 | 无构建/无 TS/无测试；lint 占位 | 依赖脚本加载顺序；无类型契约 |
-| `manifest.json` | 仅 `storage`/`activeTab` + 三家 host | 缺 `tabCapture`、`offscreen`、`sidePanel` |
+| `manifest.json` | `storage`/`activeTab`/`tabCapture`/`sidePanel` + 三家 host（Qwen 双域名）；`offscreen` 无需 manifest 权限 | —（权限已齐备；`sidePanel`/`tabCapture` 为 P3 起补齐） |
 
 ### 1.2 目标能力
 
