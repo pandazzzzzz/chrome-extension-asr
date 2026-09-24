@@ -2,7 +2,10 @@
  * MessageClient — chrome.runtime.sendMessage 的 Promise 封装。
  *
  * 用法:
- *   const text = await MessageClient.send(MESSAGES.TRANSCRIBE, { audioBlob, ... });
+ *   const text = await MessageClient.send(MESSAGES.TRANSCRIBE, {
+ *     audio: await encodeAudio(blob), // JSON 通道传不了 Blob，先编码
+ *     provider, model, endpoint,
+ *   });
  *   await MessageClient.sendOffscreen(MESSAGES.TAB_RECORD_START, { streamId });
  *
  * 自动:

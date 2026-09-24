@@ -58,9 +58,16 @@ globalThis.normalizeError = function normalizeError(error, fallback = globalThis
  * @param {{code:string,message:string}} def   Errors 中的某项
  * @param {string} [message]                   覆盖默认 message（保留原始错误详情）
  * @returns {Error & {code:string}}
+ *
+ * toJSON 必须显式定义：Error 的 message 是不可枚举属性，JSON.stringify(Error)
+ * 只会产出 { code }（或 {}），消息经消息通道回传时会丢失，UI 只剩 "Unknown error"。
+ * 响应体 { ok:false, error: createError(...) } 一律经 JSON 序列化，故此处补序列化。
  */
 globalThis.createError = function createError(def, message) {
   const e = new Error(message || def.message);
   e.code = def.code;
+  e.toJSON = function toJSON() {
+    return { code: this.code, message: this.message };
+  };
   return e;
 };

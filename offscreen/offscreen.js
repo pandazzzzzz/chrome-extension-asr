@@ -55,7 +55,8 @@
         await audioContext.close().catch(() => {});
         audioContext = null;
       }
-      return { ok: true, data: blob };
+      // 消息通道是 JSON，Blob 到 background 会变成 {} —— 必须编码传输
+      return { ok: true, data: await globalThis.encodeAudio(blob) };
     } catch (e) {
       return { ok: false, error: globalThis.createError(Errors.RECORD_ERROR, e.message || '') };
     }

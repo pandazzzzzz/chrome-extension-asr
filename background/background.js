@@ -43,7 +43,11 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 // 处理 asr:transcribe —— 读配置 + 委托 Transcriber 调度（校验/调用/归一均在调度层）
 async function handleTranscribe(payload) {
-  const { audioBlob, provider: providerId, model, endpoint } = payload || {};
+  const { audio, provider: providerId, model, endpoint } = payload || {};
+
+  // 消息通道是 JSON，音频以 { b64, mime } 传入，这里还原成 Blob
+  const audioBlob = globalThis.decodeAudio(audio);
+  if (!audioBlob) return { ok: false, error: globalThis.Errors.NO_AUDIO };
 
   const config = await globalThis.ConfigStore.load();
 
@@ -72,12 +76,20 @@ async function handleFillText(payload) {
   }
 
   try {
-    await chrome.tabs.sendMessage(tab.id, {
+    const response = await chrome.tabs.sendMessage(tab.id, {
       type: globalThis.MESSAGES.FILL_TEXT,
       payload: { text },
       target: globalThis.TARGETS.CONTENT,
     });
-    return { ok: true, data: true };
+    // content 的响应必须原样转发：content 判定无聚焦字段时回 { ok:false, NO_FIELD }，
+    // 丢掉它会让 popup 永远显示"填充成功"。message 未定义时（异常路径）按失败处理。
+    if (response && response.ok) return { ok: true, data: response.data };
+    return {
+      ok: false,
+      error: response?.error
+        ? globalThis.normalizeError(response.error)
+        : globalThis.Errors.NO_CONTENT,
+    };
   } catch (error) {
     // content script 未注入（如 chrome:// 页面）时 sendMessage 会失败
     return { ok: false, error: globalThis.Errors.NO_CONTENT };
