@@ -23,7 +23,7 @@ class DeepgramProvider extends BaseProvider {
       url.searchParams.set('model', model);
     }
 
-    const response = await this.post(url.toString(), {
+    const json = await this.post(url.toString(), {
       headers: {
         Authorization: `Token ${apiKey}`,
         'Content-Type': audioBlob.type || 'audio/webm',
@@ -32,7 +32,7 @@ class DeepgramProvider extends BaseProvider {
       extractError: (json) => json.err_msg || json.message,
     });
 
-    const text = response?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+    const text = json?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
     if (!text) throw new Error('Empty transcription result');
     return text;
   }

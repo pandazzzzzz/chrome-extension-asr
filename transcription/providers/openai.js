@@ -25,14 +25,14 @@ class OpenAIProvider extends BaseProvider {
     formData.append('file', audioBlob, filename);
     formData.append('model', model);
 
-    const response = await this.post(endpoint, {
+    const json = await this.post(endpoint, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
       body: formData,
     });
 
-    const text = response.text;
+    const text = json.text;
     if (!text) throw new Error('Empty transcription result');
     return text;
   }
