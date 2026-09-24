@@ -48,7 +48,8 @@
     "storage",
     "activeTab",
     "tabCapture",
-    "sidePanel"
+    "sidePanel",
+    "offscreen"
   ],
   "host_permissions": [
     "https://dashscope.aliyuncs.com/*",
