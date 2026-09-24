@@ -64,11 +64,11 @@ async function handleTranscribe(payload) {
 // 转发 asr:fill-text 到当前活动 tab 的 content script
 async function handleFillText(payload) {
   const { text } = payload || {};
-  if (!text) return { ok: false, error: globalThis.Errors.EMPTY_RESULT };
+  if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) {
-    return { ok: false, error: { code: 'NO_TAB', message: 'No active tab' } };
+    return { ok: false, error: globalThis.Errors.NO_TAB };
   }
 
   try {
@@ -80,7 +80,7 @@ async function handleFillText(payload) {
     return { ok: true, data: true };
   } catch (error) {
     // content script 未注入（如 chrome:// 页面）时 sendMessage 会失败
-    return { ok: false, error: { code: 'NO_CONTENT', message: 'Cannot fill text on this page' } };
+    return { ok: false, error: globalThis.Errors.NO_CONTENT };
   }
 }
 
@@ -114,7 +114,7 @@ async function ensureOffscreenDocument() {
 async function handleTabRecordStart(payload) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) {
-    return { ok: false, error: { code: 'NO_TAB', message: 'No active tab' } };
+    return { ok: false, error: globalThis.Errors.NO_TAB };
   }
 
   // getMediaStreamId 需要用户手势（点击扩展图标）授予的 activeTab
@@ -124,7 +124,7 @@ async function handleTabRecordStart(payload) {
   } catch (error) {
     return {
       ok: false,
-      error: { code: 'TAB_CAPTURE', message: error.message || 'Cannot capture tab (activeTab?)' },
+      error: globalThis.createError(globalThis.Errors.TAB_CAPTURE, error.message || ''),
     };
   }
 
@@ -146,12 +146,15 @@ function sendToOffscreen(type, payload) {
         if (chrome.runtime.lastError) {
           resolve({
             ok: false,
-            error: { code: 'NO_OFFSCREEN', message: chrome.runtime.lastError.message },
+            error: globalThis.createError(
+              globalThis.Errors.NO_OFFSCREEN,
+              chrome.runtime.lastError.message,
+            ),
           });
           return;
         }
         if (!response) {
-          resolve({ ok: false, error: { code: 'NO_RESPONSE', message: 'No response from offscreen' } });
+          resolve({ ok: false, error: globalThis.Errors.NO_RESPONSE });
           return;
         }
         resolve(response);

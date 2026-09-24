@@ -3,7 +3,8 @@
 // 职责：接收 background 转发的 asr:fill-text 消息，把转录文本注入当前
 // 聚焦的输入元素（input / textarea / contenteditable）。
 //
-// 消息常量 MESSAGES 由 manifest 在 content.js 之前注入 messaging/messages.js。
+// 消息常量 MESSAGES / TARGETS 与错误码 Errors 由 manifest 在 content.js 之前
+// 注入 messaging/messages.js 与 shared/errors.js。
 
 // 找到当前聚焦的可输入元素
 function getActiveField() {
@@ -48,20 +49,24 @@ function fillField(field, text) {
   return false;
 }
 
-// 监听来自 background 的注入消息
+// 监听来自 background 的注入消息（仅处理发给 content 的，避免与其它上下文重复响应）
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request && request.type === globalThis.MESSAGES.FILL_TEXT) {
-    const text = request.payload?.text || '';
-    const field = getActiveField();
-    if (!field) {
-      sendResponse({ ok: false, error: { code: 'NO_FIELD', message: 'No focused input field' } });
-      return true;
-    }
-    const done = fillField(field, text);
-    sendResponse({ ok: done, data: done });
+  if (
+    request?.target !== globalThis.TARGETS.CONTENT ||
+    request.type !== globalThis.MESSAGES.FILL_TEXT
+  ) {
+    return false;
+  }
+
+  const text = request.payload?.text || '';
+  const field = getActiveField();
+  if (!field) {
+    sendResponse({ ok: false, error: globalThis.Errors.NO_FIELD });
     return true;
   }
-  return false;
+  const done = fillField(field, text);
+  sendResponse({ ok: done, data: done });
+  return true;
 });
 
 console.log('Content script loaded (ASR fill-text)');
