@@ -23,21 +23,16 @@ class DeepgramProvider extends BaseProvider {
       url.searchParams.set('model', model);
     }
 
-    const response = await fetch(url.toString(), {
-      method: 'POST',
+    const response = await this.post(url.toString(), {
       headers: {
         Authorization: `Token ${apiKey}`,
         'Content-Type': audioBlob.type || 'audio/webm',
       },
       body: audioBlob,
+      extractError: (json) => json.err_msg || json.message,
     });
 
-    const json = await response.json();
-    if (!response.ok) {
-      throw new Error(json.err_msg || json.message || `HTTP ${response.status}`);
-    }
-
-    const text = json?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+    const text = response?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
     if (!text) throw new Error('Empty transcription result');
     return text;
   }

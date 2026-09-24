@@ -24,8 +24,7 @@ class QwenProvider extends BaseProvider {
     const dataUrl = await this.blobToDataUrl(audioBlob);
     const format = this.getAudioFormat(audioBlob.type);
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
+    const response = await this.post(endpoint, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -45,12 +44,7 @@ class QwenProvider extends BaseProvider {
       }),
     });
 
-    const json = await response.json();
-    if (!response.ok) {
-      throw new Error(json.error?.message || `HTTP ${response.status}`);
-    }
-
-    const text = this._extractText(json);
+    const text = this._extractText(response);
     if (!text) throw new Error('Empty transcription result');
     return text;
   }

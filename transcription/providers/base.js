@@ -63,6 +63,60 @@ class BaseProvider {
     if (clean.endsWith('/flac')) return 'flac';
     return 'webm';
   }
+
+  /**
+   * Helper — 统一 POST：包 fetch + 网络错误/HTTP 状态码归一化为带 code 的 Error。
+   * 激活 errors.js 中的 NETWORK / API_ERROR 码（否则 normalizeError 会降级为 UNKNOWN）。
+   *
+   * @param {string} url
+   * @param {Object} init          fetch init（method 固定 POST）
+   * @param {Object} init.headers
+   * @param {*} init.body
+   * @param {(json:Object)=>string} [extractError]  从非 OK 响应体提取错误消息
+   * @returns {Promise<Object>} 解析后的 JSON
+   * @throws {Error & {code:string}} NETWORK / API_ERROR
+   */
+  static async post(url, { headers, body, extractError } = {}) {
+    let response;
+    try {
+      response = await fetch(url, { method: 'POST', headers, body });
+    } catch (e) {
+      throw globalThis.createError(
+        globalThis.Errors.NETWORK,
+        e?.message || 'Network request failed',
+      );
+    }
+
+    // 先读 body 文本，再按是否 OK 分流：避免非 JSON 错误体（如 5xx HTML）二次抛错
+    let text = '';
+    try {
+      text = await response.text();
+    } catch {
+      /* 读取失败仍按状态码报错 */
+    }
+
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      if (text) {
+        try {
+          const json = JSON.parse(text);
+          message = extractError?.(json) || json.error?.message || message;
+        } catch {
+          message = text.slice(0, 200) || message;
+        }
+      }
+      throw globalThis.createError(globalThis.Errors.API_ERROR, message);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw globalThis.createError(
+        globalThis.Errors.API_ERROR,
+        `Invalid JSON response (HTTP ${response.status})`,
+      );
+    }
+  }
 }
 
 globalThis.BaseProvider = BaseProvider;
