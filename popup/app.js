@@ -209,8 +209,8 @@ async function stopTabRecording() {
   els.tabRecordBtn.disabled = false;
   els.streamBtn.disabled = false;
   try {
-    // offscreen 返回录制的 Blob
-    audioBlob = await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STOP, {});
+    // offscreen 返回 { b64, mime }（JSON 消息通道无法传 Blob），这里还原
+    audioBlob = globalThis.decodeAudio(await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STOP, {}));
     els.transcribeBtn.disabled = !audioBlob || audioBlob.size === 0;
     showStatus('Tab recording complete. Click "Transcribe".', 'success');
   } catch (error) {
@@ -375,12 +375,16 @@ function submitStreamSegment() {
   streamTexts.set(seq, undefined); // 占位，保持段顺序
 
   streamSession.pending += 1;
-  globalThis.MessageClient.send(globalThis.MESSAGES.TRANSCRIBE, {
-    audioBlob: blob,
-    provider: streamSession.providerId,
-    model: streamSession.model,
-    endpoint: streamSession.endpoint,
-  })
+  // 音频必须编码成 { b64, mime } 才能穿过 JSON 消息通道（Blob 会变成 {}）
+  globalThis.encodeAudio(blob)
+    .then((audio) =>
+      globalThis.MessageClient.send(globalThis.MESSAGES.TRANSCRIBE, {
+        audio,
+        provider: streamSession.providerId,
+        model: streamSession.model,
+        endpoint: streamSession.endpoint,
+      }),
+    )
     .then((text) => {
       streamTexts.set(seq, text);
       renderStreamResult();
@@ -428,9 +432,10 @@ async function handleTranscribe() {
   els.resultText.value = '';
 
   try {
-    // 转录经 background 代理：密钥在 service worker 内解密，popup 不传递明文
+    // 转录经 background 代理：密钥在 service worker 内解密，popup 不传递明文。
+    // 音频编码传输（JSON 消息通道无法传 Blob）
     const text = await globalThis.MessageClient.send(globalThis.MESSAGES.TRANSCRIBE, {
-      audioBlob,
+      audio: await globalThis.encodeAudio(audioBlob),
       provider: provider.id,
       model,
       endpoint: endpoint || undefined,
