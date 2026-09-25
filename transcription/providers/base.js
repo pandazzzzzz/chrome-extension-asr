@@ -87,7 +87,10 @@ class BaseProvider {
       );
     }
 
-    // 先读 body 文本，再按是否 OK 分流：避免非 JSON 错误体（如 5xx HTML）二次抛错
+    // 先读 body 文本，再按是否 OK 分流：避免非 JSON 错误体（如 5xx HTML）二次抛错。
+    // 注意 JSON.parse("null")/"false"/数字等原始值也会成功，故必须再要求
+    // 「非 null 对象」才取属性，否则 null 体会在取属性时抛裸 TypeError，
+    // 抢在下面的 API_ERROR 兜底之前跑到 UI 上（显示内部报错而非状态码）。
     let text = '';
     try {
       text = await response.text();
@@ -100,7 +103,10 @@ class BaseProvider {
       if (text) {
         try {
           const json = JSON.parse(text);
-          message = extractError?.(json) || json.error?.message || message;
+          if (json && typeof json === 'object') {
+            message = extractError?.(json) || json.error?.message || message;
+          }
+          // 原始值（null / "…" / 数字）没有可提取的错误字段 → 保持状态码
         } catch {
           message = text.slice(0, 200) || message;
         }
@@ -108,14 +114,12 @@ class BaseProvider {
       throw globalThis.createError(globalThis.Errors.API_ERROR, message);
     }
 
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw globalThis.createError(
-        globalThis.Errors.API_ERROR,
-        `Invalid JSON response (HTTP ${response.status})`,
-      );
-    }
+    const json = JSON.parse(text); // 语法错抛 SyntaxError → 下面按 invalid JSON 归一
+    if (json && typeof json === 'object') return json;
+    throw globalThis.createError(
+      globalThis.Errors.API_ERROR,
+      `Invalid JSON response (HTTP ${response.status})`,
+    );
   }
 }
 
