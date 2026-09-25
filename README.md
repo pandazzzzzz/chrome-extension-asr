@@ -1,12 +1,12 @@
 # Chrome Extension — Multi-Provider ASR
 
-A Manifest V3 Chrome extension that records audio from the popup and transcribes it using one of several speech recognition providers (Qwen / OpenAI Whisper / Deepgram / or your own).
+A Manifest V3 Chrome extension that records audio from the popup and transcribes it using one of several speech recognition providers (Qwen / OpenAI Transcription / Deepgram / or your own).
 
 ## Features
 
 - **Vendor-agnostic popup framework** — switch providers from a dropdown
 - **Voice recording** directly from the popup (webm / mp4 / wav)
-- **Cloud transcription** via configurable API endpoints (Qwen / OpenAI Whisper / Deepgram)
+- **Cloud transcription** via configurable API endpoints (Qwen / OpenAI Transcription / Deepgram)
 - **Background API proxy** — transcription goes through the service worker; API keys are never exposed to content scripts
 - **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current tab
 - **Tab audio recording** — record tab audio (meetings, videos) via `chrome.tabCapture` + offscreen document
@@ -30,7 +30,7 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 │   ├── providers/            # Cloud ASR providers
 │   │   ├── base.js           # BaseProvider (abstract + capability metadata)
 │   │   ├── qwen.js           # Qwen (DashScope)
-│   │   ├── openai.js         # OpenAI Whisper
+│   │   ├── openai.js         # OpenAI Transcription
 │   │   ├── deepgram.js       # Deepgram
 │   │   └── index.js          # Provider registry + lookup
 │   └── transcriber.js        # Unified dispatch: validation, call, result normalization
@@ -90,8 +90,8 @@ Other entry points: the **Side panel** button keeps the panel open for long sess
 | Provider | Endpoint field | Default model | Host permission |
 |---|---|---|---|
 | Qwen (DashScope) | optional (defaults to DashScope) | `qwen3-asr-flash` | `dashscope.aliyuncs.com` / `dashscope-intl.aliyuncs.com` |
-| OpenAI Whisper | optional (defaults to OpenAI) | `whisper-1` | `api.openai.com` |
-| Deepgram | optional (defaults to Deepgram) | `nova-2` | `api.deepgram.com` |
+| OpenAI Transcription | optional (defaults to OpenAI) | `gpt-4o-mini-transcribe` | `api.openai.com` |
+| Deepgram | optional (defaults to Deepgram) | `nova-3` | `api.deepgram.com` |
 
 ## Adding a New Provider
 

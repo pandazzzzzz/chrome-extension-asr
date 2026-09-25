@@ -3,11 +3,15 @@
  *
  * Docs: https://developers.deepgram.com/reference/listen-file
  * Endpoint: https://api.deepgram.com/v1/listen
+ *
+ * 模型说明（2026 起）：默认 `nova-3`（当前推荐主力模型）。
+ * `nova-2` 仍可用但已被取代；响应形状（results.channels[].alternatives[].transcript）
+ * 两代一致，换模型无需改解析。
  */
 class DeepgramProvider extends BaseProvider {
   static id = 'deepgram';
   static name = 'Deepgram';
-  static defaultModel = 'nova-2';
+  static defaultModel = 'nova-3';
   static hasEndpoint = true;
 
   static getDefaultEndpoint() {
