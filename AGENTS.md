@@ -34,7 +34,7 @@ Scripts attach to `globalThis` (never `window`) so the same file works in popup,
 ## Build, Test, and Development Commands
 - `npm run build`: placeholder (no compile step — load the directory unpacked).
 - `npm run lint`: placeholder; wire a linter before enforcing CI.
-- `npm run pack`: creates `extension.zip` for distribution. **Requires the `zip` CLI**, which is not present by default on Windows. Windows alternative: `powershell -c "Compress-Archive -Path * -DestinationPath extension.zip -Force"`.
+- `npm run pack`: creates `extension.zip` for distribution via `scripts/pack.js` — tries **PowerShell .NET `ZipFile` first** (explicit entry paths; `Compress-Archive` flattens relative paths and breaks the archive), falls back to a dependency-free `node:zlib` zip writer (`node scripts/pack.js --node` forces the fallback). Excludes `.git*`, `node_modules/`, `*.zip`, `temp/` (local harness, may hold a ~200MB Chrome-for-Testing). Runs on any OS.
 
 Local development:
 1. Open `chrome://extensions`.

@@ -4,7 +4,7 @@
   "description": "A Chrome extension built with Manifest V3",
   "scripts": {
     "build": "echo 'No build step required for basic extension'",
-    "pack": "zip -r extension.zip . -x '*.git*' -x 'node_modules/*' -x '*.zip'",
+    "pack": "node scripts/pack.js",
     "lint": "echo 'Add your linting tool here'"
   },
   "keywords": [
