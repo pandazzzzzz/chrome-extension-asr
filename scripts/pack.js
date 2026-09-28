@@ -16,8 +16,10 @@
  *     `temp/` harness (holds a ~200MB Chrome-for-Testing install).
  *   - distribution noise is dropped even when tracked:
  *     '*.git*', 'node_modules/', '*.zip', docs/dev/test metadata (AGENTS.md,
- *     CONTRIBUTING.md, .env.example, tests/, docs/).
- *   Fallback when git is unavailable: filesystem walk + the static excludes.
+ *     CONTRIBUTING.md, .env.example, tests/, docs/), plus secrets/logs —
+ *     so the fallback below leaks nothing even without .gitignore.
+ *   Fallback when git is unavailable: filesystem walk + the static excludes
+ *   (secrets and logs included — `.gitignore` cannot be read without git).
  */
 'use strict';
 
@@ -44,6 +46,19 @@ const EXCLUDE = [
   /^\.vscode\//, // IDE settings — root-level only
   /^tests\//,
   /^docs\//,
+  // Secrets & logs. These are normally caught by .gitignore, but
+  // collectFromDisk() (no git available) cannot honor .gitignore — without
+  // these, a stray .env or logs/*.log in a source export ships in the zip,
+  // which is exactly what the gitignore-based collection exists to prevent.
+  /^\.env$/,
+  /^\.env\./, // .env.local, .env.production (…but .env.example already dropped above)
+  /\.(key|secret|pem|p12|pfx|crx)$/,
+  /(^|\/)(api_keys|credentials|secrets|token)\.json$/,
+  /_key\.json$/,
+  /_secret\.json$/,
+  /(^|\/)logs\//,
+  /\.log$/,
+  /^\.claude\/settings\.local\.json$/,
 ];
 
 function isExcluded(relPosix, isDir) {
@@ -51,27 +66,47 @@ function isExcluded(relPosix, isDir) {
   return EXCLUDE.some((re) => re.test(probe));
 }
 
-/** Repo-relative posix paths via git — honors .gitignore (tracked + staged only). */
+/**
+ * Repo-relative posix paths via git — honors .gitignore (tracked + staged only).
+ *
+ * `-c core.quotepath=false` is load-bearing: without it git C-quotes any path
+ * with non-ASCII bytes (`音试.wav` → `"\351\237\263….wav"`), and the backslash
+ * cleanup below then mangles it into a path that existsSync() cannot find —
+ * so the file is silently dropped from the archive while pack still reports
+ * success. `-z` would also work, but quotepath=false keeps the split('\n')
+ * parsing and lets each path through untouched.
+ */
 function collectWithGit() {
   const r = spawnSync(
     'git',
-    ['ls-files', '-c', '-o', '--exclude-standard'],
+    ['-c', 'core.quotepath=false', 'ls-files', '-c', '-o', '--exclude-standard'],
     { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
   );
   if (r.error || r.status !== 0) return null;
   const out = [];
+  const skipped = [];
   for (const raw of r.stdout.split('\n')) {
     const rel = raw.trim().replace(/\\/g, '/');
     if (!rel || isExcluded(rel, false)) continue;
-    // git lists untracked-but-not-ignored files too; drop ones that vanished
-    if (fs.existsSync(path.join(ROOT, ...rel.split('/'))) && fs.statSync(path.join(ROOT, ...rel.split('/'))).isFile()) {
-      out.push(rel);
+    // git lists untracked-but-not-ignored files too; a path that is gone now
+    // (or is a directory) is dropped — reported, not silently swallowed.
+    const abs = path.join(ROOT, ...rel.split('/'));
+    let isFile = false;
+    try {
+      isFile = fs.statSync(abs).isFile();
+    } catch {
+      isFile = false;
     }
+    if (isFile) out.push(rel);
+    else skipped.push(rel);
+  }
+  if (skipped.length) {
+    console.warn(`  [pack] skipped ${skipped.length} listed path(s): ${skipped.join(', ')}`);
   }
   return out.sort();
 }
 
-/** Filesystem walk fallback (no git available): ignores + static excludes. */
+/** Filesystem walk fallback when git is unavailable: static excludes only. */
 function collectFromDisk() {
   const out = [];
   const walk = (dir, rel) => {
