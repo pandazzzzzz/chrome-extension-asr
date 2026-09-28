@@ -10,11 +10,9 @@ let statusTimer = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   gatherElements();
-  populateProviders();
 
   const config = await globalThis.ConfigStore.load();
   applyToUI(config);
-  toggleEndpoint();
 
   bindEvents();
   await refreshHistory();
@@ -38,42 +36,15 @@ function gatherElements() {
   els.historyCount = document.getElementById('historyCount');
 }
 
-function populateProviders() {
-  globalThis.PROVIDERS.forEach((p) => {
-    const option = document.createElement('option');
-    option.value = p.id;
-    option.textContent = p.name;
-    els.provider.appendChild(option);
-  });
-}
-
 function applyToUI(config) {
   els.provider.value = config.provider || '';
   els.apiKey.value = config.apiKey || '';
   els.endpoint.value = config.endpoint || '';
   els.audioType.value = config.audioType || 'audio/webm';
   els.model.value = config.model || '';
-  if (!els.model.value) {
-    const p = globalThis.getProviderById(els.provider.value);
-    if (p) els.model.value = p.defaultModel;
-  }
-}
-
-function toggleEndpoint() {
-  const p = globalThis.getProviderById(els.provider.value);
-  els.endpointRow.style.display = p && p.hasEndpoint ? '' : 'none';
 }
 
 function bindEvents() {
-  els.provider.addEventListener('change', () => {
-    const p = globalThis.getProviderById(els.provider.value);
-    if (p && p.hasEndpoint && !els.endpoint.value.trim() && p.getDefaultEndpoint) {
-      els.endpoint.value = p.getDefaultEndpoint();
-    }
-    if (p && !els.model.value.trim()) els.model.value = p.defaultModel;
-    toggleEndpoint();
-  });
-
   els.saveBtn.addEventListener('click', save);
   els.clearHistoryBtn.addEventListener('click', clearHistory);
   els.refreshHistoryBtn.addEventListener('click', refreshHistory);

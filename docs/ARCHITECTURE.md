@@ -1,8 +1,12 @@
-# 架构设计 — Multi-Provider ASR Chrome 扩展
+# 架构设计 — Speech Recording Chrome 扩展
 
 > 本文档是项目的**目标架构蓝本**，基于对仓库现状的通读与对 GitHub 优质同类项目的调研（2026-09）整理而成。
 > 定位：**Manifest V3 · 无构建 · 纯 JS/HTML/CSS**，遵循该约束做**渐进式演进**。
 > 本文档描述"应该长成什么样"及"为什么"；具体重构另行按优先级分步计划。
+>
+> **现状快照**：当前为**录音壳**。伪流式（VAD 分段增量式）、批量 provider（Qwen/OpenAI/Deepgram）、
+> 单次 Transcribe 调度均已删除；保留麦克风/Tab 录音、offscreen、配置（含加密 API Key）、
+> 结果区/填充通路。后续接入真 WebSocket 流式时重建 `transcription/` 层。
 
 ---
 
@@ -12,19 +16,21 @@
 
 | 模块 | 现状 | 问题 |
 |---|---|---|
-| `popup/app.js` + `popup/providers/` | **原**唯一完整可用的功能；`BaseProvider` 静态类 + qwen/openai/deepgram（P2a 已下沉至 `transcription/providers/`） | 依赖全局 `window.PROVIDERS`；错误处理各自为政；仅"录完再转"，无流式/VAD |
-| `background/background.js` | 模板 demo（`getData`/`setData`） | 未承担 API 代理、密钥管理、消息路由 |
-| `content/content.js` + `.css` | 模板 demo（改背景色）+ 未使用的 overlay 样式 | 无"页面内听写"能力 |
-| 配置存储 | `chrome.storage.sync` 保存 `asrConfig`（含 API Key） | API Key 云同步，有泄露面 |
+| `popup/app.js` + `sidepanel` + `options` | 录音壳：麦克风/Tab 录音 + 配置表单（Provider 为文本输入框，API Key 加密） | 转录逻辑尚未接入 |
+| `background/background.js` | 消息路由 + offscreen 协调 + fill-text 转发 | 无 API 代理/转录（已删，待真流式重建） |
+| `content/content.js` + `.css` | 页面听写注入（`asr:fill-text`） | 保留，等转录结果 |
+| `audio/` | 仅 `recorder.js`（MediaRecorder 封装） | vad/pcm-capture/convert 已删（服务旧伪流式） |
+| `transcription/` | **已清空**（providers/transcriber 全删） | 待真流式重建 |
+| 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
 | 构建 / 质量 | 无构建/无 TS/无测试；lint 占位 | 依赖脚本加载顺序；无类型契约 |
-| `manifest.json` | `storage`/`activeTab`/`tabCapture`/`sidePanel`/`offscreen` + 三家 host（Qwen 双域名）；**`offscreen` 必须在 permissions 中**（缺失时 `chrome.offscreen` 为 `undefined`） | —（权限已齐备；`sidePanel`/`tabCapture` 为 P3 起补齐） |
+| `manifest.json` | `storage`/`activeTab`/`tabCapture`/`sidePanel`/`offscreen`，**无 host_permissions** | —（真流式接入后按需补 host） |
 
 ### 1.2 目标能力
 
-1. **快速转录**（现有）：popup 录音 → 云端 provider API → 文本
-2. **本地隐私转录**：transformers.js Whisper 本地推理，音频不出设备
-3. **标签页听写 / 实时转录**：任意输入框语音自动填入；VAD 分片边录边转
-4. **多提供商统一**：云 + 本地 provider 同接口，能力元数据化（流式?/本地?/默认模型?）
+1. **快速转录**（规划）：popup 录音 → 云端 provider API → 文本（待重建）
+2. **本地隐私转录**：transformers.js Whisper 本地推理，音频不出设备（规划）
+3. **标签页听写 / 实时转录**：任意输入框语音自动填入；**真 WebSocket 流式**（规划）
+4. **多提供商统一**：云 + 本地 provider 同接口，能力元数据化（流式?/本地?/默认模型?）（规划）
 
 ---
 
@@ -104,40 +110,29 @@
 > 标记：**〔已有〕** 已落地实现；**〔新增〕** 规划中尚未实现；**〔保留〕** 沿用现状；**〔修改〕** 现状需重构。目录均在仓库顶层落地。
 
 ```
-├── manifest.json            #  〔已有〕permissions + side_panel + options_ui + web_accessible_resources
+├── manifest.json            #  〔已有〕permissions + side_panel + options_ui（无 host_permissions）
 │
 # ── 入口层 ──────────────────────────────────────────────
 ├── popup/                   # 〔保留〕快速录音窗口
 │   ├── popup.html / popup.css
-│   └── app.js              # 〔修改〕接入 messaging，下沉录音/转录逻辑
-├── sidepanel/               #  〔已有〕实时转录/长会话面板（复用 popup/app.js + popup.css）
+│   └── app.js              # 〔已有〕录音壳 + 配置表单（Provider 为文本输入框）
+├── sidepanel/               #  〔已有〕长会话录音面板（复用 popup/app.js + popup.css）
 ├── options/                 #  〔已有〕全局设置 + 转录历史 + 存储状态
 ├── content/                 # 〔已有〕页面听写注入（监听 asr:fill-text 注入聚焦输入框）
 │   └── content.js / content.css
 ├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder）
 │   └── offscreen.html / offscreen.js
 ├── background/
-│   └── background.js        # 〔已有〕消息路由 + API 代理 + offscreen 协调
+│   └── background.js        # 〔已有〕消息路由 + offscreen 协调 + fill-text 转发
 │
 # ── 音频层 ──────────────────────────────────────────────
 ├── audio/
-│   ├── recorder.js         #  〔已有〕MediaRecorder 封装（popup 麦克风 + offscreen 标签页共用）
-│   ├── vad.js              #  〔已有〕能量阈值 VAD（滞回 + 最短语音/静音时长，纯逻辑可测）
-│   ├── convert.js          #  〔已有〕Float32 PCM → WAV、分片拼接
-│   ├── pcm-capture.js      #  〔已有〕PCM 帧采集（AudioWorklet，回退 ScriptProcessor）
-│   └── pcm-worklet.js      #  〔已有〕AudioWorklet 处理器（web_accessible_resources 暴露）
+│   └── recorder.js         #  〔已有〕MediaRecorder 封装（popup 麦克风 + offscreen 标签页共用）
 │
-# ── 转录层 ──────────────────────────────────────────────
+# ── 转录层（已清空，待真流式重建） ──────────────────────
 ├── transcription/
-│   ├── providers/          #  〔已有〕由 popup/providers/ 迁入并扩展
-│   │   ├── base.js         #  〔已有〕BaseProvider：补能力元数据（isLocal/supportsStreaming）
-│   │   ├── qwen.js / openai.js / deepgram.js   # 现有实现迁移
-│   │   ├── groq.js / google.js                 # 按 .env 预留补齐（可选）
-│   │   └── index.js        #  〔已有〕注册表 + getProviderById 查询
-│   ├── local/
-│   │   ├── whisper-worker.js   # Web Worker：transformers.js 本地推理
-│   │   └── whisper.js         # worker 调用端封装（进度/错误/生命周期）
-│   └── transcriber.js      #  〔已有〕统一调度：校验 + 调用 + 结果归一（能力感知）
+│   ├── providers/          #  〔规划〕真 WebSocket 流式 provider（base + 各云端）
+│   └── transcriber.js      #  〔规划〕调度：批量/流式/错误标准化
 │
 # ── 存储层 ──────────────────────────────────────────────
 ├── store/
@@ -148,7 +143,7 @@
 │
 # ── 契约与共享层 ─────────────────────────────────────────
 ├── messaging/               # 〔已有〕跨上下文消息契约
-│   ├── messages.js         #  〔已有〕类型化 action + target 路由（transcribe / fill-text / tab-record-*）
+│   ├── messages.js         #  〔已有〕类型化 action + target 路由（fill-text / tab-record-*）
 │   └── client.js           #  〔已有〕sendMessage 封装（promise + 错误）
 ├── shared/
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
@@ -170,12 +165,12 @@
 | 优先级 | 事项 | 涉及 | 状态 |
 |---|---|---|---|
 | P0 | **密钥安全**：全部配置存 `storage.local`，apiKey 经 WebCrypto 加密 | `store/config.js`、`store/crypto.js`、`popup/app.js` | ✅ 已落地 |
-| P1 | **background 职责落地**：消息路由 + API 代理 | `background/background.js`、`messaging/` | ✅ 已落地 |
+| P1 | **background 职责落地**：消息路由 | `background/background.js`、`messaging/` | ✅ 已落地 |
 | P1 | **content 职责落地**：页面听写注入 | `content/` | ✅ 已落地 |
-| P2 | **转录层下沉与统一**：provider 迁移 + 调度层 + 错误标准化 | `transcription/` | ✅ 已落地 |
+| P2 | **转录层清理**：删除伪流式（VAD 分段）、批量 provider、Transcribe 调度 | `transcription/`、`audio/vad|pcm-capture|convert`、`popup/` | ✅ 已落地 |
+| P2 | **真 WebSocket 流式**：重建 `transcription/` provider + 调度（如 Qwen run-task / Deepgram） | `transcription/`、`audio/` | ⏳ 待做（重建层） |
 | P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
-| P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/`、`manifest.json` | ✅ 已落地 |
-| P3 | **实时流式 + VAD**：边录边转（VAD 分段增量式；真 WebSocket 流式见 supportsStreaming 预留） | `audio/vad`、`audio/pcm-capture`、`popup/` | ✅ 已落地 |
+| P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/recorder.js`、`manifest.json` | ✅ 已落地 |
 | P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ✅ 已落地 |
 | 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |
 
@@ -186,6 +181,6 @@
 1. **Worker 分离**：Whisper 推理在 Web Worker，不阻塞 UI（源自 whisper-web、ainoya）
 2. **Offscreen 采集**：`tabCapture`/MediaRecorder 无法在 service worker 运行，须放 offscreen document（MV3 限制）
 3. **消息契约**：popup/background/content/offscreen 间用类型化消息通信
-4. **可插拔 provider**：延续 `BaseProvider` 抽象，补能力元数据与错误契约；本地推理与云端 API 同接口
+4. **可插拔 provider**：真流式重建时延续 `BaseProvider` 抽象，补能力元数据与错误契约；本地推理与云端 API 同接口
 5. **隐私默认**：本地转录免 API Key、免上传；云端密钥仅存 `storage.local`
 6. **渐进演进**：不引入构建工具，保持"Load unpacked 即跑"

@@ -1,55 +1,38 @@
-# Chrome Extension — Multi-Provider ASR
+# Chrome Extension — Speech Recording
 
-A Manifest V3 Chrome extension that records audio from the popup and transcribes it using one of several speech recognition providers (Qwen / OpenAI Transcription / Deepgram / or your own).
+A Manifest V3 Chrome extension that records audio from the popup or the active tab. Transcription providers have been removed pending a future true WebSocket streaming layer; the extension currently serves as a **recording shell** with config + encrypted API-key storage reserved for that next step.
 
 ## Features
 
-- **Vendor-agnostic popup framework** — switch providers from a dropdown
-- **Voice recording** directly from the popup (webm / mp4 / wav)
-- **Cloud transcription** via configurable API endpoints (Qwen / OpenAI Transcription / Deepgram)
-- **Background API proxy** — transcription goes through the service worker; API keys are never exposed to content scripts
-- **Page fill-in** — inject transcription into any focused input / textarea / contenteditable on the current tab
+- **Microphone recording** directly from the popup (webm / mp4 / wav)
 - **Tab audio recording** — record tab audio (meetings, videos) via `chrome.tabCapture` + offscreen document
-- **Live streaming transcription** — mic PCM → energy-threshold VAD segments → each segment transcribed and shown incrementally
-- **Side panel + options page** — persistent panel for long sessions (reuses popup logic); options page for settings, history, and storage status
-- **Transcription history** — recent results kept in IndexedDB (max 50), browsable in options
-- **One-click copy** of the transcription result
-- **Pluggable provider system** — add a new provider by dropping in one file under `transcription/providers/`
+- **Config forms** — Provider / API Key / Endpoint / Model / audio format, persisted locally
 - **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
+- **Result area + Copy + Fill into page** — UI reserved for transcription results (no transcription backend yet)
+- **Side panel + options page** — persistent panel (reuses popup logic); options page for settings, history, and storage status
+- **Transcription history** — IndexedDB store kept; will record results once transcription is reconnected
 
 ## Project Structure
 
 ```
 .
 ├── manifest.json             # Extension configuration (MV3)
-├── popup/                    # Popup UI (recording + transcription)
+├── popup/                    # Popup UI (recording + config)
 │   ├── popup.html
 │   ├── popup.css
 │   └── app.js                # Main UI logic
-├── transcription/            # Transcription layer (used by popup + background)
-│   ├── providers/            # Cloud ASR providers
-│   │   ├── base.js           # BaseProvider (abstract + capability metadata)
-│   │   ├── qwen.js           # Qwen (DashScope)
-│   │   ├── openai.js         # OpenAI Transcription
-│   │   ├── deepgram.js       # Deepgram
-│   │   └── index.js          # Provider registry + lookup
-│   └── transcriber.js        # Unified dispatch: validation, call, result normalization
 ├── sidepanel/                 # Side panel UI (persistent; reuses popup/app.js + popup.css)
 │   └── sidepanel.html
 ├── options/                   # Options page (settings + history + storage status)
 │   ├── options.html
 │   └── options.js
 ├── background/
-│   └── background.js         # Service worker — message router + API proxy + offscreen coordinator
+│   └── background.js         # Service worker — message router + offscreen coordinator
 ├── offscreen/                # Offscreen document (tab audio capture, MV3 requirement)
 │   ├── offscreen.html
 │   └── offscreen.js
-├── audio/                    # Audio layer
-│   ├── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
-│   ├── vad.js                # Energy-threshold VAD state machine (pure logic, testable)
-│   ├── convert.js            # Float32 PCM → WAV blob, chunk concat
-│   ├── pcm-capture.js        # PCM frame capture (AudioWorklet, ScriptProcessor fallback)
-│   └── pcm-worklet.js        # AudioWorklet processor (loaded via web_accessible_resources)
+├── audio/
+│   └── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
 ├── content/                  # Content scripts (page dictation injection)
 │   ├── content.js
 │   └── content.css
@@ -77,28 +60,11 @@ A Manifest V3 Chrome extension that records audio from the popup and transcribes
 
 1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select this project directory.
 2. Click the extension icon in the toolbar.
-3. Choose a **Provider** from the dropdown (Qwen / OpenAI / Deepgram).
-4. Enter your **API Key** for that provider (stored encrypted in `storage.local`, never synced).
-5. Adjust **Endpoint URL** / **Model** if needed (defaults are pre-filled).
-6. Click **Start Recording**, speak, then **Stop Recording**, then **Transcribe** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video), then **Transcribe**. **Live Stream** transcribes your speech segment-by-segment while you talk (no separate Transcribe step).
-7. Optional: click **Fill into page** to inject the transcription into the currently focused input field on the active tab.
+3. Fill in Provider / API Key / Endpoint / Model as desired (stored encrypted / locally).
+4. Click **Start Recording**, speak, then **Stop Recording** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video).
+5. Transcription is not yet wired back in; the Result / Copy / Fill area is reserved for it.
 
-Other entry points: the **Side panel** button keeps the panel open for long sessions (recommended for Live Stream); **Options** opens the settings/history/storage page (also available via `chrome://extensions` → Details → Extension options).
-
-## Built-in Providers
-
-| Provider | Endpoint field | Default model | Host permission |
-|---|---|---|---|
-| Qwen (DashScope) | optional (defaults to DashScope) | `qwen3-asr-flash` | `dashscope.aliyuncs.com` / `dashscope-intl.aliyuncs.com` |
-| OpenAI Transcription | optional (defaults to OpenAI) | `gpt-4o-mini-transcribe` | `api.openai.com` |
-| Deepgram | optional (defaults to Deepgram) | `nova-3` | `api.deepgram.com` |
-
-## Adding a New Provider
-
-1. Create `transcription/providers/<id>.js` extending `BaseProvider`.
-2. Register it in `transcription/providers/index.js`.
-3. Import the script **before** main logic in every entry page: `popup/popup.html`, `sidepanel/sidepanel.html`, `options/options.html`, and via `importScripts` in `background/background.js`.
-4. Add the provider's host domain to `host_permissions` in `manifest.json`.
+Other entry points: the **Side panel** button keeps the panel open for long sessions; **Options** opens the settings/history/storage page (also available via `chrome://extensions` → Details → Extension options).
 
 ## Permissions
 
@@ -106,7 +72,7 @@ Other entry points: the **Side panel** button keeps the panel open for long sess
 - `activeTab` — query the active tab for the "Fill into page" feature and for tab audio capture
 - `tabCapture` — capture tab audio (paired with an offscreen document, which needs no extra permission)
 - `sidePanel` — open the persistent side panel (`chrome.sidePanel.open()`)
-- Host permissions for each built-in provider endpoint
+- `offscreen` — create the offscreen document for tab capture
 
 ## License
 

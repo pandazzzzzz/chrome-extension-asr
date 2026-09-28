@@ -72,7 +72,7 @@
 
     <h2>1. Provider 配置</h2>
     <label for="provider">Provider</label>
-    <select id="provider"></select>
+    <input id="provider" type="text" placeholder="provider id" autocomplete="off">
 
     <label for="apiKey">API Key</label>
     <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
@@ -119,11 +119,6 @@
     <div id="status"></div>
   </div>
 
-  <script src="../transcription/providers/base.js"></script>
-  <script src="../transcription/providers/qwen.js"></script>
-  <script src="../transcription/providers/openai.js"></script>
-  <script src="../transcription/providers/deepgram.js"></script>
-  <script src="../transcription/providers/index.js"></script>
   <script src="../store/crypto.js"></script>
   <script src="../store/config.js"></script>
   <script src="../store/history.js"></script>

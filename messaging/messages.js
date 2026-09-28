@@ -16,10 +16,6 @@
  *   { ok: false, error: { code, message } }     失败
  *
  * 当前定义的动作：
- *   asr:transcribe       popup → background
- *                        payload: { audio: { b64, mime }, provider, model, endpoint }
- *                        data:    string (转录文本)
- *
  *   asr:fill-text        popup → background → content
  *                        payload: { text }
  *                        data:    true（content 已注入；失败时 ok:false + NO_FIELD 等）
@@ -38,7 +34,6 @@
  * decodeAudio 还原成 Blob。请求与响应两个方向都要编码。
  */
 globalThis.MESSAGES = Object.freeze({
-  TRANSCRIBE: 'asr:transcribe',
   FILL_TEXT: 'asr:fill-text',
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',

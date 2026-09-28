@@ -16,7 +16,7 @@
 </head>
 <body>
 <h1>ASR Extension — P1 冒烟测试</h1>
-<p>本页模拟扩展上下文，加载核心脚本并验证：加密/解密、provider 类、消息契约、错误规范化。</p>
+<p>本页模拟扩展上下文，加载核心脚本并验证：加密/解密、消息契约、错误规范化。</p>
 
 <div id="results"></div>
 
@@ -29,12 +29,6 @@
 <script src="../messaging/client.js"></script>
 <script src="../store/crypto.js"></script>
 <script src="../store/config.js"></script>
-<script src="../transcription/providers/base.js"></script>
-<script src="../transcription/providers/qwen.js"></script>
-<script src="../transcription/providers/openai.js"></script>
-<script src="../transcription/providers/deepgram.js"></script>
-<script src="../transcription/providers/index.js"></script>
-<script src="../transcription/transcriber.js"></script>
 
 <script>
 const results = document.getElementById('results');
@@ -88,9 +82,7 @@ async function runTests() {
     addResult('CryptoStore: invalid ciphertext throws', true, e.message.slice(0, 80));
   }
 
-  // --- 4. ConfigStore: save / load roundtrip (mock storage) ---
-  // 页面里没有 chrome.storage，但 ConfigStore 直接依赖它，所以我们只测
-  // ConfigStore 是否在 globalThis 上正确挂载
+  // --- 4. ConfigStore: module loaded on globalThis ---
   try {
     const ok = typeof globalThis.ConfigStore === 'object'
       && typeof globalThis.ConfigStore.load === 'function'
@@ -101,67 +93,21 @@ async function runTests() {
     addResult('ConfigStore: module loaded', false, e.message);
   }
 
-  // --- 5. Provider registry ---
-  try {
-    const p = globalThis.PROVIDERS || [];
-    const ids = p.map(x => x.id).sort().join(',');
-    const expected = ['deepgram', 'openai', 'qwen'];
-    const ok = p.length === 3 && p.every(x =>
-      typeof x.id === 'string' &&
-      typeof x.name === 'string' &&
-      typeof x.transcribe === 'function' &&
-      typeof x.defaultModel === 'string');
-    addResult('Providers: 3 registered, each with required API', ok,
-      `ids=[${ids}], 3 providers, all have id/name/transcribe/defaultModel`);
-  } catch (e) {
-    addResult('Providers: registry', false, e.message);
-  }
-
-  // --- 6. BaseProvider: blobToDataUrl (no FileReader) ---
-  try {
-    const blob = new Blob(['hello world'], { type: 'text/plain' });
-    const dataUrl = await globalThis.BaseProvider.blobToDataUrl(blob);
-    const ok = typeof dataUrl === 'string' && dataUrl.startsWith('data:text/plain;base64,');
-    // 反向解码验证内容
-    const b64 = dataUrl.split(',')[1];
-    const decoded = atob(b64);
-    const contentOk = decoded === 'hello world';
-    addResult('BaseProvider: blobToDataUrl works without FileReader', ok && contentOk,
-      `length=${dataUrl.length}, decoded="${decoded}"`);
-  } catch (e) {
-    addResult('BaseProvider: blobToDataUrl', false, e.message);
-  }
-
-  // --- 7. BaseProvider: getAudioFormat ---
-  try {
-    const cases = [
-      ['audio/webm', 'webm'],
-      ['audio/mp4', 'mp4'],
-      ['audio/wav', 'wav'],
-      ['audio/wav; codecs=pcm', 'wav'],
-      ['', 'webm'],
-    ];
-    const all = cases.every(([input, exp]) =>
-      globalThis.BaseProvider.getAudioFormat(input) === exp);
-    addResult('BaseProvider: getAudioFormat all cases', all,
-      cases.map(([i, e]) => `${i}->${e}`).join(', '));
-  } catch (e) {
-    addResult('BaseProvider: getAudioFormat', false, e.message);
-  }
-
-  // --- 8. Messages: constants defined ---
+  // --- 5. Messages: constants defined and frozen ---
   try {
     const m = globalThis.MESSAGES;
-    const ok = m.TRANSCRIBE === 'asr:transcribe'
-      && m.FILL_TEXT === 'asr:fill-text'
+    const ok = m.FILL_TEXT === 'asr:fill-text'
+      && m.TAB_RECORD_START === 'asr:tab-record-start'
+      && m.TAB_RECORD_STOP === 'asr:tab-record-stop'
+      && m.TRANSCRIBE === undefined
       && Object.isFrozen(m);
     addResult('MESSAGES: constants defined and frozen', ok,
-      `TRANSCRIBE="${m.TRANSCRIBE}", FILL_TEXT="${m.FILL_TEXT}"`);
+      `FILL_TEXT="${m.FILL_TEXT}", TAB_RECORD_START="${m.TAB_RECORD_START}", TAB_RECORD_STOP="${m.TAB_RECORD_STOP}", TRANSCRIBE removed=${m.TRANSCRIBE === undefined}`);
   } catch (e) {
     addResult('MESSAGES: constants', false, e.message);
   }
 
-  // --- 9. MessageClient: module loaded ---
+  // --- 6. MessageClient: module loaded ---
   try {
     const ok = typeof globalThis.MessageClient === 'object'
       && typeof globalThis.MessageClient.send === 'function';
@@ -171,7 +117,7 @@ async function runTests() {
     addResult('MessageClient: module loaded', false, e.message);
   }
 
-  // --- 10. Errors: unified codes + normalizeError ---
+  // --- 7. Errors: unified codes + normalizeError ---
   try {
     const e = globalThis.Errors;
     const required = ['NO_PROVIDER', 'NO_API_KEY', 'NO_AUDIO',
@@ -188,15 +134,15 @@ async function runTests() {
     addResult('Errors: codes', false, e.message);
   }
 
-  // --- 11. globalThis compatibility (providers on globalThis, not window) ---
+  // --- 8. globalThis compatibility (shared modules on globalThis, not window) ---
   try {
-    const ok = typeof globalThis.QwenProvider === 'function'
-      && typeof globalThis.OpenAIProvider === 'function'
-      && typeof globalThis.DeepgramProvider === 'function'
-      && typeof globalThis.BaseProvider === 'function'
-      && typeof globalThis.PROVIDERS === 'object';
-    addResult('globalThis: all providers/modules on globalThis (SW-compatible)', ok,
-      'Base/Qwen/OpenAI/Deepgram/PROVIDERS/ConfigStore/CryptoStore/MESSAGES/MessageClient/Errors all on globalThis');
+    const ok = typeof globalThis.MessageClient === 'object'
+      && typeof globalThis.ConfigStore === 'object'
+      && typeof globalThis.CryptoStore === 'object'
+      && typeof globalThis.MESSAGES === 'object'
+      && typeof globalThis.Errors === 'object';
+    addResult('globalThis: shared modules on globalThis (SW-compatible)', ok,
+      'MessageClient/ConfigStore/CryptoStore/MESSAGES/Errors all on globalThis');
   } catch (e) {
     addResult('globalThis: compat', false, e.message);
   }
