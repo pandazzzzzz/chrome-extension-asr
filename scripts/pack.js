@@ -10,12 +10,14 @@
  *      passed explicitly because `Compress-Archive` flattens relative paths)
  *   2. node:zlib zip writer (dependency-free fallback, works everywhere)
  *
- * Exclusions mirror the three patterns of the old command, plus `temp/`:
- *   - '*.git*'        → .git, .github, .gitignore, .gitattributes
- *   - 'node_modules/*'
- *   - '*.zip'         → never ship the archive into itself
- *   - 'temp/'        → local, gitignored test harness (holds a ~200MB
- *                      Chrome-for-Testing install that must not be shipped)
+ * Exclusions follow two rules:
+ *   - `.gitignore` is honored (use `git ls-files`) so local-only content never
+ *     ships — notably `docs/HANDOFF.md` (marked internal/unfinished) and the
+ *     `temp/` harness (holds a ~200MB Chrome-for-Testing install).
+ *   - distribution noise is dropped even when tracked:
+ *     '*.git*', 'node_modules/', '*.zip', docs/dev/test metadata (AGENTS.md,
+ *     CONTRIBUTING.md, .env.example, tests/, docs/).
+ *   Fallback when git is unavailable: filesystem walk + the static excludes.
  */
 'use strict';
 
@@ -35,6 +37,13 @@ const EXCLUDE = [
   /(^|\/)node_modules\//, // '-x node_modules/*'
   /\.zip$/, // '-x *.zip'
   /^temp\//, // local harness, gitignored — not distribution content
+  // Repo metadata that is not part of the shipped extension:
+  /^AGENTS\.md$/,
+  /^CONTRIBUTING\.md$/,
+  /^\.env\.example$/,
+  /^\.vscode\//, // IDE settings — root-level only
+  /^tests\//,
+  /^docs\//,
 ];
 
 function isExcluded(relPosix, isDir) {
@@ -42,8 +51,28 @@ function isExcluded(relPosix, isDir) {
   return EXCLUDE.some((re) => re.test(probe));
 }
 
-/** Collect repo-relative posix paths of every file to include, sorted. */
-function collect(root) {
+/** Repo-relative posix paths via git — honors .gitignore (tracked + staged only). */
+function collectWithGit() {
+  const r = spawnSync(
+    'git',
+    ['ls-files', '-c', '-o', '--exclude-standard'],
+    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (r.error || r.status !== 0) return null;
+  const out = [];
+  for (const raw of r.stdout.split('\n')) {
+    const rel = raw.trim().replace(/\\/g, '/');
+    if (!rel || isExcluded(rel, false)) continue;
+    // git lists untracked-but-not-ignored files too; drop ones that vanished
+    if (fs.existsSync(path.join(ROOT, ...rel.split('/'))) && fs.statSync(path.join(ROOT, ...rel.split('/'))).isFile()) {
+      out.push(rel);
+    }
+  }
+  return out.sort();
+}
+
+/** Filesystem walk fallback (no git available): ignores + static excludes. */
+function collectFromDisk() {
   const out = [];
   const walk = (dir, rel) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -56,7 +85,7 @@ function collect(root) {
       // symlinks and other specials are skipped on purpose (no cycles)
     }
   };
-  walk(root, '');
+  walk(ROOT, '');
   return out.sort();
 }
 
@@ -233,7 +262,7 @@ function packWithNode(relFiles) {
 
 function main() {
   const forceNode = process.argv.includes('--node');
-  const relFiles = collect(ROOT);
+  const relFiles = collectWithGit() || collectFromDisk();
   if (relFiles.length === 0) {
     console.error('[pack] nothing to archive');
     process.exitCode = 1;

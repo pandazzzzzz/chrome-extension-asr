@@ -44,6 +44,5 @@
     "tabCapture",
     "sidePanel",
     "offscreen"
-  ],
-  "host_permissions": []
+  ]
 }

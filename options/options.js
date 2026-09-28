@@ -23,7 +23,6 @@ function gatherElements() {
   els.provider = document.getElementById('provider');
   els.apiKey = document.getElementById('apiKey');
   els.endpoint = document.getElementById('endpoint');
-  els.endpointRow = document.getElementById('endpointRow');
   els.audioType = document.getElementById('audioType');
   els.model = document.getElementById('model');
   els.saveBtn = document.getElementById('saveBtn');

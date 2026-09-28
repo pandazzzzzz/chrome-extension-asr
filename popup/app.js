@@ -8,7 +8,7 @@
 
 // State
 let recorder = null;          // AudioRecorder 实例（麦克风）
-let audioBlob = null;         // 录音结果
+let audioBlob = null;         // 录音结果（由 Save audio 落盘；转录接入后复用）
 let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
 
@@ -34,6 +34,7 @@ function gatherElements() {
   els.audioTypeSelect = document.getElementById('audioType');
   els.recordBtn = document.getElementById('recordBtn');
   els.tabRecordBtn = document.getElementById('tabRecordBtn');
+  els.saveBtn = document.getElementById('saveBtn');
   els.resultText = document.getElementById('result');
   els.copyBtn = document.getElementById('copyBtn');
   els.fillBtn = document.getElementById('fillBtn');
@@ -51,6 +52,7 @@ function bindEvents() {
 
   els.recordBtn.addEventListener('click', toggleRecording);
   els.tabRecordBtn.addEventListener('click', toggleTabRecording);
+  els.saveBtn.addEventListener('click', handleSaveAudio);
   els.copyBtn.addEventListener('click', handleCopy);
   els.fillBtn.addEventListener('click', handleFillIntoPage);
   // 这两个按钮只在部分入口页存在（popup: options+panel；sidepanel: options）
@@ -140,6 +142,39 @@ async function stopTabRecording() {
   } catch (error) {
     showStatus(`Tab record stop failed: ${error.message}`, 'error');
   }
+}
+
+// ---------- Save recording ----------
+
+// 麦克风与 Tab 录音的结果都落到 audioBlob；转录尚未接入，这里先落盘
+// （createObjectURL + a[download]，无需 downloads 权限）。
+function handleSaveAudio() {
+  if (!audioBlob || !audioBlob.size) {
+    showStatus('No recording yet. Record something first.', 'error');
+    return;
+  }
+  const url = URL.createObjectURL(audioBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `recording-${timestampForFile()}.${extensionForMime(audioBlob.type)}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000); // 下载触发后再回收
+  showStatus(`Saved recording (${Math.max(1, Math.round(audioBlob.size / 1024))} KB).`, 'success');
+}
+
+/** 文件名时间戳：2026-09-28T19-30-00（冒号在 Windows 文件名非法）。 */
+function timestampForFile() {
+  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+}
+
+function extensionForMime(mime) {
+  const type = (mime || '').split(';')[0].trim();
+  if (type === 'audio/webm') return 'webm';
+  if (type === 'audio/mp4') return 'm4a';
+  if (type === 'audio/wav') return 'wav';
+  return 'webm';
 }
 
 // ---------- Navigation (optional buttons) ----------
