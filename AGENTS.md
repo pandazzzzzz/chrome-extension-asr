@@ -60,7 +60,7 @@ Manual validation before PR (each surface):
 - **Popup**: record → stop → **Save audio** downloads a file; config fields save; API key appears encrypted in `chrome.storage.local`.
 - **Side panel**: open panel; mic/tab recording works; status persists.
 - **Options**: settings save; history shows "No history yet." (nothing writes history until transcription returns); storage status shows key present.
-- **Content**: `Fill into page` keeps the message path working (empty result shows "Nothing to fill"; the channel itself must not error).
+- **Content**: paste text into Result → `Fill into page` inserts it into a focused input; with an empty Result, Copy/Fill are disabled (nothing to act on).
 - **Tab capture**: `Record Tab` keeps tab audio audible (must not mute the tab) and returns a recording.
 - Re-test install/update by reloading the extension.
 

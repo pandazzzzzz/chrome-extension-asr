@@ -41,6 +41,19 @@ function gatherElements() {
   els.optionsBtn = document.getElementById('optionsBtn'); // 可选：sidepanel/options 有
   els.panelBtn = document.getElementById('panelBtn'); // 可选：popup 有
   els.statusDiv = document.getElementById('status');
+
+  syncResultButtons();
+  els.resultText.addEventListener('input', syncResultButtons);
+}
+
+// Result 为空时禁用 Copy / Fill（handleCopy / handleFillIntoPage 自己也会拦，
+// 这里把"点也没用"直接说清楚）。
+// 注意：程序化赋值 result.value = text 不会触发 input 事件 —— 转录接入后，
+// 回调写完 result 必须显式调用本函数，否则按钮会一直是 disabled。
+function syncResultButtons() {
+  const disabled = !els.resultText.value.trim();
+  els.copyBtn.disabled = disabled;
+  els.fillBtn.disabled = disabled;
 }
 
 function bindEvents() {
@@ -71,10 +84,11 @@ async function toggleRecording() {
 }
 
 async function startRecording() {
+  let stream = null;
   try {
     audioBlob = null;
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     recorder = new AudioRecorder({ mimeType: els.audioTypeSelect.value });
     recorder.attach(stream);
     recorder.start();
@@ -85,8 +99,14 @@ async function startRecording() {
     showStatus('Recording... speak now.', 'success');
   } catch (error) {
     showStatus(`Cannot start recording: ${error.message}`, 'error');
+    // 两条清理线都要走：recorder 持有 stream 时由 release 停轨；
+    // 构造 recorder 就失败时只有裸 stream，需直接停轨（否则麦克风占用红点常驻）
     recorder?.release();
     recorder = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    isRecording = false;
+    els.recordBtn.textContent = 'Start Recording';
+    els.tabRecordBtn.disabled = false;
   }
 }
 
@@ -102,6 +122,9 @@ async function stopRecording() {
     showStatus('Recording complete.', 'success');
   } catch (error) {
     showStatus(`Recording failed: ${error.message}`, 'error');
+    // 失败路径同样要停轨 + 释放，否则音轨常驻、下次 start 又 new 一个实例
+    recorder.release();
+    recorder = null;
   }
 }
 
