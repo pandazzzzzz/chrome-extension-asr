@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ASR Demo",
   "version": "1.0.0",
-  "description": "A multi-provider speech recognition Chrome extension (Manifest V3)",
+  "description": "Speech recording Chrome extension (Manifest V3)",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -38,12 +38,6 @@
       "css": ["content/content.css"]
     }
   ],
-  "web_accessible_resources": [
-    {
-      "resources": ["audio/pcm-worklet.js"],
-      "matches": ["<all_urls>"]
-    }
-  ],
   "permissions": [
     "storage",
     "activeTab",
@@ -51,10 +45,5 @@
     "sidePanel",
     "offscreen"
   ],
-  "host_permissions": [
-    "https://dashscope.aliyuncs.com/*",
-    "https://dashscope-intl.aliyuncs.com/*",
-    "https://api.openai.com/*",
-    "https://api.deepgram.com/*"
-  ]
+  "host_permissions": []
 }

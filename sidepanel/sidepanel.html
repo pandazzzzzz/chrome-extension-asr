@@ -21,13 +21,13 @@
 <body>
   <!--
     Side panel — 复用 popup/app.js 与 popup.css（DOM id 保持一致）。
-    侧栏常驻不随点击关闭，适合 Live Stream 长会话录音。
+    侧栏常驻不随点击关闭，适合长会话录音。
   -->
   <div class="container">
     <h1>ASR</h1>
 
     <label for="provider">Provider</label>
-    <select id="provider"></select>
+    <input id="provider" type="text" placeholder="provider id" autocomplete="off">
 
     <label for="apiKey">API Key</label>
     <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
@@ -56,10 +56,6 @@
       <button id="recordBtn" class="primary">Start Recording</button>
       <button id="tabRecordBtn" class="secondary">Record Tab</button>
     </div>
-    <div class="btn-row">
-      <button id="streamBtn" class="secondary">Live Stream</button>
-      <button id="transcribeBtn" class="secondary" disabled>Transcribe</button>
-    </div>
 
     <label for="result">Result</label>
     <textarea id="result" rows="8" placeholder="Transcription will appear here..."></textarea>
@@ -72,11 +68,6 @@
     <div id="status"></div>
   </div>
 
-  <script src="../transcription/providers/base.js"></script>
-  <script src="../transcription/providers/qwen.js"></script>
-  <script src="../transcription/providers/openai.js"></script>
-  <script src="../transcription/providers/deepgram.js"></script>
-  <script src="../transcription/providers/index.js"></script>
   <script src="../shared/errors.js"></script>
   <script src="../messaging/messages.js"></script>
   <script src="../messaging/client.js"></script>
@@ -84,9 +75,6 @@
   <script src="../store/config.js"></script>
   <script src="../store/history.js"></script>
   <script src="../audio/recorder.js"></script>
-  <script src="../audio/vad.js"></script>
-  <script src="../audio/convert.js"></script>
-  <script src="../audio/pcm-capture.js"></script>
   <script src="../popup/app.js"></script>
 </body>
 </html>
