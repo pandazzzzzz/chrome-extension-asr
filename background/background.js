@@ -6,11 +6,9 @@
 //   - asr:fill-text：转发给当前活动 tab 的 content script
 
 // MV3 service worker 为经典脚本，用 importScripts 同步加载依赖。
-// 顺序：共享错误 → 存储 → 消息契约
+// 顺序：共享错误 → 消息契约（配置/加密由 popup 侧读取，此处不涉密钥）
 importScripts(
   '../shared/errors.js',
-  '../store/crypto.js',
-  '../store/config.js',
   '../messaging/messages.js',
 );
 
@@ -79,7 +77,7 @@ async function ensureOffscreenDocument() {
   creatingOffscreen = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
     reasons: ['USER_MEDIA'],
-    justification: 'Recording tab audio via chrome.tabCapture for transcription',
+    justification: 'Recording tab audio for transcription',
   }).finally(() => {
     creatingOffscreen = null;
   });

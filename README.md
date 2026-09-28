@@ -6,6 +6,7 @@ A Manifest V3 Chrome extension that records audio from the popup or the active t
 
 - **Microphone recording** directly from the popup (webm / mp4 / wav)
 - **Tab audio recording** — record tab audio (meetings, videos) via `chrome.tabCapture` + offscreen document
+- **Save audio** — download the last recording (mic or tab) to disk
 - **Config forms** — Provider / API Key / Endpoint / Model / audio format, persisted locally
 - **Encrypted local storage** — API keys stored encrypted (AES-GCM via WebCrypto) in `chrome.storage.local` (no cloud sync)
 - **Result area + Copy + Fill into page** — UI reserved for transcription results (no transcription backend yet)
@@ -62,7 +63,7 @@ A Manifest V3 Chrome extension that records audio from the popup or the active t
 2. Click the extension icon in the toolbar.
 3. Fill in Provider / API Key / Endpoint / Model as desired (stored encrypted / locally).
 4. Click **Start Recording**, speak, then **Stop Recording** — or click **Record Tab** to record the active tab's audio (e.g. a meeting or video).
-5. Transcription is not yet wired back in; the Result / Copy / Fill area is reserved for it.
+5. Click **Save audio** to download the recording. Transcription is not yet wired back in; the Result / Copy / Fill area is reserved for it.
 
 Other entry points: the **Side panel** button keeps the panel open for long sessions; **Options** opens the settings/history/storage page (also available via `chrome://extensions` → Details → Extension options).
 

@@ -44,7 +44,7 @@ Local development:
 
 Automated checks (Node):
 - Syntax: `node --check <file>` for every `.js`.
-- Unit logic (no browser needed): `store/history` are pure logic — testable in Node with small mocks. (VAD/convert were removed with pseudo-streaming.)
+- Unit logic (no browser needed): `store/history` is pure logic — testable in Node with small mocks. (VAD/convert were removed with pseudo-streaming.)
 - Browser smoke test: open `tests/p1-smoke-test.html` in Chrome (loads real modules, verifies crypto / config / messaging / error helpers).
 
 ## Coding Style & Naming Conventions
@@ -57,9 +57,9 @@ If you add lint/format tooling, keep rules aligned with the existing style and u
 
 ## Testing Guidelines
 Manual validation before PR (each surface):
-- **Popup**: record → stop; config fields save; API key appears encrypted in `chrome.storage.local`.
+- **Popup**: record → stop → **Save audio** downloads a file; config fields save; API key appears encrypted in `chrome.storage.local`.
 - **Side panel**: open panel; mic/tab recording works; status persists.
-- **Options**: settings save; history lists recent transcriptions; storage status shows key present.
+- **Options**: settings save; history shows "No history yet." (nothing writes history until transcription returns); storage status shows key present.
 - **Content**: `Fill into page` keeps the message path working (empty result shows "Nothing to fill"; the channel itself must not error).
 - **Tab capture**: `Record Tab` keeps tab audio audible (must not mute the tab) and returns a recording.
 - Re-test install/update by reloading the extension.
