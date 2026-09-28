@@ -55,6 +55,13 @@
 
 ## 3. 目标架构图
 
+> ⚠️ **本节是目标蓝图，不是现状。** 现状见 §1.1 与文档头「现状快照」。
+> 图中 `transcription/providers`、`transcription/transcriber`、`local/`、
+> `model-cache`、`shared/utils` 与 `background` 的「密钥/配置管理」「API 代理」
+> 职责**均未落地**（密钥/配置现由 popup/options 页面直接读写，background 只做消息路由）。
+> `audio` 层的 `pcm-capture` / `vad` / `convert` 随旧伪流式一并删除，真流式重建时
+> 按本图重新引入，**不要按图索骥 `importScripts` 这些尚不存在的文件**。
+
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                       MV3 入口点 (Extension Contexts)                  │
