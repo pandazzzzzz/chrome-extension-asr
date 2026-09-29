@@ -1,25 +1,49 @@
 /**
- * Popup app — recording shell.
+ * Popup app — recording shell + realtime WebSocket streaming transcription.
  *
- * 当前只负责音频采集：麦克风录音与标签页录音（经 background → offscreen）。
- * 配置（provider / apiKey / endpoint / model）持久化到本地，apiKey 加密存储，
- * 为后续接入真 WebSocket 流式转录预留。转录逻辑尚未接入。
+ * 录音壳：麦克风录音、标签页录音（经 background → offscreen）、Save audio 下载。
+ * 真流式：Live Stream 按钮 → PCM 采集（AudioWorklet）→ 百炼 WebSocket run-task
+ * 协议 → 字幕式 partial/final 实时回显。
+ *
+ * 批量转录（Transcribe 按钮 + VAD 分段）已随旧伪流式删除；当前 provider
+ * （Qwen）supportsStreaming === true，流式直接走 WebSocket，本地不做 VAD。
  */
 
 // State
 let recorder = null;          // AudioRecorder 实例（麦克风）
-let audioBlob = null;         // 录音结果（由 Save audio 落盘；转录接入后复用）
+let audioBlob = null;         // 录音结果（由 Save audio 落盘）
 let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
+let isStreaming = false;      // 真流式转录中（麦克风 PCM → WebSocket）
+
+// 流式会话（Live Stream 模式）
+const streamSession = {
+  context: null,
+  capture: null,
+  stream: null,
+  wsSession: null,   // 真 WebSocket 流式会话（supportsStreaming provider）
+  finalText: '',     // 已定稿的完整句文本
+  partialText: '',   // 当前进行中的句子
+  providerId: '',
+  model: '',
+  endpoint: '',
+  apiKey: '',
+};
+
+const STREAM = {
+  frameSize: 1024,
+};
 
 // DOM references
 const els = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   gatherElements();
+  populateProviderSelect();
 
   const config = await loadConfig();
   applyConfigToUI(config);
+  onProviderChange(); // 按选中 provider 更新 endpoint 可见性 + 默认值
 
   bindEvents();
 });
@@ -27,14 +51,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ---------- UI setup ----------
 
 function gatherElements() {
-  els.providerInput = document.getElementById('provider');
+  els.providerSelect = document.getElementById('provider');
   els.apiKeyInput = document.getElementById('apiKey');
   els.endpointInput = document.getElementById('endpoint');
+  els.endpointRow = document.getElementById('endpointRow');
   els.modelInput = document.getElementById('model');
   els.audioTypeSelect = document.getElementById('audioType');
   els.recordBtn = document.getElementById('recordBtn');
   els.tabRecordBtn = document.getElementById('tabRecordBtn');
   els.saveBtn = document.getElementById('saveBtn');
+  els.streamBtn = document.getElementById('streamBtn');
   els.resultText = document.getElementById('result');
   els.copyBtn = document.getElementById('copyBtn');
   els.fillBtn = document.getElementById('fillBtn');
@@ -46,10 +72,52 @@ function gatherElements() {
   els.resultText.addEventListener('input', syncResultButtons);
 }
 
+// 把注册表里的 provider 填进下拉框（<select id="provider">）
+function populateProviderSelect() {
+  const providers = globalThis.PROVIDERS || [];
+  providers.forEach((provider) => {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = provider.name;
+    els.providerSelect.appendChild(option);
+  });
+}
+
+function getCurrentProvider() {
+  const id = els.providerSelect.value;
+  return globalThis.PROVIDERS?.find((p) => p.id === id) || null;
+}
+
+function onProviderChange() {
+  const provider = getCurrentProvider();
+  if (!provider) return;
+
+  // Model 输入框为空时填入 provider 默认流式模型
+  if (!els.modelInput.value.trim()) {
+    els.modelInput.value = provider.defaultModel || provider.defaultStreamModel || '';
+  }
+
+  // 支持流式的 provider：提示可选流式模型（批量与流式模型常不同）
+  if (provider.supportsStreaming) {
+    els.modelInput.placeholder = 'e.g. fun-asr-realtime';
+    els.modelInput.title = 'Live Stream 使用此模型；批量模型发给 run-task 会被服务端 task-failed';
+  } else {
+    els.modelInput.removeAttribute('placeholder');
+    els.modelInput.removeAttribute('title');
+  }
+
+  // endpoint 字段显隐（provider.hasEndpoint 决定）
+  if (provider.hasEndpoint && els.endpointRow) {
+    els.endpointRow.style.display = '';
+  } else if (els.endpointRow) {
+    els.endpointRow.style.display = 'none';
+  }
+}
+
 // Result 为空时禁用 Copy / Fill（handleCopy / handleFillIntoPage 自己也会拦，
 // 这里把"点也没用"直接说清楚）。
-// 注意：程序化赋值 result.value = text 不会触发 input 事件 —— 转录接入后，
-// 回调写完 result 必须显式调用本函数，否则按钮会一直是 disabled。
+// 注意：程序化赋值 result.value = text 不会触发 input 事件 —— 流式回调写完
+// result 必须显式调用本函数，否则按钮会一直是 disabled。
 function syncResultButtons() {
   const disabled = !els.resultText.value.trim();
   els.copyBtn.disabled = disabled;
@@ -57,7 +125,10 @@ function syncResultButtons() {
 }
 
 function bindEvents() {
-  els.providerInput.addEventListener('change', persistConfig);
+  els.providerSelect.addEventListener('change', async () => {
+    onProviderChange();
+    await persistConfig();
+  });
   els.apiKeyInput.addEventListener('change', persistConfig);
   els.endpointInput.addEventListener('change', persistConfig);
   els.modelInput.addEventListener('change', persistConfig);
@@ -66,11 +137,26 @@ function bindEvents() {
   els.recordBtn.addEventListener('click', toggleRecording);
   els.tabRecordBtn.addEventListener('click', toggleTabRecording);
   els.saveBtn.addEventListener('click', handleSaveAudio);
+  els.streamBtn.addEventListener('click', toggleStreaming);
   els.copyBtn.addEventListener('click', handleCopy);
   els.fillBtn.addEventListener('click', handleFillIntoPage);
   // 这两个按钮只在部分入口页存在（popup: options+panel；sidepanel: options）
   els.optionsBtn?.addEventListener('click', handleOpenOptions);
   els.panelBtn?.addEventListener('click', handleOpenPanel);
+}
+
+// 三路录音互斥：开启任一路时禁用其它两路按钮（active 路保留自身）
+function disableOtherRecordButtons(active) {
+  els.recordBtn.disabled = els.recordBtn !== active;
+  els.tabRecordBtn.disabled = els.tabRecordBtn !== active;
+  els.streamBtn.disabled = els.streamBtn !== active;
+}
+
+// 停止后恢复三路按钮
+function enableAllRecordButtons() {
+  els.recordBtn.disabled = false;
+  els.tabRecordBtn.disabled = false;
+  els.streamBtn.disabled = false;
 }
 
 // ---------- Recording (microphone) ----------
@@ -95,7 +181,7 @@ async function startRecording() {
 
     isRecording = true;
     els.recordBtn.textContent = 'Stop Recording';
-    els.tabRecordBtn.disabled = true; // 互斥：同一时刻只能录一路
+    disableOtherRecordButtons(els.recordBtn);
     showStatus('Recording... speak now.', 'success');
   } catch (error) {
     showStatus(`Cannot start recording: ${error.message}`, 'error');
@@ -106,14 +192,13 @@ async function startRecording() {
     stream?.getTracks().forEach((t) => t.stop());
     isRecording = false;
     els.recordBtn.textContent = 'Start Recording';
-    els.tabRecordBtn.disabled = false;
+    enableAllRecordButtons();
   }
 }
 
 async function stopRecording() {
   if (!recorder) return;
   els.recordBtn.textContent = 'Start Recording';
-  els.tabRecordBtn.disabled = false;
   isRecording = false;
   try {
     audioBlob = await recorder.stop();
@@ -125,6 +210,8 @@ async function stopRecording() {
     // 失败路径同样要停轨 + 释放，否则音轨常驻、下次 start 又 new 一个实例
     recorder.release();
     recorder = null;
+  } finally {
+    enableAllRecordButtons();
   }
 }
 
@@ -147,29 +234,31 @@ async function startTabRecording() {
 
     isTabRecording = true;
     els.tabRecordBtn.textContent = 'Stop Tab Rec';
-    els.recordBtn.disabled = true; // 互斥：同一时刻只能录一路
+    disableOtherRecordButtons(els.tabRecordBtn);
     showStatus('Recording tab audio... play something in the tab.', 'success');
   } catch (error) {
     showStatus(`Tab record failed: ${error.message}`, 'error');
+    enableAllRecordButtons();
   }
 }
 
 async function stopTabRecording() {
   isTabRecording = false;
   els.tabRecordBtn.textContent = 'Record Tab';
-  els.recordBtn.disabled = false;
   try {
     // offscreen 返回 { b64, mime }（JSON 消息通道无法传 Blob），这里还原
     audioBlob = globalThis.decodeAudio(await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STOP, {}));
     showStatus('Tab recording complete.', 'success');
   } catch (error) {
     showStatus(`Tab record stop failed: ${error.message}`, 'error');
+  } finally {
+    enableAllRecordButtons();
   }
 }
 
 // ---------- Save recording ----------
 
-// 麦克风与 Tab 录音的结果都落到 audioBlob；转录尚未接入，这里先落盘
+// 麦克风与 Tab 录音的结果都落到 audioBlob（批量转录已删，先落盘）
 // （createObjectURL + a[download]，无需 downloads 权限）。
 function handleSaveAudio() {
   if (!audioBlob || !audioBlob.size) {
@@ -198,6 +287,192 @@ function extensionForMime(mime) {
   if (type === 'audio/mp4') return 'm4a';
   if (type === 'audio/wav') return 'wav';
   return 'webm';
+}
+
+// ---------- Streaming transcription (realtime WebSocket) ----------
+//
+// 原理：麦克风 → PCM 帧（AudioWorklet，createPcmCapture）→ 重采样 16kHz →
+// Int16 → WebSocket（百炼 run-task）→ 服务端逐句返回 partial/final → 字幕式回显。
+// 服务端负责分段，本地不做 VAD（VAD 分段批量已随伪流式删除）。
+
+async function toggleStreaming() {
+  if (!isStreaming) {
+    await startStreaming();
+  } else {
+    await stopStreaming();
+  }
+}
+
+async function startStreaming() {
+  const provider = getCurrentProvider();
+  if (!provider) {
+    showStatus('No provider selected.', 'error');
+    return;
+  }
+  if (!provider.supportsStreaming) {
+    showStatus('Provider does not support streaming.', 'error');
+    return;
+  }
+  const apiKey = els.apiKeyInput.value.trim();
+  if (!apiKey) {
+    showStatus('API key required for streaming.', 'error');
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // 真流式服务端只收 16kHz PCM。直接把 AudioContext 建在 16kHz（官方 demo 同法），
+    // 浏览器在源节点处做原生重采样 —— 避免逐帧软件重采样的相位不连续与时序漂移。
+    // 旧浏览器不支持 sampleRate 选项时回退默认采样率，onStreamFrame 里再软件重采样。
+    let context;
+    try {
+      context = new AudioContext({ sampleRate: 16000 });
+    } catch {
+      context = new AudioContext();
+    }
+    await context.resume(); // 用户手势内解锁
+
+    streamSession.stream = stream;
+    streamSession.context = context;
+    streamSession.providerId = provider.id;
+    streamSession.apiKey = apiKey;
+    streamSession.finalText = '';
+    streamSession.partialText = '';
+    streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel || provider.defaultModel;
+    streamSession.endpoint = els.endpointInput.value.trim() || undefined;
+
+    // 批量模型（如 qwen3-asr-flash）不能用于 run-task —— 用流式默认模型兜底
+    if (!provider.isStreamModel(streamSession.model)) {
+      streamSession.model = provider.defaultStreamModel || 'fun-asr-realtime';
+      showStatus(`Using realtime model ${streamSession.model} (batch model not valid for streaming).`, 'success');
+    }
+
+    // 先建会话：必须等 task-started（await ready）才开始采音，
+    // 否则 task-started 之前的音频帧被 sendAudio 丢弃 → 丢开头首句
+    const wsSession = provider.createStreamSession({
+      apiKey: streamSession.apiKey,
+      model: streamSession.model,
+      endpoint: streamSession.endpoint,
+      onResult: onStreamResult,
+      onError: (e) => showStatus(`Stream error: ${e.message}`, 'error'),
+      onComplete: () => {},
+    });
+    try {
+      await wsSession.ready; // 启动失败/超时会 throw，由外层 catch 兜底
+    } catch (e) {
+      wsSession.close(); // 关掉未就绪的连接，避免泄漏
+      throw e;
+    }
+    streamSession.wsSession = wsSession;
+
+    streamSession.capture = globalThis.createPcmCapture({
+      stream,
+      context,
+      frameSize: STREAM.frameSize,
+      onFrame: onStreamFrame,
+    });
+    await streamSession.capture.start();
+
+    els.resultText.value = '';
+    syncResultButtons(); // 清空后同步禁用 Copy/Fill
+
+    isStreaming = true;
+    els.streamBtn.textContent = 'Stop Stream';
+    disableOtherRecordButtons(els.streamBtn);
+    showStatus('Streaming: speak, results will appear as you go.', 'success');
+  } catch (error) {
+    showStatus(`Cannot start streaming: ${error.message}`, 'error');
+    await teardownStreaming();
+    enableAllRecordButtons();
+  }
+}
+
+async function stopStreaming() {
+  isStreaming = false;
+
+  // 等待服务端 finish-task 确认，尾音/最后一句由 flushPartial 落定
+  try {
+    await streamSession.wsSession?.stop();
+  } catch {
+    /* 忽略 stop 阶段错误，仍继续清理 */
+  }
+
+  await teardownStreaming();
+
+  els.streamBtn.textContent = 'Live Stream';
+  enableAllRecordButtons();
+
+  // 把最后的进行中句子并入定稿
+  flushPartial();
+  showStatus('Streaming stopped.', 'success');
+
+  // 流式结束：把最终合并文本作为一条历史记录
+  const finalText = els.resultText.value.trim();
+  if (finalText) {
+    saveToHistory(finalText, streamSession.providerId, streamSession.model);
+  }
+}
+
+async function teardownStreaming() {
+  try {
+    streamSession.capture?.stop();
+  } catch {
+    /* ignore */
+  }
+  streamSession.capture = null;
+
+  streamSession.wsSession?.close();
+  streamSession.wsSession = null;
+
+  if (streamSession.stream) {
+    streamSession.stream.getTracks().forEach((t) => t.stop());
+    streamSession.stream = null;
+  }
+  if (streamSession.context) {
+    await streamSession.context.close().catch(() => {});
+    streamSession.context = null;
+  }
+}
+
+// 每收到一帧 PCM：重采样到 16kHz → 转 Int16 → 发 WebSocket（服务端负责分段）
+function onStreamFrame(frame) {
+  const session = streamSession;
+  if (!session.wsSession || !session.context) return;
+  const sampleRate = session.context.sampleRate;
+  const resampled = globalThis.resampleFloat32(frame, sampleRate, 16000);
+  const int16 = globalThis.floatToInt16(resampled);
+  session.wsSession.sendAudio(int16);
+}
+
+// 服务端逐帧返回句子：sentence_end=false 是进行中的中间结果（实时覆盖），
+// sentence_end=true 表示完整句（追加进定稿文本）。
+function onStreamResult({ text, sentenceEnd }) {
+  if (sentenceEnd) {
+    // 完整句：并入定稿，清空进行中
+    streamSession.finalText = (streamSession.finalText + ' ' + text).trim();
+    streamSession.partialText = '';
+  } else {
+    // 中间结果：覆盖当前进行中的句子
+    streamSession.partialText = text;
+  }
+  renderStreamText();
+}
+
+function renderStreamText() {
+  const parts = [streamSession.finalText, streamSession.partialText]
+    .filter(Boolean)
+    .join(' ');
+  els.resultText.value = parts.trim();
+  syncResultButtons(); // 程序化赋值不触发 input，须显式同步按钮
+}
+
+// 停止时把未定稿的进行中句子并入定稿（服务端最后一句可能没有 sentence_end 标记）
+function flushPartial() {
+  if (streamSession.partialText) {
+    streamSession.finalText = (streamSession.finalText + ' ' + streamSession.partialText).trim();
+    streamSession.partialText = '';
+    renderStreamText();
+  }
 }
 
 // ---------- Navigation (optional buttons) ----------
@@ -253,9 +528,16 @@ async function handleCopy() {
 
 // ---------- Config ----------
 
+// 写入转录历史（失败不影响主流程；HistoryStore 自身也会吞掉存储错误）
+function saveToHistory(text, provider, model) {
+  if (!text || !globalThis.HistoryStore) return;
+  globalThis.HistoryStore.add({ text, provider, model });
+}
+
 function getDefaultConfig() {
+  const firstProvider = globalThis.PROVIDERS?.[0];
   return {
-    provider: '',
+    provider: firstProvider?.id || '',
     apiKey: '',
     endpoint: '',
     model: '',
@@ -270,16 +552,22 @@ async function loadConfig() {
 }
 
 function applyConfigToUI(config) {
-  els.providerInput.value = config.provider || '';
+  els.providerSelect.value = config.provider || getDefaultConfig().provider;
   els.apiKeyInput.value = config.apiKey || '';
   els.endpointInput.value = config.endpoint || '';
   els.modelInput.value = config.model || '';
   els.audioTypeSelect.value = config.audioType || 'audio/webm';
+
+  // If model is empty, fill with provider default
+  if (!els.modelInput.value) {
+    const provider = getCurrentProvider();
+    if (provider) els.modelInput.value = provider.defaultModel || provider.defaultStreamModel || '';
+  }
 }
 
 async function persistConfig() {
   const config = {
-    provider: els.providerInput.value.trim(),
+    provider: els.providerSelect.value,
     apiKey: els.apiKeyInput.value.trim(),
     endpoint: els.endpointInput.value.trim(),
     model: els.modelInput.value.trim(),
