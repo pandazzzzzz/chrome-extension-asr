@@ -44,5 +44,9 @@
     "tabCapture",
     "sidePanel",
     "offscreen"
+  ],
+  "host_permissions": [
+    "https://dashscope.aliyuncs.com/*",
+    "https://dashscope-intl.aliyuncs.com/*"
   ]
 }

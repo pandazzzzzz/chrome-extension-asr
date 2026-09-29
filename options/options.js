@@ -36,7 +36,16 @@ function gatherElements() {
 }
 
 function applyToUI(config) {
-  els.provider.value = config.provider || '';
+  // provider 是下拉框，选项来自 providers 注册表；无匹配时回退默认
+  const providers = globalThis.PROVIDERS || [];
+  providers.forEach((provider) => {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = provider.name;
+    els.provider.appendChild(option);
+  });
+  const first = providers[0]?.id || '';
+  els.provider.value = config.provider || first;
   els.apiKey.value = config.apiKey || '';
   els.endpoint.value = config.endpoint || '';
   els.audioType.value = config.audioType || 'audio/webm';
