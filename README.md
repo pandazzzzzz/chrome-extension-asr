@@ -46,6 +46,8 @@ A Manifest V3 Chrome extension that records audio from the popup or the active t
 │   └── client.js             # sendMessage Promise wrapper
 ├── shared/
 │   └── errors.js             # Unified error codes
+├── scripts/
+│   └── pack.js             # Build `extension.zip` (PowerShell ZipFile + node:zlib fallback)
 ├── icons/                    # Extension icons
 ├── docs/
 │   └── ARCHITECTURE.md       # Full architecture design doc
