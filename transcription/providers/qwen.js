@@ -50,9 +50,18 @@ class QwenProvider extends BaseProvider {
    *   再开始采音，避免丢掉 task-started 之前的音频。
    *   终止回调：onResult（逐句）、onError（失败）、onComplete（finish-task 确认）、
    *   onEnd（会话被服务端/网络终止，调用方应 teardown 并复位 UI）。
+   *   调试回调：onEvent（可选）—— 协议各节点打点 { ev, ...detail }，供诊断页观测；
+   *   未提供则零开销，且 detail 永不含 apiKey / 完整 wsUrl。
    */
-  static createStreamSession({ apiKey, model, endpoint, onResult, onError, onComplete, onEnd }) {
+  static createStreamSession({ apiKey, model, endpoint, onResult, onError, onComplete, onEnd, onEvent }) {
     if (!apiKey) throw globalThis.createError(globalThis.Errors.NO_API_KEY);
+
+    // 协议事件打点（可选回调，未提供则无操作）。绝不携带 apiKey / 完整 wsUrl。
+    function track(ev, detail) {
+      if (onEvent) {
+        try { onEvent({ ev, ...detail }); } catch { /* 打点失败不影响协议 */ }
+      }
+    }
 
     const streamModel = model || this.defaultStreamModel;
     if (!this.isStreamModel(streamModel)) {
@@ -95,6 +104,7 @@ class QwenProvider extends BaseProvider {
     });
 
     const readyTimer = setTimeout(() => {
+      track('ready-timeout', { model: streamModel });
       fail(new Error('Timed out waiting for task-started (check model / API key)'));
     }, 10000);
 
@@ -104,6 +114,7 @@ class QwenProvider extends BaseProvider {
       started = true;
       clearTimeout(readyTimer);
       resolveReady();
+      track('task-started', { model: streamModel, taskId });
     }
 
     // 终态：失败/服务端关闭/任务结束 —— 解锁 ready 与 finished，失败时上报，且只触发一次 onEnd。
@@ -118,11 +129,13 @@ class QwenProvider extends BaseProvider {
         rejectReady(error);
       }
       resolveFinished();
+      track('session-end', { started, message: error ? error.message : null });
       if (error) onError?.(error);
       onEnd?.();
     }
 
     socket.onopen = () => {
+      track('ws-open', { taskId });
       socket.send(JSON.stringify({
         header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
         payload: {
@@ -138,6 +151,7 @@ class QwenProvider extends BaseProvider {
           input: {},
         },
       }));
+      track('run-task-sent', { model: streamModel });
     };
 
     socket.onmessage = (event) => {
@@ -162,12 +176,16 @@ class QwenProvider extends BaseProvider {
           finishedSettled = true;
           clearTimeout(readyTimer);
           resolveFinished();
+          track('task-finished', { taskId });
           onComplete?.();
           onEnd?.();
           socket.close();
           break;
         case 'task-failed':
           // 服务端失败并会关闭连接：上报错误并解锁等待
+          track('task-failed', {
+            message: header.error_message || header.error_code || 'Realtime task failed',
+          });
           fail(globalThis.createError(
             globalThis.Errors.API_ERROR,
             header.error_message || header.error_code || 'Realtime task failed',
@@ -175,9 +193,18 @@ class QwenProvider extends BaseProvider {
           break;
         case 'result-generated': {
           const sentence = message?.payload?.output?.sentence;
-          if (!sentence || sentence.heartbeat) return; // 心跳包（sentence_id=0）跳过
+          if (!sentence || sentence.heartbeat) {
+            // 心跳包（sentence_id=0）跳过 —— 但也计数，便于判断静音保活是否在跑
+            if (sentence?.heartbeat) track('heartbeat', {});
+            return;
+          }
           const text = (sentence.text || '').trim();
           if (!text) return;
+          track('result', {
+            sentenceEnd: !!sentence.sentence_end,
+            sentenceId: sentence.sentence_id,
+            len: text.length,
+          });
           onResult?.({
             text,
             sentenceEnd: !!sentence.sentence_end,
@@ -192,12 +219,15 @@ class QwenProvider extends BaseProvider {
 
     socket.onerror = () => {
       // 具体原因由 onclose 兜底（浏览器不暴露 WS 错误细节）
+      track('ws-error', { finishedSettled });
       if (!finishedSettled) fail(new Error('WebSocket connection error'));
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       // 网络断/服务端主动关闭：未正常结束也按终态处理，避免 stop() 永久挂起
       if (!finishedSettled) {
+        const reason = event?.reason || '';
+        track('ws-close', { wasClean: !!event?.wasClean, code: event?.code, reason, started });
         fail(started ? null : new Error('WebSocket closed before task started'));
       }
     };
@@ -223,12 +253,15 @@ class QwenProvider extends BaseProvider {
         }
         // 等服务端 task-finished 确认；但加超时兜底——服务端不回、连接又不关（弱网/代理卡住）
         // 时不能永久挂起，否则调用方 stopStreaming 卡住、teardown 不跑、麦克风常驻。
-        await Promise.race([
-          finished,
-          new Promise((resolve) => setTimeout(resolve, 5000)),
+        track('stop-sent', { started, socketState: socket.readyState });
+        const winner = await Promise.race([
+          finished.then(() => 'finished'),
+          new Promise((resolve) => setTimeout(() => resolve('timeout'), 5000)),
         ]);
+        track('stop-done', { winner });
       },
       close() {
+        track('ws-close-requested', { finishedSettled });
         socket.close();
       },
     };
