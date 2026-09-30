@@ -37,6 +37,7 @@ globalThis.MESSAGES = Object.freeze({
   FILL_TEXT: 'asr:fill-text',
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',
+  DEBUG_EVT: 'asr:debug',
 });
 
 /** 消息路由目标（缺省为 background）。 */
@@ -44,6 +45,9 @@ globalThis.TARGETS = Object.freeze({
   BACKGROUND: 'background',
   OFFSCREEN: 'offscreen',
   CONTENT: 'content',
+  DEBUG: 'debug', // 调试事件：由 popup/sidepanel 发出，content 桥（debug/bridge.js）接收
+                  // 后 window.postMessage 给诊断页（tests/stream-debug.html）。
+                  // background / offscreen 的 target 过滤会忽略它，无需处理。
 });
 
 /**

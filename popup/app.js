@@ -35,6 +35,47 @@ const STREAM = {
   frameSize: 1024,
 };
 
+// ---------- 调试打点（诊断页 tests/stream-debug.html 经 debug/bridge.js 接收） ----------
+// bridge.js 未加载时静默跳过；绝不携带 apiKey（endpoint 也只传"是否设置"的布尔）。
+function debugEvt(phase, detail) {
+  if (typeof globalThis.emitDebug !== 'function') return;
+  globalThis.emitDebug({ phase, at: Date.now(), detail: detail || {} });
+}
+
+// PCM 帧统计：每帧一条日志会把诊断页刷爆，这里 1s 聚合一次
+const pcmStats = { frames: 0, bytes: 0, srcRate: 0, wsRate: 0 };
+let pcmTimer = null;
+
+function flushPcmStats() {
+  if (!pcmStats.frames) return;
+  debugEvt('pcm-stats', { ...pcmStats });
+  pcmStats.frames = 0;
+  pcmStats.bytes = 0;
+}
+function startPcmStats(srcRate, wsRate) {
+  pcmStats.srcRate = srcRate;
+  pcmStats.wsRate = wsRate;
+  pcmTimer = setInterval(flushPcmStats, 1000);
+}
+function stopPcmStats() {
+  clearInterval(pcmTimer);
+  pcmTimer = null;
+  flushPcmStats();
+}
+
+// partial 中间结果高频刷新：节流到 ~4 条/秒，final（sentenceEnd）立即记
+let lastPartialLogAt = 0;
+function logStreamResult(text, sentenceEnd, sentenceId) {
+  if (sentenceEnd) {
+    debugEvt('final', { sentenceId, len: text.length });
+    return;
+  }
+  const now = Date.now();
+  if (now - lastPartialLogAt < 400) return;
+  lastPartialLogAt = now;
+  debugEvt('partial', { sentenceId, len: text.length });
+}
+
 // DOM references
 const els = {};
 
@@ -47,6 +88,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   onProviderChange(); // 按选中 provider 更新 endpoint 可见性 + 默认值
 
   bindEvents();
+  // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
+  debugEvt('popup-ready', {
+    provider: els.providerSelect.value,
+    model: els.modelInput.value,
+    hasKey: !!els.apiKeyInput.value.trim(),
+    hasEndpoint: !!els.endpointInput.value.trim(),
+    providers: (globalThis.PROVIDERS || []).map((p) => p.id),
+  });
 });
 
 // ---------- UI setup ----------
@@ -184,7 +233,9 @@ async function startRecording() {
     els.recordBtn.textContent = 'Stop Recording';
     disableOtherRecordButtons(els.recordBtn);
     showStatus('Recording... speak now.', 'success');
+    debugEvt('record-started', { mimeType: els.audioTypeSelect.value });
   } catch (error) {
+    debugEvt('record-error', { where: 'start', message: error?.message || String(error) });
     showStatus(`Cannot start recording: ${error.message}`, 'error');
     // 两条清理线都要走：recorder 持有 stream 时由 release 停轨；
     // 构造 recorder 就失败时只有裸 stream，需直接停轨（否则麦克风占用红点常驻）
@@ -205,8 +256,10 @@ async function stopRecording() {
     audioBlob = await recorder.stop();
     recorder.release();
     recorder = null;
+    debugEvt('record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
     showStatus('Recording complete.', 'success');
   } catch (error) {
+    debugEvt('record-error', { where: 'stop', message: error?.message || String(error) });
     showStatus(`Recording failed: ${error.message}`, 'error');
     // 失败路径同样要停轨 + 释放，否则音轨常驻、下次 start 又 new 一个实例
     recorder.release();
@@ -237,7 +290,9 @@ async function startTabRecording() {
     els.tabRecordBtn.textContent = 'Stop Tab Rec';
     disableOtherRecordButtons(els.tabRecordBtn);
     showStatus('Recording tab audio... play something in the tab.', 'success');
+    debugEvt('tab-record-started', {});
   } catch (error) {
+    debugEvt('tab-record-error', { where: 'start', message: error?.message || String(error) });
     showStatus(`Tab record failed: ${error.message}`, 'error');
     enableAllRecordButtons();
   }
@@ -249,8 +304,10 @@ async function stopTabRecording() {
   try {
     // offscreen 返回 { b64, mime }（JSON 消息通道无法传 Blob），这里还原
     audioBlob = globalThis.decodeAudio(await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STOP, {}));
+    debugEvt('tab-record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
     showStatus('Tab recording complete.', 'success');
   } catch (error) {
+    debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
     showStatus(`Tab record stop failed: ${error.message}`, 'error');
   } finally {
     enableAllRecordButtons();
@@ -274,6 +331,7 @@ function handleSaveAudio() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000); // 下载触发后再回收
+  debugEvt('audio-saved', { size: audioBlob.size, mime: audioBlob.type });
   showStatus(`Saved recording (${Math.max(1, Math.round(audioBlob.size / 1024))} KB).`, 'success');
 }
 
@@ -281,7 +339,6 @@ function handleSaveAudio() {
 function timestampForFile() {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 }
-
 function extensionForMime(mime) {
   const type = (mime || '').split(';')[0].trim();
   if (type === 'audio/webm') return 'webm';
@@ -289,6 +346,7 @@ function extensionForMime(mime) {
   if (type === 'audio/wav') return 'wav';
   return 'webm';
 }
+debugEvt('app-loaded', { hasBridge: typeof globalThis.emitDebug === 'function' });
 
 // ---------- Streaming transcription (realtime WebSocket) ----------
 //
@@ -307,22 +365,28 @@ async function toggleStreaming() {
 async function startStreaming() {
   // 防重入：setup 期间（getUserMedia + await ready + capture.start）按钮尚未禁用，
   // 双击会开两条流两个 WebSocket 抢共享 streamSession。
-  if (isStreamingBusy || isStreaming) return;
+  if (isStreamingBusy || isStreaming) {
+    debugEvt('start-blocked', { isStreamingBusy, isStreaming });
+    return;
+  }
   isStreamingBusy = true;
 
   const provider = getCurrentProvider();
   if (!provider) {
+    debugEvt('start-fail', { reason: 'no-provider' });
     showStatus('No provider selected.', 'error');
     isStreamingBusy = false;
     return;
   }
   if (!provider.supportsStreaming) {
+    debugEvt('start-fail', { reason: 'no-streaming-support', provider: provider.id });
     showStatus('Provider does not support streaming.', 'error');
     isStreamingBusy = false;
     return;
   }
   const apiKey = els.apiKeyInput.value.trim();
   if (!apiKey) {
+    debugEvt('start-fail', { reason: 'no-api-key' });
     showStatus('API key required for streaming.', 'error');
     isStreamingBusy = false;
     return;
@@ -330,9 +394,11 @@ async function startStreaming() {
 
   // 尽早禁用，把重入窗口压到最小
   els.streamBtn.disabled = true;
+  debugEvt('start-begin', { provider: provider.id });
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    debugEvt('mic-acquired', { tracks: stream.getAudioTracks().length });
     // 真流式服务端只收 16kHz PCM。直接把 AudioContext 建在 16kHz（官方 demo 同法），
     // 浏览器在源节点处做原生重采样 —— 避免逐帧软件重采样的相位不连续与时序漂移。
     // 旧浏览器不支持 sampleRate 选项时回退默认采样率，onStreamFrame 里再软件重采样。
@@ -355,30 +421,45 @@ async function startStreaming() {
 
     // 批量模型（如 qwen3-asr-flash）不能用于 run-task —— 用流式默认模型兜底
     if (!provider.isStreamModel(streamSession.model)) {
+      debugEvt('model-fallback', { requested: streamSession.model, using: provider.defaultStreamModel });
       streamSession.model = provider.defaultStreamModel || 'fun-asr-realtime';
       showStatus(`Using realtime model ${streamSession.model} (batch model not valid for streaming).`, 'success');
     }
 
     // 先建会话：必须等 task-started（await ready）才开始采音，
     // 否则 task-started 之前的音频帧被 sendAudio 丢弃 → 丢开头首句
+    debugEvt('ws-connecting', {
+      model: streamSession.model,
+      endpointConfigured: !!streamSession.endpoint,
+      ctxSampleRate: context.sampleRate,
+    });
     const wsSession = provider.createStreamSession({
       apiKey: streamSession.apiKey,
       model: streamSession.model,
       endpoint: streamSession.endpoint,
       onResult: onStreamResult,
-      onError: (e) => showStatus(`Stream error: ${e.message}`, 'error'),
-      onComplete: () => {},
+      onError: (e) => {
+        debugEvt('ws-error', { message: e?.message || String(e) });
+        showStatus(`Stream error: ${e.message}`, 'error');
+      },
+      onComplete: () => debugEvt('ws-complete', {}),
       // 服务端/网络主动终止（task-finished / task-failed / onclose）：统一走 stopStreaming
       // 的 teardown + 历史落盘，避免 UI 卡死 streaming 态。stopStreaming 内部有重入护栏。
-      onEnd: () => { if (isStreaming) stopStreaming(); },
+      onEnd: () => {
+        debugEvt('ws-end-received', {});
+        if (isStreaming) stopStreaming();
+      },
+      onEvent: (e) => debugEvt(`ws:${e.ev}`, e),
     });
     try {
       await wsSession.ready; // 启动失败/超时会 throw，由外层 catch 兜底
     } catch (e) {
+      debugEvt('ws-ready-fail', { message: e?.message || String(e) });
       wsSession.close(); // 关掉未就绪的连接，避免泄漏
       throw e;
     }
     streamSession.wsSession = wsSession;
+    debugEvt('ws-ready', { model: streamSession.model });
 
     streamSession.capture = globalThis.createPcmCapture({
       stream,
@@ -387,6 +468,12 @@ async function startStreaming() {
       onFrame: onStreamFrame,
     });
     await streamSession.capture.start();
+    debugEvt('capture-started', {
+      mode: streamSession.capture.mode?.() || 'unknown',
+      frameSize: STREAM.frameSize,
+      ctxSampleRate: context.sampleRate,
+    });
+    startPcmStats(context.sampleRate, 16000);
 
     els.resultText.value = '';
     syncResultButtons(); // 清空后同步禁用 Copy/Fill
@@ -395,7 +482,9 @@ async function startStreaming() {
     els.streamBtn.textContent = 'Stop Stream';
     disableOtherRecordButtons(els.streamBtn);
     showStatus('Streaming: speak, results will appear as you go.', 'success');
+    debugEvt('streaming-active', { model: streamSession.model });
   } catch (error) {
+    debugEvt('start-error', { message: error?.message || String(error) });
     showStatus(`Cannot start streaming: ${error.message}`, 'error');
     await teardownStreaming();
     enableAllRecordButtons();
@@ -410,22 +499,28 @@ async function startStreaming() {
 async function stopStreaming() {
   // 防重入：stop 期间（await stop + teardown）按钮/状态已切，但服务端 onEnd 可能与本函数
   // 同时触发（用户点 Stop 恰好服务端也结束）—— 用 busy 护栏避免 teardown 跑两遍。
-  if (isStreamingBusy) return;
+  if (isStreamingBusy) {
+    debugEvt('stop-blocked', {});
+    return;
+  }
   isStreamingBusy = true;
   isStreaming = false;
   els.streamBtn.disabled = true;
+  debugEvt('stop-begin', {});
 
   try {
     // 等待服务端 finish-task 确认，尾音/最后一句由 flushPartial 落定。
     // stop() 内部有 5s 超时，不会永久挂起。
     try {
       await streamSession.wsSession?.stop();
-    } catch {
+    } catch (e) {
       /* 忽略 stop 阶段错误，仍继续清理 */
+      debugEvt('stop-ws-error', { message: e?.message || String(e) });
     }
 
     await teardownStreaming();
   } finally {
+    stopPcmStats();
     els.streamBtn.textContent = 'Live Stream';
     enableAllRecordButtons();
     isStreamingBusy = false;
@@ -434,15 +529,23 @@ async function stopStreaming() {
   // 把最后的进行中句子并入定稿
   flushPartial();
   showStatus('Streaming stopped.', 'success');
+  debugEvt('stream-stopped', { provider: streamSession.providerId, model: streamSession.model });
 
   // 流式结束：把最终合并文本作为一条历史记录
   const finalText = els.resultText.value.trim();
   if (finalText) {
     saveToHistory(finalText, streamSession.providerId, streamSession.model);
+    debugEvt('history-saved', { len: finalText.length });
   }
 }
 
 async function teardownStreaming() {
+  debugEvt('teardown', {
+    hasCapture: !!streamSession.capture,
+    hasWs: !!streamSession.wsSession,
+    hasStream: !!streamSession.stream,
+    hasContext: !!streamSession.context,
+  });
   try {
     streamSession.capture?.stop();
   } catch {
@@ -471,11 +574,13 @@ function onStreamFrame(frame) {
   const resampled = globalThis.resampleFloat32(frame, sampleRate, 16000);
   const int16 = globalThis.floatToInt16(resampled);
   session.wsSession.sendAudio(int16);
+  pcmStats.frames += 1;
+  pcmStats.bytes += int16.byteLength;
 }
 
 // 服务端逐帧返回句子：sentence_end=false 是进行中的中间结果（实时覆盖），
 // sentence_end=true 表示完整句（追加进定稿文本）。
-function onStreamResult({ text, sentenceEnd }) {
+function onStreamResult({ text, sentenceEnd, sentenceId }) {
   if (sentenceEnd) {
     // 完整句：并入定稿，清空进行中
     streamSession.finalText = (streamSession.finalText + ' ' + text).trim();
@@ -484,6 +589,7 @@ function onStreamResult({ text, sentenceEnd }) {
     // 中间结果：覆盖当前进行中的句子
     streamSession.partialText = text;
   }
+  logStreamResult(text, sentenceEnd, sentenceId);
   renderStreamText();
 }
 
@@ -533,8 +639,10 @@ async function handleFillIntoPage() {
   }
   try {
     await globalThis.MessageClient.send(globalThis.MESSAGES.FILL_TEXT, { text });
+    debugEvt('fill-ok', { len: text.length });
     showStatus('Filled into page input.', 'success');
   } catch (error) {
+    debugEvt('fill-error', { code: error?.code || '', message: error?.message || String(error) });
     showStatus(`Fill failed: ${error.message}`, 'error');
   }
 }
@@ -549,8 +657,10 @@ async function handleCopy() {
   }
   try {
     await navigator.clipboard.writeText(text);
+    debugEvt('copy-ok', { len: text.length });
     showStatus('Copied to clipboard.', 'success');
   } catch (error) {
+    debugEvt('copy-error', { message: error?.message || String(error) });
     showStatus(`Copy failed: ${error.message}`, 'error');
   }
 }
@@ -562,6 +672,7 @@ function saveToHistory(text, provider, model) {
   if (!text || !globalThis.HistoryStore) return;
   globalThis.HistoryStore.add({ text, provider, model });
 }
+// （history-saved 打点在 stopStreaming 内部 —— saveToHistory 被多处复用，日志留在调用点）
 
 function getDefaultConfig() {
   const firstProvider = globalThis.PROVIDERS?.[0];
@@ -580,13 +691,15 @@ async function loadConfig() {
   return { ...base, ...stored };
 }
 
-function applyConfigToUI(config) {
+async function applyConfigToUI(config) {
   // Provider 下拉框只认注册表里的 id；旧的批量 provider id（openai/deepgram 等）已被删，
   // 若保存值没有对应 <option>，浏览器会把 select 归成 '' 导致空白下拉。回退到第一个 provider。
   const fallbackProvider = getDefaultConfig().provider;
   const savedProvider = config.provider;
   const hasOption = (globalThis.PROVIDERS || []).some((p) => p.id === savedProvider);
+  const stale = !!savedProvider && !hasOption;
   els.providerSelect.value = (hasOption && savedProvider) ? savedProvider : fallbackProvider;
+  if (stale) debugEvt('stale-provider-fallback', { saved: savedProvider, fallback: fallbackProvider });
   els.apiKeyInput.value = config.apiKey || '';
   els.endpointInput.value = config.endpoint || '';
   els.modelInput.value = config.model || '';
@@ -608,6 +721,13 @@ async function persistConfig() {
     audioType: els.audioTypeSelect.value,
   };
   await globalThis.ConfigStore.save(config);
+  debugEvt('config-saved', {
+    provider: config.provider,
+    model: config.model,
+    endpoint: config.endpoint, // 原值（诊断页可直接看出是不是 https 批量残留）
+    audioType: config.audioType,
+    hasKey: !!config.apiKey,
+  });
 }
 
 // ---------- Helpers ----------
