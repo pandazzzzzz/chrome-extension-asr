@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASR 扩展 — 流式诊断页</title>
+<style>
+  :root {
+ --bg:#f6f8fb; --card:#fff; --border:#d8e0ec; --text:#10233a;
+    --muted:#57708d; --primary:#0e6dfd; --ok:#1b6f3d; --err:#8a2430;
+    --ok-bg:#e8f7ee; --ok-text:#1b6f3d; --accent:#0e6dfd; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--text);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  h2 { font-size:14px; margin:20px 0 8px; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--border);
+    border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+  .col { flex:1; min-width:220px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px;
+    background:var(--ok-bg); color:var(--ok-text); margin-right:4px; }
+  .tag.err { background:#fdecec; color:var(--err); }
+  .tag.warn{ background:#fff4e0; color:#8a5b00; }
+  input,textarea,button { box-sizing:border-box; border:1px solid var(--border);
+    border-radius:6px; padding:8px 10px; font-size:13px; font-family:inherit; }
+  input,textarea { width:100%; }
+  button { cursor:pointer; background:var(--card); }
+  button.primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+  video { width:100%; max-width:480px; border-radius:8px; background:#000; }
+  pre, .log { background:#f3f4f6; padding:8px 10px; border-radius:6px; font:12px monospace;
+    font-size:12px; white-space:pre-wrap; word-break:break-word; }
+  .log { max-height:320px; overflow-y:auto; }
+  .logline { margin:2px 0; }
+  .ts { color:var(--muted); }
+  .diag { font-size:12px; line-height:1.7; }
+  .diag b { color:var(--text); }
+  .hint { background:#eef5ff; border-left:3px solid var(--primary); padding:8px 12px;
+    border-radius:6px; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>ASR 扩展 — 流式诊断页</h1>
+<p class="muted">本页用于配合扩展进行 Live Stream / Record Tab / Fill into page 的端到端调试。
+内置样例视频供 Record Tab 采集；监听可编辑字段接收 fill-text 注入并记日志；
+实时诊断焦点与字段状态；可一键导出日志贴给开发。</p>
+
+<div class="hint">
+  <b>用法</b>：① 打开扩展 popup，选好 Qwen + API Key ② 点这个页面里的输入框获得焦点 ③ 回 popup 点
+  <b>Live Stream</b> 或 <b>Record Tab</b> ④ 边说边看这里：fill-text 注入会即时显示在日志区，焦点/字段诊断面板能看出注入是否生效。
+</div>
+
+<div class="row">
+  <div class="col">
+    <div class="card">
+      <h2>样例视频（Record Tab 源）</h2>
+      <video id="sampleVideo" controls loop preload="metadata"></video>
+      <p class="muted">播放后用扩展的 <b>Record Tab</b> 采集本标签页音频 —— 应听得见声音、不被静音。</p>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card">
+      <h2>fill-text 注入目标</h2>
+      <p class="muted">点下面任一字段获得焦点，再从扩展触发 Fill into page。</p>
+<details>
+      <summary>可编辑字段</summary>
+      <p><input id="in1" type="text" placeholder="单行输入"></p>
+      <p><textarea id="ta1" rows="2" placeholder="多行输入"></textarea></p>
+      <p contenteditable="true" id="ce1" style="border:1px solid var(--border);min-height:2em;padding:4px;border-radius:6px;">可编辑区域（点击此处获得焦点）</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>焦点与字段诊断</h2>
+  <div id="diag" class="diag">诊断中…</div>
+</div>
+
+<div class="card">
+  <h2>fill-text 注入日志</h2>
+  <div class="row" style="margin-bottom:8px;">
+    <button id="exportBtn" class="primary">导出日志 (.txt)</button>
+    <button id="clearBtn">清空</button>
+    <label class="muted" style="margin-left:8px;align-self:center;"><input type="checkbox" id="autoscroll" checked> 自动滚动</label>
+  </div>
+  <div id="log" class="log"></div>
+  <p class="muted" style="margin-top:8px;">注：content script 用原生 setter 设值后 dispatch input 事件，
+  本页监听 input 事件捕获注入内容并记日志。若 Fill 按钮灰，看上方诊断面板的「可编辑字段数」与「活动元素」。</p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const video = document.getElementById('sampleVideo');
+  const diag = document.getElementById('diag');
+  const logEl = document.getElementById('log');
+  const autoscroll = document.getElementById('autoscroll');
+  const entries = []; // {ts, type, text, detail}
+
+  // ---- 样例视频：相对路径（tests/ -> ../samples/media/sample.mp4）----
+  video.src = '../samples/media/sample.mp4';
+
+  // ---- 记日志 ----
+  function now() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`;
+  }
+  function pushEntry(type, text, detail) {
+    const e = { ts: now(), type, text: text || '', detail: detail || '' };
+    entries.push(e);
+    const line = document.createElement('div');
+    line.className = 'logline';
+    line.innerHTML = `<span class="ts">${e.ts}</span> <b>${e.type}</b> ${escapeHtml(e.text)}${e.detail ? ' <span class="muted">' + escapeHtml(e.detail) + '</span>' : ''}`;
+    logEl.appendChild(line);
+    if (autoscroll.checked) logEl.scrollTop = logEl.scrollHeight;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  // ---- 监听可编辑字段：捕获 fill-text 注入（content script 用原生 setter + dispatch input 事件）----
+  function attachInputListener(el, label) {
+    el.addEventListener('input', (ev) => {
+      const val = el.isContentEditable ? el.textContent : el.value;
+      pushEntry('注入', val, `→ ${label}`);
+    });
+  }
+  attachInputListener(document.getElementById('in1'), 'input#in1');
+  attachInputListener(document.getElementById('ta1'), 'textarea#ta1');
+  attachInputListener(document.getElementById('ce1'), 'contenteditable#ce1');
+
+  // ---- 焦点与字段诊断面板 ----
+  function editableFields() {
+    return document.querySelectorAll('input:not([type]),input[type=text],input[type=search],input[type=url],input[type=email],textarea,[contenteditable=true]');
+  }
+  function activeFieldInfo() {
+    const el = document.activeElement;
+    if (!el) return '无 activeElement';
+    const tag = el.tagName || '?';
+    const type = el.getAttribute ? (el.getAttribute('type') || '') : '';
+    const editable = el.isContentEditable || tag === 'TEXTAREA' ||
+      (tag === 'INPUT' && !['button','checkbox','radio','file','hidden','image','submit','reset','range','color'].includes((type||'text').toLowerCase()));
+    const name = el.id ? '#' + el.id : (el.name ? '@' + el.name : '');
+    return { tag, name, type, editable };
+  }
+  function updateDiag() {
+    const a = activeFieldInfo();
+    const hasFocus = document.hasFocus();
+    const count = editableFields().length;
+    const state = a.editable ? '<span class="tag">可编辑(可注入)</span>'
+      : (a.tag === '无 activeElement' ? '<span class="tag warn">无焦点</span>' : '<span class="tag err">不可编辑(注入会失败)</span>');
+    diag.innerHTML =
+      `<b>hasFocus</b>：${hasFocus} ${hasFocus ? '<span class="tag">OK</span>' : '<span class="tag err">页面未获焦(Fill 会失败)</span>'}<br>` +
+      `<b>活动元素</b>：${a.tag}${a.name}${a.type ? ' [type=' + a.type + ']' : ''} ${state}<br>` +
+      `<b>可编辑字段数</b>：${count}（content script 的 getActiveField 只认聚焦的 input/textarea/contenteditable）<br>` +
+      `<b>已记录日志条数</b>：${entries.length}`;
+  }
+  setInterval(updateDiag, 300);
+  // 焦点变化即时更新
+  ['in1','ta1','ce1'].forEach((id) => {
+    const el = document.getElementById(id);
+    el.addEventListener('focus', updateDiag);
+    el.addEventListener('blur', updateDiag);
+  });
+  document.addEventListener('focusin', updateDiag);
+  document.addEventListener('focusout', updateDiag);
+  window.addEventListener('blur', updateDiag);
+
+  // ---- 导出 / 清空 ----
+  function blobUrl(text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    return URL.createObjectURL(blob);
+  }
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    const lines = entries.map((e) => `${e.ts}  [${e.type}]  ${e.text}${e.detail ? '  ' + e.detail : ''}`);
+    const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n\n${lines.join('\n')}`;
+    const a = document.createElement('a');
+    a.href = blobUrl(text);
+    a.download = `asr-debug-log-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    pushEntry('导出', text.slice(0, 60) + '…', `${entries.length} 条`);
+  });
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    entries.length = 0;
+    logEl.innerHTML = '';
+    pushEntry('清空', '日志已清空', '');
+  });
+
+  // 启动
+  pushEntry('就绪', '诊断页已加载', '点页面任一输入框获得焦点后，回扩展 popup 操作');
+  updateDiag();
+})();
+</script>
+</body>
+</html>
