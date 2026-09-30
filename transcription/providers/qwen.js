@@ -48,8 +48,10 @@ class QwenProvider extends BaseProvider {
    * @returns {{ ready: Promise<void>, sendAudio, stop, close }}
    *   ready：task-started 后 resolve；启动失败/超时（10s）reject —— 调用方应先 await
    *   再开始采音，避免丢掉 task-started 之前的音频。
+   *   终止回调：onResult（逐句）、onError（失败）、onComplete（finish-task 确认）、
+   *   onEnd（会话被服务端/网络终止，调用方应 teardown 并复位 UI）。
    */
-  static createStreamSession({ apiKey, model, endpoint, onResult, onError, onComplete }) {
+  static createStreamSession({ apiKey, model, endpoint, onResult, onError, onComplete, onEnd }) {
     if (!apiKey) throw globalThis.createError(globalThis.Errors.NO_API_KEY);
 
     const streamModel = model || this.defaultStreamModel;
@@ -61,6 +63,15 @@ class QwenProvider extends BaseProvider {
     }
 
     const base = endpoint || this.getDefaultStreamEndpoint();
+    // 只接受 ws(s):// 的 WebSocket URL。endpoint 字段占位符是 https://...，批量时代的配置
+    // 可能留了 https REST URL（如 https://dashscope.aliyuncs.com/api/v1/...）—— 直接喂给
+    // new WebSocket('https://…') 会抛 SyntaxError，且每次 Live Stream 都起不来。这里提前报错。
+    if (!/^wss?:\/\//i.test(base)) {
+      throw globalThis.createError(
+        globalThis.Errors.UNKNOWN,
+        `"${base}" is not a WebSocket URL; streaming requires wss:// (e.g. ${this.getDefaultStreamEndpoint()})`,
+      );
+    }
     const sep = base.includes('?') ? '&' : '?';
     const wsUrl = `${base}${sep}api_key=${encodeURIComponent(apiKey)}`;
 
@@ -95,7 +106,9 @@ class QwenProvider extends BaseProvider {
       resolveReady();
     }
 
-    // 终态：失败/服务端关闭/任务结束 —— 解锁 ready 与 finished，失败时上报
+    // 终态：失败/服务端关闭/任务结束 —— 解锁 ready 与 finished，失败时上报，且只触发一次 onEnd。
+    // onEnd 通知调用方（app）「会话已被服务端或网络终止」，由其统一走 teardown —— 否则 UI
+    // 会一直停在 streaming 态：isStreaming=true、麦克风继续采、sendAudio 静默空转、按钮卡在 Stop。
     function fail(error) {
       if (finishedSettled) return;
       finishedSettled = true;
@@ -106,6 +119,7 @@ class QwenProvider extends BaseProvider {
       }
       resolveFinished();
       if (error) onError?.(error);
+      onEnd?.();
     }
 
     socket.onopen = () => {
@@ -149,6 +163,7 @@ class QwenProvider extends BaseProvider {
           clearTimeout(readyTimer);
           resolveFinished();
           onComplete?.();
+          onEnd?.();
           socket.close();
           break;
         case 'task-failed':
@@ -206,7 +221,12 @@ class QwenProvider extends BaseProvider {
           // 尚未启动（如启动失败）：关连接，onclose 会解锁 finished
           socket.close();
         }
-        await finished;
+        // 等服务端 task-finished 确认；但加超时兜底——服务端不回、连接又不关（弱网/代理卡住）
+        // 时不能永久挂起，否则调用方 stopStreaming 卡住、teardown 不跑、麦克风常驻。
+        await Promise.race([
+          finished,
+          new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
       },
       close() {
         socket.close();

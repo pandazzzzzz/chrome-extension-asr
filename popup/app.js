@@ -15,6 +15,7 @@ let audioBlob = null;         // 录音结果（由 Save audio 落盘）
 let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
 let isStreaming = false;      // 真流式转录中（麦克风 PCM → WebSocket）
+let isStreamingBusy = false;  // start/stop 进行中（含异步 setup/teardown），防重入
 
 // 流式会话（Live Stream 模式）
 const streamSession = {
@@ -304,20 +305,31 @@ async function toggleStreaming() {
 }
 
 async function startStreaming() {
+  // 防重入：setup 期间（getUserMedia + await ready + capture.start）按钮尚未禁用，
+  // 双击会开两条流两个 WebSocket 抢共享 streamSession。
+  if (isStreamingBusy || isStreaming) return;
+  isStreamingBusy = true;
+
   const provider = getCurrentProvider();
   if (!provider) {
     showStatus('No provider selected.', 'error');
+    isStreamingBusy = false;
     return;
   }
   if (!provider.supportsStreaming) {
     showStatus('Provider does not support streaming.', 'error');
+    isStreamingBusy = false;
     return;
   }
   const apiKey = els.apiKeyInput.value.trim();
   if (!apiKey) {
     showStatus('API key required for streaming.', 'error');
+    isStreamingBusy = false;
     return;
   }
+
+  // 尽早禁用，把重入窗口压到最小
+  els.streamBtn.disabled = true;
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -356,6 +368,9 @@ async function startStreaming() {
       onResult: onStreamResult,
       onError: (e) => showStatus(`Stream error: ${e.message}`, 'error'),
       onComplete: () => {},
+      // 服务端/网络主动终止（task-finished / task-failed / onclose）：统一走 stopStreaming
+      // 的 teardown + 历史落盘，避免 UI 卡死 streaming 态。stopStreaming 内部有重入护栏。
+      onEnd: () => { if (isStreaming) stopStreaming(); },
     });
     try {
       await wsSession.ready; // 启动失败/超时会 throw，由外层 catch 兜底
@@ -384,23 +399,37 @@ async function startStreaming() {
     showStatus(`Cannot start streaming: ${error.message}`, 'error');
     await teardownStreaming();
     enableAllRecordButtons();
+  } finally {
+    // 成功路径里 disableOtherRecordButtons 已把 streamBtn 置回 enabled；失败路径 enableAll 亦然。
+    // 这里兜底复位 busy 标记（不重复动 disabled，避免覆盖 disableOther/enableAll 的互斥语义）。
+    isStreamingBusy = false;
+    if (!isStreaming) els.streamBtn.disabled = false;
   }
 }
 
 async function stopStreaming() {
+  // 防重入：stop 期间（await stop + teardown）按钮/状态已切，但服务端 onEnd 可能与本函数
+  // 同时触发（用户点 Stop 恰好服务端也结束）—— 用 busy 护栏避免 teardown 跑两遍。
+  if (isStreamingBusy) return;
+  isStreamingBusy = true;
   isStreaming = false;
+  els.streamBtn.disabled = true;
 
-  // 等待服务端 finish-task 确认，尾音/最后一句由 flushPartial 落定
   try {
-    await streamSession.wsSession?.stop();
-  } catch {
-    /* 忽略 stop 阶段错误，仍继续清理 */
+    // 等待服务端 finish-task 确认，尾音/最后一句由 flushPartial 落定。
+    // stop() 内部有 5s 超时，不会永久挂起。
+    try {
+      await streamSession.wsSession?.stop();
+    } catch {
+      /* 忽略 stop 阶段错误，仍继续清理 */
+    }
+
+    await teardownStreaming();
+  } finally {
+    els.streamBtn.textContent = 'Live Stream';
+    enableAllRecordButtons();
+    isStreamingBusy = false;
   }
-
-  await teardownStreaming();
-
-  els.streamBtn.textContent = 'Live Stream';
-  enableAllRecordButtons();
 
   // 把最后的进行中句子并入定稿
   flushPartial();
@@ -552,7 +581,12 @@ async function loadConfig() {
 }
 
 function applyConfigToUI(config) {
-  els.providerSelect.value = config.provider || getDefaultConfig().provider;
+  // Provider 下拉框只认注册表里的 id；旧的批量 provider id（openai/deepgram 等）已被删，
+  // 若保存值没有对应 <option>，浏览器会把 select 归成 '' 导致空白下拉。回退到第一个 provider。
+  const fallbackProvider = getDefaultConfig().provider;
+  const savedProvider = config.provider;
+  const hasOption = (globalThis.PROVIDERS || []).some((p) => p.id === savedProvider);
+  els.providerSelect.value = (hasOption && savedProvider) ? savedProvider : fallbackProvider;
   els.apiKeyInput.value = config.apiKey || '';
   els.endpointInput.value = config.endpoint || '';
   els.modelInput.value = config.model || '';
