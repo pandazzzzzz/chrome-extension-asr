@@ -6,14 +6,14 @@ This repository is a Manifest V3 Chrome extension with **no bundler step** (load
 Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 
 - `manifest.json`: extension metadata, permissions, and entry points.
-- `popup/`: popup UI. `popup.html` + `popup.css` are reused by `sidepanel/`; `app.js` is the shared UI logic (recording shell: mic + tab recording, config forms).
+- `popup/`: popup UI. `popup.html` + `popup.css` are reused by `sidepanel/`; `app.js` is the shared UI logic (mic recording, tab recording, realtime streaming, config forms, result actions).
 - `sidepanel/`: persistent side panel (`sidepanel.html` — reuses `popup/app.js` + `popup.css`).
 - `options/`: options page (`options.html` + `options.js`) — settings, history, storage status.
 - `background/background.js`: service worker — message routing, offscreen coordination, fill-text forwarding.
 - `content/content.js`, `content/content.css`: page dictation injection (`asr:fill-text`).
 - `offscreen/`: offscreen document hosting tab-audio capture (MV3 cannot do this in a service worker).
-- `audio/`: audio layer — `recorder.js` (MediaRecorder). (VAD / PCM-capture / convert were removed with the old pseudo-streaming; realtime streaming will rebuild a new audio layer.)
-- `transcription/`: transcription layer — **currently empty** (providers + transcriber removed; realtime WebSocket streaming will rebuild it).
+- `audio/`: audio layer — `recorder.js` (MediaRecorder wrapper, mic + tab), `convert.js` (floatToInt16 / resampleFloat32), `pcm-capture.js` + `pcm-worklet.js` (PCM frame capture via AudioWorklet for streaming). (VAD was removed with the old pseudo-streaming; server-side sentence-splitting handles streaming.)
+- `transcription/`: transcription layer — `providers/base.js` (streaming interface + capability metadata), `providers/qwen.js` (Qwen/DashScope realtime WebSocket), `providers/index.js` (registry). Batch transcribe and transcriber dispatch were removed with the old pseudo-streaming.
 - `store/`: storage layer — `config.js` (all config in `storage.local`), `crypto.js` (AES-GCM for API keys), `history.js` (transcription history, IndexedDB).
 - `messaging/`: cross-context message contract — `messages.js` (action types + `target` routing) + `client.js` (Promise `sendMessage` wrapper).
 - `shared/errors.js`: unified error codes + `createError` / `normalizeError`.
@@ -29,7 +29,7 @@ All messages are `{ type, payload, requestId, target? }`. `target` is **required
 Current actions: `asr:fill-text`, `asr:tab-record-start`, `asr:tab-record-stop`. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
 
 ### Global scripts (no modules)
-Scripts attach to `globalThis` (never `window`) so the same file works in popup, sidepanel, options, **and the service worker** (`importScripts`) / offscreen. If you add a provider later, register it in **both** `popup/popup.html` and `background/background.js`.
+Scripts attach to `globalThis` (never `window`) so the same file works in popup, sidepanel, options, **and the service worker** (`importScripts`) / offscreen. If you add a provider later, add its `<script>` tag to **`popup/popup.html`, `sidepanel/sidepanel.html`, and `options/options.html`** and register it in `transcription/providers/index.js`. (Background does not load the transcription layer — it only handles message routing / offscreen coordination / fill-text.)
 
 ## Build, Test, and Development Commands
 - `npm run build`: placeholder (no compile step — load the directory unpacked).
@@ -44,7 +44,7 @@ Local development:
 
 Automated checks (Node):
 - Syntax: `node --check <file>` for every `.js`.
-- Unit logic (no browser needed): `store/history` is pure logic — testable in Node with small mocks. (VAD/convert were removed with pseudo-streaming.)
+- Unit logic (no browser needed): streaming helpers (`audio/convert.js` — floatToInt16 / resampleFloat32) and `store/history` are pure logic — testable in Node with small mocks.
 - Browser smoke test: open `tests/p1-smoke-test.html` in Chrome (loads real modules, verifies crypto / config / messaging / error helpers).
 
 ## Coding Style & Naming Conventions
@@ -58,8 +58,9 @@ If you add lint/format tooling, keep rules aligned with the existing style and u
 ## Testing Guidelines
 Manual validation before PR (each surface):
 - **Popup**: record → stop → **Save audio** downloads a file; config fields save; API key appears encrypted in `chrome.storage.local`.
-- **Side panel**: open panel; mic/tab recording works; status persists.
-- **Options**: settings save; history shows "No history yet." (nothing writes history until transcription returns); storage status shows key present.
+- **Live Stream**: select Qwen + enter API key → **Live Stream** → partial text appears while speaking, final text locks after each sentence → stop → result copyable / fillable → history shows one entry.
+- **Side panel**: open panel; mic/tab/stream recording works; status persists.
+- **Options**: settings save; history lists streaming results; storage status shows key present.
 - **Content**: paste text into Result → `Fill into page` inserts it into a focused input; with an empty Result, Copy/Fill are disabled (nothing to act on).
 - **Tab capture**: `Record Tab` keeps tab audio audible (must not mute the tab) and returns a recording.
 - Re-test install/update by reloading the extension.
