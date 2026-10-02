@@ -16,6 +16,22 @@ console.log('Background service worker started');
 
 const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 
+// 把诊断事件转给所有 tab 的 content script（tabs.sendMessage 才能达 content）。
+// 没装 content script 的 tab（chrome:// 等）会报错，忽略即可；装了的 page 里
+// 桥自己再按 URL 过滤（只转发给诊断页），普通页面不会产生噪音。
+function forwardDebugToTabs(payload) {
+  chrome.tabs.query({}).then((tabs) => {
+    tabs.forEach((tab) => {
+      if (tab.id == null) return;
+      chrome.tabs.sendMessage(
+        tab.id,
+        { type: globalThis.MESSAGES.DEBUG_EVT, payload, target: globalThis.TARGETS.DEBUG },
+        () => { void chrome.runtime.lastError; }, // 无 content script 的 tab：忽略
+      );
+    });
+  }).catch(() => { /* query 失败不影响主流程 */ });
+}
+
 // 插件安装/更新时的初始化
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('Extension installed:', details.reason);
@@ -140,6 +156,15 @@ function sendToOffscreen(type, payload) {
 // 统一消息入口
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const { type, payload, target } = request || {};
+
+  // 诊断遥测转发（target:'debug'）：
+  // chrome.runtime.sendMessage 只广播给扩展上下文（background / 扩展页），
+  // **到不了 content script** —— content 只能由 chrome.tabs.sendMessage 送达。
+  // 所以这里由 background 中转一跳给各 tab 的 content 桥（debug/bridge.js）。
+  if (type === globalThis.MESSAGES.DEBUG_EVT && target === globalThis.TARGETS.DEBUG) {
+    forwardDebugToTabs(payload);
+    return false; // fire-and-forget，不占响应通道
+  }
 
   // target 过滤：runtime.sendMessage 是广播，offscreen/content 收到的
   // background 消息也在这里触发，非 background 的直接忽略

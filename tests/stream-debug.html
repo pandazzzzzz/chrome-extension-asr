@@ -77,6 +77,19 @@
 </div>
 
 <div class="card">
+  <h2>实时事件（扩展遥测）</h2>
+  <div class="row" style="margin-bottom:8px;">
+    <button id="clearEvtBtn">清空事件</button>
+    <label class="muted" style="margin-left:8px;align-self:center;"><input type="checkbox" id="evtAutoscroll" checked> 自动滚动</label>
+    <span id="evtConn" class="muted" style="align-self:center;">未连接</span>
+  </div>
+  <div id="evtLog" class="log"></div>
+  <p class="muted" style="margin-top:8px;">扩展 popup/sidepanel 的打点经 content script（debug/bridge.js）转发到这里。
+  <b>必须用 http:// 打开本页</b>（content script 不注入 file://）。起服务：<code>node tests/serve-debug.js</code> 后访问
+  <code>http://localhost:18923/tests/stream-debug.html</code>。</p>
+</div>
+
+<div class="card">
   <h2>fill-text 注入日志</h2>
   <div class="row" style="margin-bottom:8px;">
     <button id="exportBtn" class="primary">导出日志 (.txt)</button>
@@ -96,6 +109,48 @@
   const logEl = document.getElementById('log');
   const autoscroll = document.getElementById('autoscroll');
   const entries = []; // {ts, type, text, detail}
+
+  // ---- 实时事件面板（扩展遥测，经 debug/bridge.js window.postMessage 转发）----
+  const evtLog = document.getElementById('evtLog');
+  const evtAutoscroll = document.getElementById('evtAutoscroll');
+  const evtConn = document.getElementById('evtConn');
+  const evtEntries = []; // {ts, phase, detail}
+
+  function renderEvt(phase, detail) {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const ts = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+    const line = document.createElement('div');
+    line.className = 'logline';
+    const detailStr = detail && Object.keys(detail).length
+      ? ' ' + JSON.stringify(detail).slice(0, 120)
+      : '';
+    line.innerHTML = `<span class="ts">${ts}</span> <b>${escapeHtml(phase)}</b>${escapeHtml(detailStr)}`;
+    evtLog.appendChild(line);
+    if (evtAutoscroll.checked) evtLog.scrollTop = evtLog.scrollHeight;
+    evtEntries.push({ ts, phase, detail });
+  }
+
+  // 接收 bridge 转发的遥测：只认可信 origin（本页 http://localhost 或同源 file://）
+  window.addEventListener('message', (e) => {
+    if (e.data?.type !== 'asr:debug-log') return;
+    if (e.origin && e.origin !== 'null' && e.origin !== location.origin) return;
+    const entry = e.data.entry || {};
+    evtConn.textContent = '已连接（收到 ' + (evtEntries.length + 1) + ' 条）';
+    renderEvt(entry.phase || entry.ev || '(未知)', entry.detail || {});
+  });
+
+  document.getElementById('clearEvtBtn').addEventListener('click', () => {
+    evtLog.innerHTML = '';
+    evtEntries.length = 0;
+    evtConn.textContent = '未连接';
+  });
+
+  // 检测当前协议，提示用户正确的打开方式
+  if (location.protocol === 'file:') {
+    evtConn.textContent = '⚠ file:// 下 content script 不注入，遥测不会到达';
+    evtConn.style.color = 'var(--err)';
+  }
 
   // ---- 样例视频：相对路径（tests/ -> ../samples/media/sample.mp4）----
   video.src = '../samples/media/sample.mp4';
