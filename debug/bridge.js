@@ -25,7 +25,8 @@
   // ---- 扩展页面侧：暴露 emitDebug ----
   if (location.protocol === 'chrome-extension:') {
     globalThis.emitDebug = function emitDebug(entry) {
-      // fire-and-forget：没人监听也无所谓，不产生 rejected promise
+      // fire-and-forget：没人监听也无所谓，不产生 rejected promise。
+      // 注意：runtime.sendMessage 只达扩展上下文，content 桥靠 background 中转。
       try {
         chrome.runtime.sendMessage({
           type: (globalThis.MESSAGES && globalThis.MESSAGES.DEBUG_EVT) || 'asr:debug',
@@ -48,8 +49,10 @@
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
 
   chrome.runtime.onMessage.addListener((request) => {
-    if (request?.target !== 'debug' || request.type !== 'asr:debug') return false;
-    window.postMessage({ type: 'asr:debug-log', entry: request.payload }, '*');
+    const wantTarget = (globalThis.TARGETS && globalThis.TARGETS.DEBUG);
+    const wantType = (globalThis.MESSAGES && globalThis.MESSAGES.DEBUG_EVT);
+    if (request?.target !== wantTarget || request.type !== wantType) return false;
+    window.postMessage({ type: 'asr:debug-log', entry: request.payload }, location.origin);
     return false; // 不需响应
   });
 })();

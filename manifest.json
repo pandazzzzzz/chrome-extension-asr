@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ASR Demo",
   "version": "1.0.0",
-  "description": "Speech recording Chrome extension (Manifest V3)",
+  "description": "Realtime ASR Chrome extension (Manifest V3)",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

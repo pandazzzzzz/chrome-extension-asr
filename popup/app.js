@@ -449,7 +449,7 @@ async function startStreaming() {
         debugEvt('ws-end-received', {});
         if (isStreaming) stopStreaming();
       },
-      onEvent: (e) => debugEvt(`ws:${e.ev}`, e),
+      onEvent: (e) => debugEvt(e.ev, e),
     });
     try {
       await wsSession.ready; // 启动失败/超时会 throw，由外层 catch 兜底
@@ -486,6 +486,7 @@ async function startStreaming() {
   } catch (error) {
     debugEvt('start-error', { message: error?.message || String(error) });
     showStatus(`Cannot start streaming: ${error.message}`, 'error');
+    stopPcmStats(); // capture.start 之后若任一步抛错，清掉 1s 定时器，避免泄漏
     await teardownStreaming();
     enableAllRecordButtons();
   } finally {
@@ -691,7 +692,7 @@ async function loadConfig() {
   return { ...base, ...stored };
 }
 
-async function applyConfigToUI(config) {
+function applyConfigToUI(config) {
   // Provider 下拉框只认注册表里的 id；旧的批量 provider id（openai/deepgram 等）已被删，
   // 若保存值没有对应 <option>，浏览器会把 select 归成 '' 导致空白下拉。回退到第一个 provider。
   const fallbackProvider = getDefaultConfig().provider;
