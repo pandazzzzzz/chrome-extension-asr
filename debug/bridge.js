@@ -42,9 +42,13 @@
   }
 
   // ---- content script 侧：runtime 消息 → window 消息 ----
-  // 只对诊断页装监听（stream-debug.html 或显式 ?debug），普通页面不装
-  const isDiagnosticPage =
-    /stream-debug\.html/.test(location.pathname) || /[?&]debug\b/.test(location.search);
+  // 只对本地诊断页装监听（stream-debug.html + localhost），普通页面不装。
+  // 关键：不能只用 ?debug 这种宽松匹配做开关 —— 任何网站在 URL 里带 debug 参数
+  // 都会装上监听，扩展每次打点（含 config-saved 的 endpoint/model/provider）都会被
+  // 转发给该页，等于把配置泄露给攻击者选中的页面。诊断页靠 tests/serve-debug.js
+  // 在 localhost 托管，路径名 + 主机名双重限定即可。
+  const isLocalHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const isDiagnosticPage = isLocalHost && /stream-debug\.html/.test(location.pathname);
   if (!isDiagnosticPage) return;
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
 

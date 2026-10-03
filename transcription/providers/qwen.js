@@ -254,9 +254,14 @@ class QwenProvider extends BaseProvider {
         // 等服务端 task-finished 确认；但加超时兜底——服务端不回、连接又不关（弱网/代理卡住）
         // 时不能永久挂起，否则调用方 stopStreaming 卡住、teardown 不跑、麦克风常驻。
         track('stop-sent', { started, socketState: socket.readyState });
+        // finished 先到时要清掉超时定时器，避免 timer 残留挂住 5s（已定态后仍触发 resolve，无意义）
+        let timer = null;
         const winner = await Promise.race([
-          finished.then(() => 'finished'),
-          new Promise((resolve) => setTimeout(() => resolve('timeout'), 5000)),
+          finished.then(() => {
+            if (timer) clearTimeout(timer);
+            return 'finished';
+          }),
+          new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), 5000); }),
         ]);
         track('stop-done', { winner });
       },
