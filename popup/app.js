@@ -418,6 +418,7 @@ async function startStreaming() {
     streamSession.partialText = '';
     streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel || provider.defaultModel;
     streamSession.endpoint = els.endpointInput.value.trim() || undefined;
+    streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
 
     // 批量模型（如 qwen3-asr-flash）不能用于 run-task —— 用流式默认模型兜底
     if (!provider.isStreamModel(streamSession.model)) {
@@ -445,9 +446,14 @@ async function startStreaming() {
       onComplete: () => debugEvt('ws-complete', {}),
       // 服务端/网络主动终止（task-finished / task-failed / onclose）：统一走 stopStreaming
       // 的 teardown + 历史落盘，避免 UI 卡死 streaming 态。stopStreaming 内部有重入护栏。
+      //
+      // 竞态防护：连接可能在 await wsSession.ready 期间（isStreaming 仍为 false）就结束。
+      // 此时 stopStreaming() 会被跳过（护栏只看 isStreaming），启动流程会继续在死连接上开采集。
+      // 所以 onEnd 提前触发时记 endedEarly 标记，startStreaming 在 ready 之后检查并中止启动。
       onEnd: () => {
         debugEvt('ws-end-received', {});
         if (isStreaming) stopStreaming();
+        else streamSession.endedEarly = true;
       },
       onEvent: (e) => debugEvt(e.ev, e),
     });
@@ -460,6 +466,13 @@ async function startStreaming() {
     }
     streamSession.wsSession = wsSession;
     debugEvt('ws-ready', { model: streamSession.model });
+
+    // 竞态检查：ready 已等成功但连接随后立刻结束（onEnd 在 isStreaming 置位前触发）。
+    // 中止启动走外层 catch 的 teardown，避免在已结束的会话上开采集。
+    if (streamSession.endedEarly) {
+      debugEvt('ws-ended-before-active', { model: streamSession.model });
+      throw new Error('Stream connection closed before recording started');
+    }
 
     streamSession.capture = globalThis.createPcmCapture({
       stream,

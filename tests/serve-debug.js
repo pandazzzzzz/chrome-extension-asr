@@ -35,9 +35,17 @@ const MIME = {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  // 防路径穿越：resolve 后必须仍在 ROOT 内
-  const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
-  const filePath = path.resolve(ROOT, rel);
+  // 防路径穿越：resolve 后必须仍在 ROOT 内。
+  // decodeURIComponent 遇非法 % 序列会抛 URIError —— 单独兜底，别让畸形请求打崩服务器。
+  let raw;
+  try {
+    raw = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad request: malformed path');
+    return;
+  }
+  const filePath = path.resolve(ROOT, raw);
   if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' });
     res.end('Forbidden');
