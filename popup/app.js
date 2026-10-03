@@ -467,13 +467,6 @@ async function startStreaming() {
     streamSession.wsSession = wsSession;
     debugEvt('ws-ready', { model: streamSession.model });
 
-    // 竞态检查：ready 已等成功但连接随后立刻结束（onEnd 在 isStreaming 置位前触发）。
-    // 中止启动走外层 catch 的 teardown，避免在已结束的会话上开采集。
-    if (streamSession.endedEarly) {
-      debugEvt('ws-ended-before-active', { model: streamSession.model });
-      throw new Error('Stream connection closed before recording started');
-    }
-
     streamSession.capture = globalThis.createPcmCapture({
       stream,
       context,
@@ -487,6 +480,14 @@ async function startStreaming() {
       ctxSampleRate: context.sampleRate,
     });
     startPcmStats(context.sampleRate, 16000);
+
+    // 竞态检查（必须在 isStreaming 置位前的最后一步）：从 createStreamSession 到这里的
+    // 每个 await（ready / capture.start）期间 onEnd 都可能触发。它发生在 isStreaming 仍为
+    // false 时只会记 endedEarly 标记，这里统一中止，避免在已结束的会话上把 UI 卡进 streaming 态。
+    if (streamSession.endedEarly) {
+      debugEvt('ws-ended-before-active', { model: streamSession.model });
+      throw new Error('Stream connection closed before recording started');
+    }
 
     els.resultText.value = '';
     syncResultButtons(); // 清空后同步禁用 Copy/Fill

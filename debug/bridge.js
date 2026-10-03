@@ -47,7 +47,7 @@
   // 都会装上监听，扩展每次打点（含 config-saved 的 endpoint/model/provider）都会被
   // 转发给该页，等于把配置泄露给攻击者选中的页面。诊断页靠 tests/serve-debug.js
   // 在 localhost 托管，路径名 + 主机名双重限定即可。
-  const isLocalHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
   const isDiagnosticPage = isLocalHost && /stream-debug\.html/.test(location.pathname);
   if (!isDiagnosticPage) return;
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
