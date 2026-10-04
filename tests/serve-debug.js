@@ -64,8 +64,20 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`诊断页静态服务器已启动：`);
-  console.log(`  http://localhost:${PORT}/tests/stream-debug.html`);
-  console.log(`（按 Ctrl+C 停止）`);
+// 仅绑回环：文件头声明"仅本机开发用""不鉴权"，且托管整个仓库根目录（任意文件可读）。
+// 默认 0.0.0.0/:: 会把仓库暴露到 LAN/公网 —— 必须限制到回环。
+// 同时绑 IPv4 与 IPv6 回环：bridge 会认 hostname '[::1]'（见 1d6383c），只绑 127.0.0.1
+// 会让 http://[::1]:PORT/... 连不上。
+server.on('error', (err) => {
+  // 某回环族不可用（如系统禁用 IPv6）→ EADDRNOTAVAIL，忽略该族即可；
+  // 其余错误（如端口占用 EADDRINUSE）照常抛出。
+  if (err.code !== 'EADDRNOTAVAIL') throw err;
 });
+const LOOPBACKS = ['127.0.0.1', '::1'];
+LOOPBACKS.forEach((host) => {
+  server.listen(PORT, host, () => {
+    const shown = host.includes(':') ? `[${host}]` : host;
+    console.log(`诊断页静态服务器已启动： http://${shown}:${PORT}/tests/stream-debug.html`);
+  });
+});
+console.log(`（按 Ctrl+C 停止）`);

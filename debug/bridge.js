@@ -47,16 +47,46 @@
   // 都会装上监听，扩展每次打点（含 config-saved 的 endpoint/model/provider）都会被
   // 转发给该页，等于把配置泄露给攻击者选中的页面。诊断页靠 tests/serve-debug.js
   // 在 localhost 托管，路径名 + 主机名双重限定即可。
-  const isLocalHost = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
-  const isDiagnosticPage = isLocalHost && /stream-debug\.html/.test(location.pathname);
+  // location.hostname 把 IPv6 回环带括号序列化为 '[::1]'（WHATWG URL 规范），
+  // 裸 '::1' 永远不会匹配，故只列带括号形式。
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  // 锚定到"路径段末尾是 stream-debug.html"：避免 my-stream-debug.html / stream-debug.html.bak
+  // 之类含子串的本地页也装上监听并收遥测（主机名虽已限 localhost，路径仍应精确）。
+  const isDiagnosticPage = isLocalHost && /(^|\/)stream-debug\.html$/.test(location.pathname);
   if (!isDiagnosticPage) return;
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
 
-  chrome.runtime.onMessage.addListener((request) => {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const wantTarget = (globalThis.TARGETS && globalThis.TARGETS.DEBUG);
     const wantType = (globalThis.MESSAGES && globalThis.MESSAGES.DEBUG_EVT);
     if (request?.target !== wantTarget || request.type !== wantType) return false;
     window.postMessage({ type: 'asr:debug-log', entry: request.payload }, location.origin);
-    return false; // 不需响应
+    // 回 sendResponse：background 据此判断本 tab 的桥仍在（桥消失时 lastError 置位，
+    // background 从订阅集合移除）。
+    sendResponse({ ok: true });
+    return true;
   });
+
+  // 向 background 登记本 tab 为遥测订阅者，background 只向订阅 tab 转发（替代全 tab 广播）。
+  // service worker 挂起重启会清空内存订阅集合，故在 focus / pageshow（bfcache 恢复）时
+  // 重发订阅自愈；pagehide（导航走/关闭）时退订。
+  const subscribeType = (globalThis.MESSAGES && globalThis.MESSAGES.DEBUG_SUBSCRIBE);
+  const unsubscribeType = (globalThis.MESSAGES && globalThis.MESSAGES.DEBUG_UNSUBSCRIBE);
+  const bgTarget = (globalThis.TARGETS && globalThis.TARGETS.BACKGROUND);
+  function subscribe() {
+    chrome.runtime.sendMessage(
+      { type: subscribeType, target: bgTarget },
+      () => { void chrome.runtime.lastError; },
+    );
+  }
+  function unsubscribe() {
+    chrome.runtime.sendMessage(
+      { type: unsubscribeType, target: bgTarget },
+      () => { void chrome.runtime.lastError; },
+    );
+  }
+  subscribe();
+  window.addEventListener('focus', subscribe);
+  window.addEventListener('pageshow', subscribe);
+  window.addEventListener('pagehide', unsubscribe);
 })();

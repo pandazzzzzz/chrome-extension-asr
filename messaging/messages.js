@@ -38,6 +38,8 @@ globalThis.MESSAGES = Object.freeze({
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',
   DEBUG_EVT: 'asr:debug',
+  DEBUG_SUBSCRIBE: 'asr:debug-subscribe',     // 诊断页 content 桥 → background 登记本 tab
+  DEBUG_UNSUBSCRIBE: 'asr:debug-unsubscribe', // 诊断页离开/关闭 → 退订
 });
 
 /** 消息路由目标（缺省为 background）。 */

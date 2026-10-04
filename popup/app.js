@@ -29,7 +29,9 @@ const streamSession = {
   model: '',
   endpoint: '',
   apiKey: '',
+  sessionId: 0,      // 每次 startStreaming 自增，用于跨会话 onEnd 竞态防护
 };
+let streamSessionSeq = 0; // streamSession.sessionId 的自增源
 
 const STREAM = {
   frameSize: 1024,
@@ -410,6 +412,11 @@ async function startStreaming() {
     }
     await context.resume(); // 用户手势内解锁
 
+    // 跨会话竞态防护：streamSession 是原地复用的单例，旧会话的延迟 onclose/onEnd
+    // 可能在新会话启动期间触发。每次 startStreaming 自增 sessionId，onEnd 闭包持有
+    // 本次 mySessionId，若 streamSession.sessionId 已被新会话覆盖则判定为残留并忽略。
+    const mySessionId = ++streamSessionSeq;
+
     streamSession.stream = stream;
     streamSession.context = context;
     streamSession.providerId = provider.id;
@@ -418,6 +425,7 @@ async function startStreaming() {
     streamSession.partialText = '';
     streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel || provider.defaultModel;
     streamSession.endpoint = els.endpointInput.value.trim() || undefined;
+    streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
     streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
 
     // 批量模型（如 qwen3-asr-flash）不能用于 run-task —— 用流式默认模型兜底
@@ -452,6 +460,12 @@ async function startStreaming() {
       // 所以 onEnd 提前触发时记 endedEarly 标记，startStreaming 在 ready 之后检查并中止启动。
       onEnd: () => {
         debugEvt('ws-end-received', {});
+        // 跨会话竞态防护：sessionId 已被新会话覆盖 → 本回调是旧会话的延迟 onclose 残留，
+        // 不应再写 endedEarly（会误杀新会话的启动检查）或触发 stopStreaming。
+        if (streamSession.sessionId !== mySessionId) {
+          debugEvt('ws-end-stale', {});
+          return;
+        }
         if (isStreaming) stopStreaming();
         else streamSession.endedEarly = true;
       },
@@ -466,6 +480,14 @@ async function startStreaming() {
     }
     streamSession.wsSession = wsSession;
     debugEvt('ws-ready', { model: streamSession.model });
+
+    // 竞态早检：await wsSession.ready 期间若 onEnd 已触发（endedEarly=true），先中止，
+    // 避免在已死会话上创建 PCM 采集（AudioWorklet 模块加载 + 音频图接线）。
+    // 下方 capture.start() 之后的二次检查覆盖该 await 窗口本身。
+    if (streamSession.endedEarly) {
+      debugEvt('ws-ended-before-capture', { model: streamSession.model });
+      throw new Error('Stream connection closed before recording started');
+    }
 
     streamSession.capture = globalThis.createPcmCapture({
       stream,

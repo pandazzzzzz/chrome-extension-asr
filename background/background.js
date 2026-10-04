@@ -16,21 +16,30 @@ console.log('Background service worker started');
 
 const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 
-// 把诊断事件转给所有 tab 的 content script（tabs.sendMessage 才能达 content）。
-// 没装 content script 的 tab（chrome:// 等）会报错，忽略即可；装了的 page 里
-// 桥自己再按 URL 过滤（只转发给诊断页），普通页面不会产生噪音。
+// 诊断页订阅者集合：诊断页 content 桥（debug/bridge.js）在装载时发 DEBUG_SUBSCRIBE
+// 登记本 tab id，这里只向订阅 tab 转发遥测 —— 替代原来"每次事件查全部 tab 广播"的
+// O(全部 tab) 开销。集合存内存，service worker 挂起重启会清空；桥在 focus/pageshow
+// 时重发订阅自愈。
+const debugSubscribers = new Set();
+
 function forwardDebugToTabs(payload) {
-  chrome.tabs.query({}).then((tabs) => {
-    tabs.forEach((tab) => {
-      if (tab.id == null) return;
-      chrome.tabs.sendMessage(
-        tab.id,
-        { type: globalThis.MESSAGES.DEBUG_EVT, payload, target: globalThis.TARGETS.DEBUG },
-        () => { void chrome.runtime.lastError; }, // 无 content script 的 tab：忽略
-      );
-    });
-  }).catch(() => { /* query 失败不影响主流程 */ });
+  for (const tabId of debugSubscribers) {
+    chrome.tabs.sendMessage(
+      tabId,
+      { type: globalThis.MESSAGES.DEBUG_EVT, payload, target: globalThis.TARGETS.DEBUG },
+      () => {
+        // 桥仍会回 sendResponse({ok:true})；若桥已不在（导航走/关闭），无人响应 →
+        // lastError 置位，从集合移除自愈。
+        if (chrome.runtime.lastError) debugSubscribers.delete(tabId);
+      },
+    );
+  }
 }
+
+// tab 关闭立即清理，不必等下一次转发时的 lastError 兜底。
+chrome.tabs.onRemoved.addListener((tabId) => {
+  debugSubscribers.delete(tabId);
+});
 
 // 插件安装/更新时的初始化
 chrome.runtime.onInstalled.addListener((details) => {
@@ -156,6 +165,17 @@ function sendToOffscreen(type, payload) {
 // 统一消息入口
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const { type, payload, target } = request || {};
+
+  // 诊断页订阅/退订：content 桥（debug/bridge.js）在诊断页装载时登记本 tab id，
+  // 离开/关闭时退订。订阅集合存内存，worker 重启会清空 —— 桥在 focus/pageshow 时重发自愈。
+  if (type === globalThis.MESSAGES.DEBUG_SUBSCRIBE && sender?.tab?.id != null) {
+    debugSubscribers.add(sender.tab.id);
+    return false;
+  }
+  if (type === globalThis.MESSAGES.DEBUG_UNSUBSCRIBE && sender?.tab?.id != null) {
+    debugSubscribers.delete(sender.tab.id);
+    return false;
+  }
 
   // 诊断遥测转发（target:'debug'）：
   // chrome.runtime.sendMessage 只广播给扩展上下文（background / 扩展页），
