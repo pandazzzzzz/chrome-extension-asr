@@ -107,29 +107,20 @@ async function refreshStorageStatus() {
   const config = await globalThis.ConfigStore.load();
   els.keyStatus.textContent = config.apiKey ? `configured (encrypted at rest)` : 'not set';
 
+  // 密钥存在性检查必须走 CryptoStore.hasKey()——不能直接 indexedDB.open('asr-crypto')：
+  // 全新安装时该库不存在，直接 open(v1) 会触发 onupgradeneeded 把库建到 v1 却不建
+  // 'keys' object store（这里没处理升级回调），此后 CryptoStore 的 onupgradeneeded
+  // 不再触发（库已是 v1），CryptoStore 永远建不出表 → API Key 加解密永久损坏。
   try {
-    const req = indexedDB.open('asr-crypto', 1);
-    req.onsuccess = () => {
-      const store = req.result.transaction('keys', 'readonly').objectStore('keys');
-      const get = store.get('main');
-      get.onsuccess = () => {
-        els.cryptoKeyStatus.textContent = get.result ? 'present (non-extractable)' : 'missing';
-        req.result.close();
-      };
-      get.onerror = () => {
-        els.cryptoKeyStatus.textContent = 'unknown';
-        req.result.close();
-      };
-    };
-    req.onerror = () => {
-      els.cryptoKeyStatus.textContent = 'unavailable';
-    };
+    els.cryptoKeyStatus.textContent = (await globalThis.CryptoStore.hasKey())
+      ? 'present (non-extractable)'
+      : 'missing';
   } catch {
     els.cryptoKeyStatus.textContent = 'unavailable';
   }
 
-  const history = await globalThis.HistoryStore.list(1000);
-  els.historyCount.textContent = `${history.length}`;
+  const history = await globalThis.HistoryStore.count();
+  els.historyCount.textContent = `${history}`;
 }
 
 function show(message, type) {

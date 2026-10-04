@@ -101,5 +101,12 @@ globalThis.CryptoStore = (() => {
     return dec.decode(plain);
   }
 
-  return { encrypt, decrypt };
+  /** 是否已持有 AES-GCM 密钥（不创建）。供 options 页显示存储状态，避免它
+   *  绕过 CryptoStore 直接 indexedDB.open 把库建坏（见 options.js 注释）。 */
+  async function hasKey() {
+    const existing = await idbGet(KEY_RECORD);
+    return !!existing;
+  }
+
+  return { encrypt, decrypt, hasKey };
 })();

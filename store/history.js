@@ -78,6 +78,22 @@ globalThis.HistoryStore = (() => {
     }
   }
 
+  /** 记录条数（只计数，不取文本）。供 options 页存储状态显示，避免
+   *  list() 拉全部含长文本的记录只为读 length。 */
+  async function count() {
+    try {
+      const db = await openDb();
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).count();
+        req.onsuccess = () => resolve(req.result || 0);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('HistoryStore.count failed:', e);
+      return 0;
+    }
+  }
+
   /** 清空历史。 */
   async function clear() {
     try {
@@ -114,5 +130,5 @@ globalThis.HistoryStore = (() => {
     });
   }
 
-  return { add, list, clear };
+  return { add, list, clear, count };
 })();
