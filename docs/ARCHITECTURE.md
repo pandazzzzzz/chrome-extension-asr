@@ -166,8 +166,11 @@
 │
 ├── docs/                    #  〔已有〕架构设计文档（进度/交接笔记见本地 docs/HANDOFF.md，不入库）
 │   └── ARCHITECTURE.md     #  架构图 / 模块划分 / 演进路线
-├── tests/                   #  〔已有〕浏览器可直接打开的冒烟测试
-│   └── p1-smoke-test.html
+├── tests/                   #  〔已有〕浏览器可直接打开的冒烟测试（三种上下文均可运行）
+│   ├── p1-smoke-test.html
+│   ├── p1-smoke-test.js    #  用例主体（外置：内联 <script> 会被扩展 CSP 拦截）
+│   ├── stream-debug.html   #  流式诊断页（配合 tests/serve-debug.js）
+│   └── serve-debug.js      #  诊断页本地静态服务器（127.0.0.1 与 [::1] 各一实例）
 └── samples/ , temp/        # 〔保留〕样例素材与本地临时文件
 ```
 

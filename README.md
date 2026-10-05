@@ -61,7 +61,8 @@ A Manifest V3 Chrome extension for **real-time speech-to-text**. Record from the
 ├── docs/
 │   └── ARCHITECTURE.md       # Full architecture design doc
 ├── tests/
-│   └── p1-smoke-test.html    # Browser-runnable smoke tests (open directly in Chrome)
+│   ├── p1-smoke-test.html    # Browser-runnable smoke tests (open directly in Chrome)
+│   └── p1-smoke-test.js      # Test cases (external: inline scripts are blocked by the extension CSP)
 ├── samples/                  # Committed test samples (audio, models)
 └── temp/                     # Local-only temp files (not tracked by git)
 ```
