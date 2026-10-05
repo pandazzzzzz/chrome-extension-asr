@@ -1,5 +1,5 @@
 {
-  "name": "chrome-extension",
+  "name": "chrome-extension-asr",
   "version": "1.0.0",
   "description": "A Chrome extension built with Manifest V3",
   "scripts": {
@@ -17,10 +17,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/your-repo.git"
+    "url": "https://github.com/pandazzzzzz/chrome-extension-asr.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/your-repo/issues"
+    "url": "https://github.com/pandazzzzzz/chrome-extension-asr/issues"
   },
-  "homepage": "https://github.com/yourusername/your-repo#readme"
+  "homepage": "https://github.com/pandazzzzzz/chrome-extension-asr#readme"
 }
