@@ -1,7 +1,7 @@
 {
   "name": "chrome-extension-asr",
   "version": "1.0.0",
-  "description": "A Chrome extension built with Manifest V3",
+  "description": "Manifest V3 Chrome extension for real-time speech-to-text (mic/tab recording + Qwen/DashScope WebSocket streaming)",
   "scripts": {
     "build": "echo 'No build step required for basic extension'",
     "pack": "node scripts/pack.js",
@@ -13,7 +13,7 @@
     "manifest-v3",
     "browser-extension"
   ],
-  "author": "Your Name",
+  "author": "panda <42071901+pandazzzzzz@users.noreply.github.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
