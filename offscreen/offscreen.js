@@ -45,12 +45,13 @@
       // start() 抛错（如 MediaRecorder 构造/格式不支持）时须回滚：否则 recorder 已赋值、
       // audioContext 已开，后续 startRecording 会命中 if(recorder) 直接返回 ALREADY_RECORDING，
       // 状态卡死且 audioContext 泄漏。
+      // 模块变量须在 await 前同步清空：若先 await close 再置 null，await 期间并发进入的
+      // startRecording 新建的 audioContext 会被这里的 `audioContext = null` 覆盖。
+      const ctx = audioContext;
       recorder.release();
       recorder = null;
-      if (audioContext) {
-        await audioContext.close().catch(() => {});
-        audioContext = null;
-      }
+      audioContext = null;
+      if (ctx) await ctx.close().catch(() => {});
       return { ok: false, error: globalThis.createError(Errors.RECORD_ERROR, e.message || '') };
     }
 

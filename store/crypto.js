@@ -23,8 +23,14 @@ globalThis.CryptoStore = (() => {
 
   function openDb() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      // v2：旧版 options 页曾直接 open(v1) 却未建 'keys' store，导致库被建到 v1
+      // 且缺表；此后 open(v1) 不再触发 onupgradeneeded，加解密永久损坏。升到 v2
+      // 强制走一次 upgrade，用 contains 补建缺失的表（已存在的库则无事发生）。
+      const req = indexedDB.open(DB_NAME, 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

@@ -446,12 +446,21 @@ async function startStreaming() {
       apiKey: streamSession.apiKey,
       model: streamSession.model,
       endpoint: streamSession.endpoint,
-      onResult: onStreamResult,
+      // 跨会话竞态防护与 onEnd 同理：旧会话的延迟回调（理论上 socket.close 后不会再
+      // 触发，但保持对称）不应再写新会话的 streamSession 状态或误触 UI。
+      onResult: (r) => {
+        if (streamSession.sessionId !== mySessionId) return;
+        onStreamResult(r);
+      },
       onError: (e) => {
+        if (streamSession.sessionId !== mySessionId) return;
         debugEvt('ws-error', { message: e?.message || String(e) });
         showStatus(`Stream error: ${e.message}`, 'error');
       },
-      onComplete: () => debugEvt('ws-complete', {}),
+      onComplete: () => {
+        if (streamSession.sessionId !== mySessionId) return;
+        debugEvt('ws-complete', {});
+      },
       // 服务端/网络主动终止（task-finished / task-failed / onclose）：统一走 stopStreaming
       // 的 teardown + 历史落盘，避免 UI 卡死 streaming 态。stopStreaming 内部有重入护栏。
       //

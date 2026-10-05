@@ -45,7 +45,12 @@ function applyToUI(config) {
     els.provider.appendChild(option);
   });
   const first = providers[0]?.id || '';
-  els.provider.value = config.provider || first;
+  // 旧版批量 provider（openai/deepgram 等）已从注册表删除：保存值没有对应 <option>
+  // 时 select 会归成 '' 导致空白下拉，点 Save 还会把 '' 写回 storage。回退到第一个
+  // provider，与 popup/app.js applyConfigToUI 的 stale-provider-fallback 保持一致。
+  const savedProvider = config.provider;
+  const hasOption = providers.some((p) => p.id === savedProvider);
+  els.provider.value = (hasOption && savedProvider) ? savedProvider : first;
   els.apiKey.value = config.apiKey || '';
   els.endpoint.value = config.endpoint || '';
   els.audioType.value = config.audioType || 'audio/webm';
