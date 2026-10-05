@@ -14,6 +14,8 @@ let recorder = null;          // AudioRecorder 实例（麦克风）
 let audioBlob = null;         // 录音结果（由 Save audio 落盘）
 let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
+let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await），防重入
+let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await），防重入
 let isStreaming = false;      // 真流式转录中（麦克风 PCM → WebSocket）
 let isStreamingBusy = false;  // start/stop 进行中（含异步 setup/teardown），防重入
 
@@ -222,6 +224,12 @@ async function toggleRecording() {
 }
 
 async function startRecording() {
+  // 防重入：isRecording 要等 await getUserMedia 之后才置位，且按钮在这段窗口内仍可点。
+  // 双击会开两条麦克风流，后到者覆盖 recorder → 第一条流无人停轨，麦克风常驻占用。
+  // 与 startStreaming 同形的 busy 护栏，覆盖整个 await 窗口。
+  if (isRecordingBusy || isRecording) return;
+  isRecordingBusy = true;
+
   let stream = null;
   try {
     audioBlob = null;
@@ -247,11 +255,18 @@ async function startRecording() {
     isRecording = false;
     els.recordBtn.textContent = 'Start Recording';
     enableAllRecordButtons();
+  } finally {
+    isRecordingBusy = false;
   }
 }
 
 async function stopRecording() {
-  if (!recorder) return;
+  // 防重入：stop 期间 recorder 尚未置空（onstop 是异步的），第二次点击会重复
+  // recorder.stop() → MediaRecorder 抛 InvalidStateError，且 catch 里 recorder
+  // 可能已被首轮置空而触发 null.release() 崩溃。busy 护栏关掉整个 await 窗口。
+  if (isRecordingBusy || !recorder) return;
+  isRecordingBusy = true;
+
   els.recordBtn.textContent = 'Start Recording';
   isRecording = false;
   try {
@@ -267,6 +282,7 @@ async function stopRecording() {
     recorder.release();
     recorder = null;
   } finally {
+    isRecordingBusy = false;
     enableAllRecordButtons();
   }
 }
@@ -282,6 +298,12 @@ async function toggleTabRecording() {
 }
 
 async function startTabRecording() {
+  // 防重入：isTabRecording 要等 await MessageClient.send 之后才置位。双击时第二次请求
+  // 会命中 background 的 ALREADY_RECORDING 早退并走 catch → enableAllRecordButtons()，
+  // 把"正在录音"的互斥状态清掉：按钮显示 Stop Tab Rec 却三路全可点，破坏互斥不变式。
+  if (isTabRecordingBusy || isTabRecording) return;
+  isTabRecordingBusy = true;
+
   try {
     audioBlob = null;
 
@@ -297,10 +319,15 @@ async function startTabRecording() {
     debugEvt('tab-record-error', { where: 'start', message: error?.message || String(error) });
     showStatus(`Tab record failed: ${error.message}`, 'error');
     enableAllRecordButtons();
+  } finally {
+    isTabRecordingBusy = false;
   }
 }
 
 async function stopTabRecording() {
+  if (isTabRecordingBusy || !isTabRecording) return;
+  isTabRecordingBusy = true;
+
   isTabRecording = false;
   els.tabRecordBtn.textContent = 'Record Tab';
   try {
@@ -321,6 +348,7 @@ async function stopTabRecording() {
     debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
     showStatus(`Tab record stop failed: ${error.message}`, 'error');
   } finally {
+    isTabRecordingBusy = false;
     enableAllRecordButtons();
   }
 }
