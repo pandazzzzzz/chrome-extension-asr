@@ -162,7 +162,7 @@
 │   └── client.js           #  〔已有〕sendMessage 封装（promise + 错误）
 ├── shared/
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
-│   └── utils.js            #  〔新增〕blob↔base64、格式化、时间戳
+│   └── timeout.js          #  〔已有〕withTimeout 兜底（消息/录音等永不 settle 的 Promise）
 │
 ├── docs/                    #  〔已有〕架构设计文档（进度/交接笔记见本地 docs/HANDOFF.md，不入库）
 │   └── ARCHITECTURE.md     #  架构图 / 模块划分 / 演进路线

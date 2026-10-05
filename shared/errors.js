@@ -21,6 +21,7 @@ globalThis.Errors = Object.freeze(
       // 消息 / 协议类
       UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION', message: 'Unknown message type' },
       NO_RESPONSE: { code: 'NO_RESPONSE', message: 'No response' },
+      TIMEOUT: { code: 'TIMEOUT', message: 'Operation timed out' },
 
       // 注入 / 采集类（background / content / offscreen 内联返回，统一登记）
       NO_TAB: { code: 'NO_TAB', message: 'No active tab' },

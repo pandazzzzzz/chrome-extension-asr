@@ -25,10 +25,13 @@
 
 <!-- 加载扩展脚本（相对路径） -->
 <script src="../shared/errors.js"></script>
+<script src="../shared/timeout.js"></script>
 <script src="../messaging/messages.js"></script>
 <script src="../messaging/client.js"></script>
 <script src="../store/crypto.js"></script>
 <script src="../store/config.js"></script>
+<script src="../audio/convert.js"></script>
+<script src="../audio/recorder.js"></script>
 
 <script>
 const results = document.getElementById('results');
@@ -145,6 +148,154 @@ async function runTests() {
       'MessageClient/ConfigStore/CryptoStore/MESSAGES/Errors all on globalThis');
   } catch (e) {
     addResult('globalThis: compat', false, e.message);
+  }
+
+  // --- 9. withTimeout: 超时 reject（带 TIMEOUT code）+ 提前 settle 原样透传 ---
+  try {
+    let timedOut = false;
+    try {
+      await globalThis.withTimeout(new Promise(() => {}), 20, 'hang-test');
+    } catch (e) {
+      timedOut = e.code === 'TIMEOUT' && /hang-test/.test(e.message);
+    }
+    const quick = await globalThis.withTimeout(Promise.resolve('v'), 1000, 'quick');
+    let rejectPassed = false;
+    try {
+      await globalThis.withTimeout(Promise.reject(new Error('inner')), 1000, 'rej');
+    } catch (e) { rejectPassed = e.message === 'inner'; }
+    const ok = timedOut && quick === 'v' && rejectPassed;
+    addResult('withTimeout: timeout + resolve/reject passthrough', ok,
+      `timeout=${timedOut}, resolve-passthrough=${quick === 'v'}, reject-passthrough=${rejectPassed}`);
+  } catch (e) {
+    addResult('withTimeout', false, e.message);
+  }
+
+  // --- 10. CryptoStore: 密钥 extractable:false（不可导出）---
+  try {
+    const dbOpenReq = indexedDB.open('asr-crypto', 2); // 与模块同版本，不触发 upgrade
+    const db1 = await new Promise((res, rej) => {
+      dbOpenReq.onsuccess = () => res(dbOpenReq.result);
+      dbOpenReq.onerror = () => rej(dbOpenReq.error);
+    });
+    const k = await new Promise((res, rej) => {
+      const r = db1.transaction('keys', 'readonly').objectStore('keys').get('main');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    db1.close();
+    // 前置：用例 1 的 encrypt 已生成并写入 'main'；取不到说明存储链路本身坏了
+    const ok = !!k && k instanceof CryptoKey && k.extractable === false && k.algorithm.name === 'AES-GCM';
+    addResult('CryptoStore: key non-extractable (AES-GCM)', ok,
+      k ? `type=${k && k.constructor && k.constructor.name}, extractable=${k && k.extractable}` : 'no key record — test 1 must pass first');
+  } catch (e) {
+    addResult('CryptoStore: key non-extractable', false, e.message);
+  }
+
+  // --- 11. CryptoStore: DB 句柄缓存（多次加解密不再重复 open —— 连接泄漏回归）---
+  try {
+    let opens = 0;
+    const realOpen = indexedDB.open.bind(indexedDB);
+    indexedDB.open = function counted() { opens++; return realOpen.apply(null, arguments); };
+    await Promise.all([
+      globalThis.CryptoStore.encrypt('a'),
+      globalThis.CryptoStore.encrypt('b'),
+    ]);
+    const rt = await globalThis.CryptoStore.decrypt(await globalThis.CryptoStore.encrypt('c'));
+    indexedDB.open = realOpen; // 还原
+    const ok = opens === 0 && rt === 'c';
+    addResult('CryptoStore: cached DB handle (0 new opens across ops)', ok,
+      `indexedDB.open 调用次数=${opens}（期望 0，句柄已缓存）, roundtrip=${rt === 'c'}`);
+  } catch (e) {
+    addResult('CryptoStore: connection cache', false, e.message);
+  }
+
+  // --- 12. encodeAudio / decodeAudio roundtrip ---
+  try {
+    const payload = new Uint8Array(1000).map((_, i) => i % 251);
+    const enc = await globalThis.encodeAudio(new Blob([payload], { type: 'audio/mp4' }));
+    const dec = globalThis.decodeAudio(enc);
+    const back = new Uint8Array(await dec.arrayBuffer());
+    const ok = back.length === payload.length
+      && back.every((v, i) => v === payload[i])
+      && enc.mime === 'audio/mp4';
+    addResult('encodeAudio/decodeAudio: roundtrip + mime', ok,
+      `bytes=${back.length}, mime=${enc.mime}`);
+  } catch (e) {
+    addResult('encodeAudio/decodeAudio roundtrip', false, e.message);
+  }
+
+  // --- 13. decodeAudio: 非法输入返回 null ---
+  try {
+    const ok = globalThis.decodeAudio(null) === null
+      && globalThis.decodeAudio({ b64: 123 }) === null
+      && globalThis.decodeAudio({ b64: 'not@valid!!' }) === null;
+    addResult('decodeAudio: invalid input → null', ok);
+  } catch (e) {
+    addResult('decodeAudio invalid input', false, e.message);
+  }
+
+  // --- 14. floatToInt16: clamp + 端点 ---
+  try {
+    const out = globalThis.floatToInt16(new Float32Array([0, 1, -1, 2, -2, 0.5]));
+    // 注意 Int16Array 写入是**截断**（ToIntegerOrInfinity），不是四舍五入：
+    // 0.5 * 32767 = 16383.5 → 16383（用 Math.round 断言会误判成 16384）。
+    const ok = out[0] === 0 && out[1] === 32767 && out[2] === -32768
+      && out[3] === 32767 && out[4] === -32768
+      && out[5] === Math.trunc(0.5 * 32767);
+    addResult('floatToInt16: clamp to int16 range', ok, `out=[${out}]`);
+  } catch (e) {
+    addResult('floatToInt16 clamp', false, e.message);
+  }
+
+  // --- 15. resampleFloat32: 同采样率 + 48k→16k 长度/内容 ---
+  try {
+    const src = new Float32Array([0, 0.25, 0.5, 0.75, 1, 0.75, 0.5, 0.25, 0]);
+    const same = globalThis.resampleFloat32(src, 16000, 16000);
+    const down = globalThis.resampleFloat32(src, 48000, 16000);
+    const ok = same === src
+      && down.length === Math.round(src.length / 3)
+      && Math.abs(down[0] - 0) < 1e-6
+      && Number.isFinite(down[1]);
+    addResult('resampleFloat32: identity + 48k→16k', ok,
+      `identity=${same === src}, outLen=${down.length}/${src.length}`);
+  } catch (e) {
+    addResult('resampleFloat32', false, e.message);
+  }
+
+  // --- 16. AudioRecorder: 未挂载时 stop() 拒绝；release 幂等 ---
+  try {
+    const rec = new globalThis.AudioRecorder();
+    let threw = false;
+    try { await rec.stop(); } catch (e) { threw = /Not recording/.test(e.message); }
+    rec.release(); rec.release(); // 重复调用不应抛
+    const ok = threw && rec.recorder === null && rec.isRecording === false;
+    addResult('AudioRecorder: stop-before-start rejects, release idempotent', ok,
+      `rejected=${threw}`);
+  } catch (e) {
+    addResult('AudioRecorder guards', false, e.message);
+  }
+
+  // --- 17. MessageClient.send: 超时参数生效（stub sendMessage 永不回调 → TIMEOUT 兜底）---
+  try {
+    // 普通页面没有 chrome；扩展页面里有真的 sendMessage —— 两种情况都要还原现场
+    const madeChrome = typeof globalThis.chrome === 'undefined';
+    if (madeChrome) globalThis.chrome = { runtime: {} };
+    const realSend = chrome.runtime.sendMessage;
+    // 永不回调的 stub：真实环境里接收方被杀就是这种表现
+    chrome.runtime.sendMessage = () => {};
+    let timedOut = false;
+    let timedMsg = '';
+    try {
+      await globalThis.MessageClient.send(
+        globalThis.MESSAGES.FILL_TEXT, { text: 'x' }, globalThis.TARGETS.BACKGROUND, 40);
+    } catch (e) { timedOut = e.code === 'TIMEOUT'; timedMsg = e.message || ''; }
+    if (madeChrome) delete globalThis.chrome;
+    else chrome.runtime.sendMessage = realSend;
+    const ok = timedOut && /sendMessage asr:fill-text/.test(timedMsg);
+    addResult('MessageClient: send() honors timeoutMs', ok,
+      `timeout=${timedOut}, label-in-message=${/sendMessage asr:fill-text/.test(timedMsg)}`);
+  } catch (e) {
+    addResult('MessageClient timeout', false, e.message);
   }
 
   finish();

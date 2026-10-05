@@ -304,8 +304,17 @@ async function stopTabRecording() {
   isTabRecording = false;
   els.tabRecordBtn.textContent = 'Record Tab';
   try {
-    // offscreen 返回 { b64, mime }（JSON 消息通道无法传 Blob），这里还原
-    audioBlob = globalThis.decodeAudio(await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STOP, {}));
+    // offscreen 返回 { b64, mime }（JSON 消息通道无法传 Blob），这里还原。
+    // 超时放宽到 20s：链路 = background relay + offscreen recorder.stop()（内部
+    // 已有 5s 兜底）+ 大 blob 的 base64 编码，默认 10s 对长录音偏紧。
+    audioBlob = globalThis.decodeAudio(
+      await globalThis.MessageClient.send(
+        globalThis.MESSAGES.TAB_RECORD_STOP,
+        {},
+        globalThis.TARGETS.BACKGROUND,
+        20000,
+      ),
+    );
     debugEvt('tab-record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
     showStatus('Tab recording complete.', 'success');
   } catch (error) {
@@ -689,6 +698,12 @@ async function handleFillIntoPage() {
     showStatus('Filled into page input.', 'success');
   } catch (error) {
     debugEvt('fill-error', { code: error?.code || '', message: error?.message || String(error) });
+    // 超时是"结果未知"而非"确定失败"：填充是不可取消的副作用，慢页面上它可能
+    // 已经落地。直接说 failed 会诱导用户重试 → 文本插入两遍，所以分开措辞。
+    if (error?.code === globalThis.Errors.TIMEOUT.code) {
+      showStatus('Fill timed out — check the page before retrying (it may already be filled).', 'error');
+      return;
+    }
     showStatus(`Fill failed: ${error.message}`, 'error');
   }
 }

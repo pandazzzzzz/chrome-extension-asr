@@ -9,6 +9,7 @@
 // 顺序：共享错误 → 消息契约（配置/加密由 popup 侧读取，此处不涉密钥）
 importScripts(
   '../shared/errors.js',
+  '../shared/timeout.js',
   '../messaging/messages.js',
 );
 
@@ -109,36 +110,31 @@ async function ensureOffscreenDocument() {
   await creatingOffscreen;
 }
 
-// 开始录标签页：取 streamId → 通知 offscreen 开始
-async function handleTabRecordStart(payload) {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.id) {
-    return { ok: false, error: globalThis.Errors.NO_TAB };
-  }
-
-  // getMediaStreamId 需要用户手势（点击扩展图标）授予的 activeTab
-  let streamId;
+// 录音结束后显式关闭 offscreen 文档：它的 JS 上下文（含已加载脚本）会常驻内存,
+// MV3 不会自动回收。closeDocument 在文档不存在时会 reject（如 stop 消息本来就没
+// 送达）,吞掉即可——下次 ensureOffscreenDocument 会用 getContexts 自愈。
+async function closeOffscreenDocument() {
   try {
-    streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-  } catch (error) {
-    return {
-      ok: false,
-      error: globalThis.createError(globalThis.Errors.TAB_CAPTURE, error.message || ''),
-    };
+    await chrome.offscreen.closeDocument();
+  } catch {
+    /* 已不存在 / 关闭失败 */
   }
-
-  await ensureOffscreenDocument();
-  return sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_START, { streamId });
 }
 
-// 停止录标签页：offscreen 返回录制 Blob
-async function handleTabRecordStop() {
-  return sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_STOP, {});
-}
+// 文档"代际"计数：popup 客户端超时（10/20s）不取消 background 里仍在跑的 handler,
+// 用户重试会开新一轮。若回收动作不区分代际,上一轮迟到的 stop 收尾会关掉属于新一轮
+// 的文档、毁掉正在进行的录音。约定：start 成功即 enter 当代；任何一次回收之后、
+// 下一次 start 之前的迟到收尾，token 不等 → 拒绝执行。
+let offscreenGeneration = 0;
+let activeOffscreenToken = null;
 
-// 给 offscreen 发消息并按 { ok, data, error } 归一化
-function sendToOffscreen(type, payload) {
-  return new Promise((resolve) => {
+// 给 offscreen 发消息并按 { ok, data, error } 归一化。
+// 超时兜底：文档被关/崩溃时回调可能迟迟不来,background 的 onMessage handler 会
+// 永久悬挂占用 SW。预算须 **小于** popup 端对应超时（START 10s / STOP 20s）,
+// 让 background 先得出确定结论；真发生超时,该轮 token 已作废,后续回收被代际
+// 守卫拒绝,迟到送达的 handler 也只回 ok:false,无害。
+async function sendToOffscreen(type, payload, timeoutMs) {
+  const p = new Promise((resolve) => {
     chrome.runtime.sendMessage(
       { type, payload, target: globalThis.TARGETS.OFFSCREEN, requestId: Date.now().toString(36) },
       (response) => {
@@ -160,6 +156,64 @@ function sendToOffscreen(type, payload) {
       },
     );
   });
+  return globalThis.withTimeout(p, timeoutMs, `sendToOffscreen ${type}`);
+}
+
+// 开始录标签页：取 streamId → 通知 offscreen 开始
+async function handleTabRecordStart(payload) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    return { ok: false, error: globalThis.Errors.NO_TAB };
+  }
+
+  // getMediaStreamId 需要用户手势（点击扩展图标）授予的 activeTab
+  let streamId;
+  try {
+    streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+  } catch (error) {
+    return {
+      ok: false,
+      error: globalThis.createError(globalThis.Errors.TAB_CAPTURE, error.message || ''),
+    };
+  }
+
+  await ensureOffscreenDocument();
+  let result;
+  try {
+    result = await sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_START, { streamId }, 9000);
+  } catch (e) {
+    // START 超时：offscreen 失联。此刻可证明它没有活跃录音（ALREADY_RECORDING 是
+    // 同步早退,不会挂起）,销毁重建是唯一安全路径。rethrow 交给统一 catch → TIMEOUT。
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+    throw e;
+  }
+  // start 失败时回收文档，但 **ALREADY_RECORDING 除外**：那是另一路（如 sidepanel）
+  // 正在录音的良性信号，此刻关文档 = 杀掉人家活跃的录音。其余失败（getUserMedia
+  // 被拒等）意味着文档内状态不可信，销毁重建更安全。
+  if (!result.ok && result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+  }
+  // 成功即认领当代（token 须在此同步刷新,handleTabRecordStop 靠它判断归属）
+  if (result.ok) activeOffscreenToken = ++offscreenGeneration;
+  return result;
+}
+
+// 停止录标签页：offscreen 返回录制 Blob，随后回收文档
+async function handleTabRecordStop() {
+  const tokenAtStart = activeOffscreenToken;
+  const result = await sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_STOP, {}, 19000);
+  // 代际守卫——只在"本 stop 仍归属当前有效代"时回收文档：
+  //   token 匹配且非 null：本代正常收尾（成败都关：stop 失败意味着文档内状态不可信）。
+  //   两边皆 null：SW 挂起重启丢了 token 但文档还在——仅当 STOP 确实送达（result.ok，
+  //     录音被证实停止）才回收；失败分支分不清是否还有活跃录音，宁可留文档不误杀。
+  //   token 不匹配：重试已换代，这是陈旧 stop 的迟到收尾，绝不关新录音的文档。
+  if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null || result.ok)) {
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+  }
+  return result;
 }
 
 // 统一消息入口
