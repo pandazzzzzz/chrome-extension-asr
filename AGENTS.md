@@ -32,6 +32,7 @@ Current actions: `asr:fill-text`, `asr:tab-record-start`, `asr:tab-record-stop`.
 Scripts attach to `globalThis` (never `window`) so the same file works in popup, sidepanel, options, **and the service worker** (`importScripts`) / offscreen. If you add a provider later, add its `<script>` tag to **`popup/popup.html`, `sidepanel/sidepanel.html`, and `options/options.html`** and register it in `transcription/providers/index.js`. (Background does not load the transcription layer — it only handles message routing / offscreen coordination / fill-text.)
 
 ## Build, Test, and Development Commands
+- `npm ci`: installs the single devDependency (`puppeteer-core`) from `package-lock.json`. Only the gitignored `temp/` harness scripts need it — the extension itself has **no runtime dependencies** and no build step.
 - `npm run build`: placeholder (no compile step — load the directory unpacked).
 - `npm run lint`: placeholder; wire a linter before enforcing CI.
 - `npm run pack`: creates `extension.zip` for distribution via `scripts/pack.js` — tries **PowerShell .NET `ZipFile` first** (explicit entry paths; `Compress-Archive` flattens relative paths and breaks the archive), falls back to a dependency-free `node:zlib` zip writer (`node scripts/pack.js --node` forces the fallback). Excludes `.git*`, `node_modules/`, `*.zip`, `temp/` (local harness, may hold a ~200MB Chrome-for-Testing). Runs on any OS.
