@@ -37,7 +37,9 @@ Scripts attach to `globalThis` (never `window`) so the same file works in popup,
 - `npm ci`: installs the single devDependency (`puppeteer-core`) from `package-lock.json`. Only the gitignored `temp/` harness scripts need it — the extension itself has **no runtime dependencies** and no build step.
 - `npm run build`: placeholder (no compile step — load the directory unpacked).
 - `npm run lint`: placeholder; wire a linter before enforcing CI.
-- `npm run pack`: creates `extension.zip` for distribution via `scripts/pack.js` — tries **PowerShell .NET `ZipFile` first** (explicit entry paths; `Compress-Archive` flattens relative paths and breaks the archive), falls back to a dependency-free `node:zlib` zip writer (`node scripts/pack.js --node` forces the fallback). Excludes `.git*`, `node_modules/`, `*.zip`, `temp/` (local harness, may hold a ~200MB Chrome-for-Testing). Runs on any OS.
+- `npm run pack`: creates `extension.zip` for distribution via `scripts/pack.js` — tries **PowerShell .NET `ZipFile` first** (explicit entry paths; `Compress-Archive` flattens relative paths and breaks the archive), falls back to a dependency-free `node:zlib` zip writer (`node scripts/pack.js --node` forces the fallback). The PowerShell path is Windows-only (`pack.js` returns early off-win32), so CI always uses the fallback. Excludes `.git*`, `node_modules/`, `*.zip`, `tests/`, `docs/`, `temp/` (local harness, may hold a ~200MB Chrome-for-Testing). Runs on any OS.
+- `npm test`: runs `tests/streaming.test.js` — 12 Node cases over the PCM helpers (`floatToInt16` / `resampleFloat32`) and the streaming provider contract. No browser, no network, deterministic.
+- `node scripts/check-manifest.js`: validates `manifest.json` and every path it references (popup, side panel, options, service worker, content scripts, icons), and checks declared icon sizes against the real PNG dimensions.
 
 Local development:
 1. Open `chrome://extensions`.
@@ -47,8 +49,10 @@ Local development:
 
 Automated checks (Node):
 - Syntax: `node --check <file>` for every `.js`.
-- Unit logic (no browser needed): streaming helpers (`audio/convert.js` — floatToInt16 / resampleFloat32) and `store/history` are pure logic — testable in Node with small mocks.
+- Unit tests: `npm test` (see above). `audio/convert.js` and the streaming providers are pure `globalThis` scripts with no browser APIs, so they run directly under Node; `store/history.js` still needs small mocks if you add cases for it.
 - Browser smoke test: open `tests/p1-smoke-test.html` in Chrome (loads real modules, verifies crypto / config / messaging / error helpers). Runs in all three contexts — `file://`, `http://`, and `chrome-extension://` (the cases live in `tests/p1-smoke-test.js` so the page is not blocked by the extension CSP).
+
+CI (`.github/workflows/`): `ci.yml` runs the syntax check, manifest check, `npm test` and `npm run pack` on push/PR to `main` (Node 22.x); `codeql.yml` runs CodeQL static analysis (push/PR/weekly); `dependency-review.yml` checks new dependencies on PRs. The browser smoke test is **not** wired into CI yet.
 
 ## Coding Style & Naming Conventions
 - JavaScript/CSS/HTML use 2-space indentation and semicolons, matching current files.
