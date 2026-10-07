@@ -9,6 +9,7 @@
   "scripts": {
     "build": "echo 'No build step required for basic extension'",
     "pack": "node scripts/pack.js",
+    "test": "node tests/streaming.test.js",
     "lint": "echo 'Add your linting tool here'"
   },
   "keywords": [
