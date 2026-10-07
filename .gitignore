@@ -83,9 +83,20 @@ docs/HANDOFF.md
 docs/notes/
 docs/*.local.md
 
-# Claude Code 本地配置（个人权限，不共享）。
-# .claude/ 下只有本地覆盖文件被忽略；settings.json 若需共享可手动 git add。
+# Claude Code — 运行时产物与个人配置（不共享）。
+# 只列已知的运行时/本地文件，.claude/ 本身不整体忽略，
+# 这样共享配置（如 .claude/settings.json、.claude/skills/）仍可 git add。
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/assistant-daemon-state.json
+.claude/first-run
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
 
 # Logs
 logs/
@@ -170,3 +181,6 @@ coverage/
 # Backup files
 *.bak
 *.backup
+# Merge/patch 残留
+*.orig
+*.rej
