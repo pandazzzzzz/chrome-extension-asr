@@ -1,0 +1,35 @@
+# Dependency review — flags vulnerable packages introduced by a pull request.
+#
+# Runs only on pull_request: it diffs the dependency manifest against the base
+# branch, so it needs a PR to compare against.
+#
+# Requires the repository dependency graph (enabled for this public repo) and a
+# tracked package-lock.json (added in 61d1350).
+name: Dependency review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  # Needed for the PR comment summary.
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    name: Review dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v3
+        with:
+          comment-summary-in-pr: always
+          # Fail only on high/critical so routine devDependency bumps are not
+          # blocked; raise to `moderate` if the supply chain warrants it.
+          fail-on-severity: high

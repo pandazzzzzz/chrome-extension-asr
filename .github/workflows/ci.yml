@@ -1,0 +1,64 @@
+# CI — syntax, manifest integrity, unit tests, packaging.
+#
+# The extension has no build step (load-unpacked), so there is nothing to
+# compile; these are the checks that would otherwise be caught only by manually
+# loading the unpacked directory.
+#
+# `npm test` covers the streaming provider contract and PCM helpers
+# (tests/streaming.test.js). The browser smoke tests (tests/p1-smoke-test.html,
+# 17 cases) need a real Chrome and are NOT run here yet — see the note at the
+# bottom of this file.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Syntax, manifest, tests, pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          # package.json declares engines >=22.12.0 (puppeteer-core 25 requires it).
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check all JavaScript
+        run: git ls-files -z '*.js' | xargs -0 -n1 node --check
+
+      - name: Validate manifest.json and referenced paths
+        run: node scripts/check-manifest.js
+
+      - name: Unit tests
+        run: npm test
+
+      # Exercises the dependency-free node:zlib fallback used off-Windows.
+      - name: Package the extension
+        run: npm run pack
+
+      - name: Upload extension.zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-zip
+          path: extension.zip
+          if-no-files-found: error
+
+# Not covered here (deliberately):
+#   - Browser smoke tests — they load real modules under file:// and need a
+#     Chrome binary. ubuntu-latest ships google-chrome, so this is feasible via
+#     puppeteer-core with an explicit executablePath, but it is not wired up yet.
+#   - Live Stream end-to-end — requires a real DashScope API key and a human
+#     clicking the toolbar icon; tracked in docs/HANDOFF.md §3.
