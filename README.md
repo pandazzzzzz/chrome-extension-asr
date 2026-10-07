@@ -89,7 +89,8 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 │   └── check-manifest.js     # Validate manifest.json and every path it references
 ├── icons/                    # Extension icons
 ├── docs/
-│   └── ARCHITECTURE.md       # Full architecture design doc
+│   ├── ARCHITECTURE.md       # Full architecture design doc
+│   └── manual-verification.md # Step-by-step E2E checklist (Live Stream + recording shell)
 ├── tests/
 │   ├── p1-smoke-test.html    # Browser-runnable smoke tests (open directly in Chrome)
 │   ├── p1-smoke-test.js      # Test cases (external: inline scripts are blocked by the extension CSP)
@@ -100,7 +101,8 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 └── temp/                     # Local-only temp files (not tracked by git)
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design, and
+[docs/manual-verification.md](docs/manual-verification.md) for the manual end-to-end checklist.
 
 ## Tests
 
