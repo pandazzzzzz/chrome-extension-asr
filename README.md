@@ -85,13 +85,15 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 ├── debug/
 │   └── bridge.js             # Diagnostic telemetry bridge (active only on the local debug page)
 ├── scripts/
-│   └── pack.js               # Build `extension.zip` (PowerShell ZipFile + node:zlib fallback)
+│   ├── pack.js               # Build `extension.zip` (PowerShell ZipFile + node:zlib fallback)
+│   └── check-manifest.js     # Validate manifest.json and every path it references
 ├── icons/                    # Extension icons
 ├── docs/
 │   └── ARCHITECTURE.md       # Full architecture design doc
 ├── tests/
 │   ├── p1-smoke-test.html    # Browser-runnable smoke tests (open directly in Chrome)
 │   ├── p1-smoke-test.js      # Test cases (external: inline scripts are blocked by the extension CSP)
+│   ├── streaming.test.js     # Node unit tests (npm test): PCM helpers + provider contract
 │   ├── stream-debug.html     # Streaming diagnostics page
 │   └── serve-debug.js        # Static server for the diagnostics page (127.0.0.1 + [::1])
 ├── samples/                  # Committed test samples (audio, media)
@@ -102,9 +104,14 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ## Tests
 
-Open `tests/p1-smoke-test.html` in Chrome. It loads the real modules and checks
-crypto, config, messaging and error helpers; the cases live in
-`tests/p1-smoke-test.js` (external, so the page also runs under the extension CSP).
+`npm test` runs the Node unit tests (`tests/streaming.test.js`): the PCM helpers
+(`floatToInt16`, `resampleFloat32`) and the streaming provider contract. No
+browser or network needed.
+
+For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
+the real modules and checks crypto, config, messaging and error helpers; the
+cases live in `tests/p1-smoke-test.js` (external, so the page also runs under
+the extension CSP).
 
 For streaming diagnostics, run `node tests/serve-debug.js` and open
 `http://localhost:18923/tests/stream-debug.html`. Pass a port to override the

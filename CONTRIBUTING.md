@@ -69,6 +69,17 @@
 > 只有 gitignored 的 `temp/` 本地测试脚本需要它——扩展运行时**不依赖任何 npm 包**，
 > 不装也不影响开发与加载。
 
+提交前建议本地跑一遍 CI 会跑的检查：
+
+```
+npm test                        # 单元测试（12 用例，纯 Node）
+node scripts/check-manifest.js  # manifest.json 与所引路径校验
+npm run pack                    # 打包 extension.zip
+```
+
+PR 会触发 GitHub Actions：`CI`（语法/manifest/单测/打包）、`CodeQL`（静态安全分析）、
+`Dependency review`（新依赖漏洞检查）。详见 `.github/workflows/`。
+
 ## 问题和讨论
 
 如有任何问题，欢迎在 Issues 中提出讨论。
