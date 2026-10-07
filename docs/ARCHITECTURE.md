@@ -23,7 +23,7 @@
 | `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
-| 构建 / 质量 | 无构建/无 TS；lint 占位；冒烟测试 + 流式单测 | 依赖脚本加载顺序；无类型契约 |
+| 构建 / 质量 | 无构建/无 TS；lint 占位；冒烟测试 `tests/p1-smoke-test.js`（已跟踪）；流式单测仅在本地 `temp/test-streaming-integration.js`（gitignored，未持久化） | 依赖脚本加载顺序；无类型契约；流式单测待移入 `tests/` 并挂 `npm test` |
 | `manifest.json` | `storage`/`activeTab`/`tabCapture`/`sidePanel`/`offscreen` + **2 个 host_permissions**（dashscope 国内 + 国际） | — |
 
 ### 1.2 目标能力
@@ -163,6 +163,12 @@
 ├── shared/
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
 │   └── timeout.js          #  〔已有〕withTimeout 兜底（消息/录音等永不 settle 的 Promise）
+│
+# ── 诊断与构建辅助 ───────────────────────────────────────
+├── debug/
+│   └── bridge.js           #  〔已有〕诊断遥测桥（content script 注入，仅本地诊断页生效）
+├── scripts/
+│   └── pack.js             #  〔已有〕打包 extension.zip（PowerShell ZipFile，node:zlib 回退）
 │
 ├── docs/                    #  〔已有〕架构设计文档（进度/交接笔记见本地 docs/HANDOFF.md，不入库）
 │   └── ARCHITECTURE.md     #  架构图 / 模块划分 / 演进路线

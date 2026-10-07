@@ -94,7 +94,7 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 │   ├── p1-smoke-test.js      # Test cases (external: inline scripts are blocked by the extension CSP)
 │   ├── stream-debug.html     # Streaming diagnostics page
 │   └── serve-debug.js        # Static server for the diagnostics page (127.0.0.1 + [::1])
-├── samples/                  # Committed test samples (audio, models)
+├── samples/                  # Committed test samples (audio, media)
 └── temp/                     # Local-only temp files (not tracked by git)
 ```
 

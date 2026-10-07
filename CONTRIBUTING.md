@@ -60,10 +60,14 @@
 ## 开发流程
 
 1. 克隆仓库
-2. 在 Chrome 中加载插件进行测试
+2. 在 Chrome 中加载插件进行测试（扩展本身无构建步骤，`Load unpacked` 即跑）
 3. 进行你的修改
 4. 测试所有功能
 5. 提交 Pull Request
+
+> 可选：`npm ci` 会从 `package-lock.json` 安装唯一 devDependency（`puppeteer-core`）。
+> 只有 gitignored 的 `temp/` 本地测试脚本需要它——扩展运行时**不依赖任何 npm 包**，
+> 不装也不影响开发与加载。
 
 ## 问题和讨论
 

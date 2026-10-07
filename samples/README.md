@@ -8,18 +8,20 @@
 ```
 samples/
 ├── audio/        # 测试音频样例（短片段，用于验证转录功能）
-│   ├── *.wav
-│   ├── *.mp3
-│   └── ...
+│   ├── README.md
+│   └── *.wav / *.mp3 / ...
+├── media/        # 测试用媒体文件（如流式诊断页引用的 sample.mp4）
 └── README.md     # 本说明文件
 ```
 
 ## 可提交的文件类型
 
-`samples/` 下的文件不受 `.gitignore` 中 `*.wav`、`*.onnx`、`*.bin`、`*.pb` 等全局规则约束，可提交以下样例：
+`.gitignore` 对 `samples/` 采用**扩展名白名单**（`!samples/**/*.<ext>`）——只有下列类型会被放行，
+其余规则（含 `.env`、`api_keys.json`、`*.pem` 等密钥规则）在本目录**依然生效**。
+新增样例类型时，需同时在 `.gitignore` 中补一条白名单规则。
 
-- **音频样例**：`*.wav`、`*.mp3`、`*.ogg`、`*.webm`、`*.m4a`、`*.flac`、`*.pcm`
-- **模型样例**：`*.onnx`、`*.bin`、`*.gguf`、`*.safetensors`、`*.pb` 等小体积模型（用于测试本地推理）
+- **音频样例**：`*.wav`、`*.mp3`、`*.mp4`、`*.ogg`、`*.webm`、`*.m4a`、`*.flac`、`*.pcm`
+- **模型样例**：`*.onnx`、`*.bin`、`*.gguf`、`*.safetensors`、`*.pb`、`*.tflite` 等小体积模型（用于测试本地推理）
 
 ## 使用约定
 
