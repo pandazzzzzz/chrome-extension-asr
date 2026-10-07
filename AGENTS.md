@@ -72,6 +72,8 @@ Manual validation before PR (each surface):
 - **Tab capture**: `Record Tab` keeps tab audio audible (must not mute the tab) and returns a recording.
 - Re-test install/update by reloading the extension.
 
+This is the short version. For a step-by-step procedure with expected status strings, failure triage (debug event names) and pass criteria, see [`docs/manual-verification.md`](docs/manual-verification.md) — use it when validating the Live Stream path, which no automated test covers.
+
 Known environment constraints: MV3 service worker has no DOM (`FileReader`/`MediaRecorder` unavailable there — use `Blob.arrayBuffer()`); tab capture must run in the offscreen document.
 
 ## Commit & Pull Request Guidelines
