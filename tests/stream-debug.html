@@ -201,17 +201,48 @@
     const name = el.id ? '#' + el.id : (el.name ? '@' + el.name : '');
     return { tag, name, type, editable, noEl: false };
   }
+  // 构建 DOM 而非拼 innerHTML：a.tag / a.name / a.type 取自 document.activeElement，
+  // 用模板字符串拼进 innerHTML 会把页面自身的 id/name 当 HTML 解析（CodeQL js/xss-through-dom）。
+  // 虽然数据源是本页自己的元素、且此页仅本地调试用，仍按纯文本渲染以消除该类风险。
+  function tagSpan(text, kind) {
+    const s = document.createElement('span');
+    s.className = kind ? 'tag ' + kind : 'tag';
+    s.textContent = text;
+    return s;
+  }
+  function line(parts) {
+    const row = document.createElement('div');
+    for (const p of parts) {
+      row.append(typeof p === 'string' ? document.createTextNode(p) : p);
+    }
+    return row;
+  }
+  function strong(text) {
+    const b = document.createElement('b');
+    b.textContent = text;
+    return b;
+  }
   function updateDiag() {
     const a = activeFieldInfo();
     const hasFocus = document.hasFocus();
     const count = editableFields().length;
-    const state = a.noEl ? '<span class="tag warn">无焦点</span>'
-      : (a.editable ? '<span class="tag">可编辑(可注入)</span>' : '<span class="tag err">不可编辑(注入会失败)</span>');
-    diag.innerHTML =
-      `<b>hasFocus</b>：${hasFocus} ${hasFocus ? '<span class="tag">OK</span>' : '<span class="tag err">页面未获焦(Fill 会失败)</span>'}<br>` +
-      `<b>活动元素</b>：${a.tag}${a.name}${a.type ? ' [type=' + a.type + ']' : ''} ${state}<br>` +
-      `<b>可编辑字段数</b>：${count}（content script 的 getActiveField 只认聚焦的 input/textarea/contenteditable）<br>` +
-      `<b>已记录日志条数</b>：${entries.length}`;
+    const state = a.noEl ? tagSpan('无焦点', 'warn')
+      : (a.editable ? tagSpan('可编辑(可注入)') : tagSpan('不可编辑(注入会失败)', 'err'));
+    const focusTag = hasFocus ? tagSpan('OK') : tagSpan('页面未获焦(Fill 会失败)', 'err');
+
+    diag.replaceChildren(
+      line([strong('hasFocus'), '：' + String(hasFocus) + ' ', focusTag]),
+      line([
+        strong('活动元素'),
+        '：' + a.tag + a.name + (a.type ? ' [type=' + a.type + ']' : '') + ' ',
+        state,
+      ]),
+      line([
+        strong('可编辑字段数'),
+        '：' + String(count) + '（content script 的 getActiveField 只认聚焦的 input/textarea/contenteditable）',
+      ]),
+      line([strong('已记录日志条数'), '：' + String(entries.length)]),
+    );
   }
   setInterval(updateDiag, 300);
   // 焦点变化即时更新
