@@ -25,132 +25,14 @@
 
 <!-- 加载扩展脚本（相对路径） -->
 <script src="../shared/errors.js"></script>
+<script src="../shared/timeout.js"></script>
 <script src="../messaging/messages.js"></script>
 <script src="../messaging/client.js"></script>
 <script src="../store/crypto.js"></script>
 <script src="../store/config.js"></script>
+<script src="../audio/convert.js"></script>
+<script src="../audio/recorder.js"></script>
 
-<script>
-const results = document.getElementById('results');
-const summary = document.getElementById('summary');
-let passed = 0, failed = 0;
-
-function addResult(name, ok, detail) {
-  const div = document.createElement('div');
-  div.className = 'case ' + (ok ? 'pass' : 'fail');
-  div.innerHTML = `<div class="name">${ok ? '✓' : '✗'} ${name}</div>` +
-    (detail ? `<div class="detail">${detail}</div>` : '');
-  results.appendChild(div);
-  ok ? passed++ : failed++;
-}
-
-function finish() {
-  summary.textContent = `${passed} passed, ${failed} failed (${passed + failed} total)`;
-  summary.style.color = failed ? '#8a2430' : '#1b6f3d';
-  summary.style.fontWeight = 'bold';
-}
-
-async function runTests() {
-  // --- 1. CryptoStore: encrypt / decrypt roundtrip ---
-  try {
-    const plain = 'sk-test-abc123xyz';
-    const enc = await globalThis.CryptoStore.encrypt(plain);
-    const dec = await globalThis.CryptoStore.decrypt(enc);
-    const ok = dec === plain && enc !== plain;
-    addResult('CryptoStore: encrypt/decrypt roundtrip', ok,
-      ok ? `plain="${plain.slice(0,12)}..." -> enc len=${enc.length} -> dec matches` :
-      `dec="${dec}"`);
-  } catch (e) {
-    addResult('CryptoStore: encrypt/decrypt roundtrip', false, e.message);
-  }
-
-  // --- 2. CryptoStore: empty string roundtrip ---
-  try {
-    const r1 = await globalThis.CryptoStore.encrypt('');
-    const r2 = await globalThis.CryptoStore.decrypt('');
-    addResult('CryptoStore: empty string returns empty', r1 === '' && r2 === '',
-      `encrypt("")="${r1}", decrypt("")="${r2}"`);
-  } catch (e) {
-    addResult('CryptoStore: empty string', false, e.message);
-  }
-
-  // --- 3. CryptoStore: decrypt wrong ciphertext ---
-  try {
-    await globalThis.CryptoStore.decrypt(btoa('not-valid-ciphertext'));
-    addResult('CryptoStore: invalid ciphertext throws', false, 'should have thrown');
-  } catch (e) {
-    addResult('CryptoStore: invalid ciphertext throws', true, e.message.slice(0, 80));
-  }
-
-  // --- 4. ConfigStore: module loaded on globalThis ---
-  try {
-    const ok = typeof globalThis.ConfigStore === 'object'
-      && typeof globalThis.ConfigStore.load === 'function'
-      && typeof globalThis.ConfigStore.save === 'function';
-    addResult('ConfigStore: module loaded on globalThis', ok,
-      ok ? 'ConfigStore.load/save functions available' : 'missing');
-  } catch (e) {
-    addResult('ConfigStore: module loaded', false, e.message);
-  }
-
-  // --- 5. Messages: constants defined and frozen ---
-  try {
-    const m = globalThis.MESSAGES;
-    const ok = m.FILL_TEXT === 'asr:fill-text'
-      && m.TAB_RECORD_START === 'asr:tab-record-start'
-      && m.TAB_RECORD_STOP === 'asr:tab-record-stop'
-      && m.TRANSCRIBE === undefined
-      && Object.isFrozen(m);
-    addResult('MESSAGES: constants defined and frozen', ok,
-      `FILL_TEXT="${m.FILL_TEXT}", TAB_RECORD_START="${m.TAB_RECORD_START}", TAB_RECORD_STOP="${m.TAB_RECORD_STOP}", TRANSCRIBE removed=${m.TRANSCRIBE === undefined}`);
-  } catch (e) {
-    addResult('MESSAGES: constants', false, e.message);
-  }
-
-  // --- 6. MessageClient: module loaded ---
-  try {
-    const ok = typeof globalThis.MessageClient === 'object'
-      && typeof globalThis.MessageClient.send === 'function';
-    addResult('MessageClient: module loaded on globalThis', ok,
-      'MessageClient.send available (chrome.runtime not available in this page)');
-  } catch (e) {
-    addResult('MessageClient: module loaded', false, e.message);
-  }
-
-  // --- 7. Errors: unified codes + normalizeError ---
-  try {
-    const e = globalThis.Errors;
-    const required = ['NO_PROVIDER', 'NO_API_KEY', 'NO_AUDIO',
-      'API_ERROR', 'EMPTY_RESULT', 'UNKNOWN_ACTION', 'UNKNOWN'];
-    const codesOk = required.every(k => e[k] && e[k].code === k && typeof e[k].message === 'string');
-    const norm1 = globalThis.normalizeError({ code: 'NO_API_KEY', message: 'x' });
-    const norm1Ok = norm1.code === 'NO_API_KEY';
-    const norm2 = globalThis.normalizeError(new Error('boom'));
-    const norm2Ok = norm2.code === 'API_ERROR' && norm2.message === 'boom';
-    const allOk = codesOk && norm1Ok && norm2Ok;
-    addResult('Errors: codes + normalizeError', allOk,
-      `codes ok=${codesOk}, normalize(known)=${norm1Ok}, normalize(unknown)=${norm2Ok}`);
-  } catch (e) {
-    addResult('Errors: codes', false, e.message);
-  }
-
-  // --- 8. globalThis compatibility (shared modules on globalThis, not window) ---
-  try {
-    const ok = typeof globalThis.MessageClient === 'object'
-      && typeof globalThis.ConfigStore === 'object'
-      && typeof globalThis.CryptoStore === 'object'
-      && typeof globalThis.MESSAGES === 'object'
-      && typeof globalThis.Errors === 'object';
-    addResult('globalThis: shared modules on globalThis (SW-compatible)', ok,
-      'MessageClient/ConfigStore/CryptoStore/MESSAGES/Errors all on globalThis');
-  } catch (e) {
-    addResult('globalThis: compat', false, e.message);
-  }
-
-  finish();
-}
-
-runTests();
-</script>
+<script src="p1-smoke-test.js"></script>
 </body>
 </html>

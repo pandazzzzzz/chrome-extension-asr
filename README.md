@@ -43,23 +43,59 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 ## Project Structure
 
 ```
-manifest.json               Extension configuration (MV3)
-popup/                      Popup UI: popup.html, popup.css, app.js (shared UI logic)
-sidepanel/                  Persistent side panel (reuses popup/app.js + popup.css)
-options/                    Options page: settings, history, storage status
-background/background.js    Service worker — message routing + offscreen coordination
-offscreen/                  Offscreen document hosting tab-audio capture
-content/                    Content script — injects text into the focused page input
-audio/                      recorder.js (MediaRecorder), convert.js (PCM helpers),
-                            pcm-capture.js + pcm-worklet.js (AudioWorklet frame capture)
-transcription/providers/    base.js (interface), qwen.js (run-task WebSocket), index.js (registry)
-store/                      config.js (storage.local), crypto.js (AES-GCM), history.js (IndexedDB)
-messaging/                  messages.js (action + target contract), client.js (sendMessage wrapper)
-shared/errors.js            Unified error codes + createError / normalizeError
-debug/bridge.js             Diagnostic telemetry bridge (active only on the local debug page)
-scripts/pack.js             Build extension.zip (PowerShell ZipFile, node:zlib fallback)
-tests/                      Browser-runnable smoke tests and the streaming debug page
-icons/ samples/ temp/       Icons, committed test samples, local-only scratch space
+.
+├── manifest.json             # Extension configuration (MV3)
+├── popup/                    # Popup UI (recording + config)
+│   ├── popup.html
+│   ├── popup.css
+│   └── app.js                # Main UI logic
+├── sidepanel/                # Side panel UI (persistent; reuses popup/app.js + popup.css)
+│   └── sidepanel.html
+├── options/                  # Options page (settings + history + storage status)
+│   ├── options.html
+│   └── options.js
+├── background/
+│   └── background.js         # Service worker — message router + offscreen coordinator
+├── offscreen/                # Offscreen document (tab audio capture, MV3 requirement)
+│   ├── offscreen.html
+│   └── offscreen.js
+├── audio/
+│   ├── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
+│   ├── convert.js            # PCM helpers: floatToInt16, resampleFloat32
+│   ├── pcm-capture.js        # PCM frame capture (AudioWorklet, ScriptProcessor fallback)
+│   └── pcm-worklet.js        # AudioWorklet processor for PCM capture
+├── transcription/            # Streaming transcription layer (realtime WebSocket)
+│   └── providers/
+│       ├── base.js           # Base provider: streaming interface + capability metadata
+│       ├── qwen.js           # Qwen (DashScope) — run-task WebSocket streaming
+│       └── index.js          # Provider registry (PROVIDERS array)
+├── content/                  # Content scripts (page dictation injection)
+│   ├── content.js
+│   └── content.css
+├── store/                    # Storage layer
+│   ├── config.js             # Config read/write (all in storage.local)
+│   ├── crypto.js             # WebCrypto AES-GCM encryption for API keys
+│   └── history.js            # Transcription history (IndexedDB, max 50 entries)
+├── messaging/                # Cross-context message contract
+│   ├── messages.js           # Action type constants
+│   └── client.js             # sendMessage Promise wrapper
+├── shared/
+│   ├── errors.js             # Unified error codes
+│   └── timeout.js            # withTimeout guard for promises that never settle
+├── debug/
+│   └── bridge.js             # Diagnostic telemetry bridge (active only on the local debug page)
+├── scripts/
+│   └── pack.js               # Build `extension.zip` (PowerShell ZipFile + node:zlib fallback)
+├── icons/                    # Extension icons
+├── docs/
+│   └── ARCHITECTURE.md       # Full architecture design doc
+├── tests/
+│   ├── p1-smoke-test.html    # Browser-runnable smoke tests (open directly in Chrome)
+│   ├── p1-smoke-test.js      # Test cases (external: inline scripts are blocked by the extension CSP)
+│   ├── stream-debug.html     # Streaming diagnostics page
+│   └── serve-debug.js        # Static server for the diagnostics page (127.0.0.1 + [::1])
+├── samples/                  # Committed test samples (audio, models)
+└── temp/                     # Local-only temp files (not tracked by git)
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
@@ -67,7 +103,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 ## Tests
 
 Open `tests/p1-smoke-test.html` in Chrome. It loads the real modules and checks
-crypto, config, messaging and error helpers.
+crypto, config, messaging and error helpers; the cases live in
+`tests/p1-smoke-test.js` (external, so the page also runs under the extension CSP).
 
 For streaming diagnostics, run `node tests/serve-debug.js` and open
 `http://localhost:18923/tests/stream-debug.html`. Pass a port to override the

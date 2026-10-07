@@ -17,7 +17,7 @@ Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 - `store/`: storage layer — `config.js` (all config in `storage.local`), `crypto.js` (AES-GCM for API keys), `history.js` (transcription history, IndexedDB).
 - `messaging/`: cross-context message contract — `messages.js` (action types + `target` routing) + `client.js` (Promise `sendMessage` wrapper).
 - `shared/errors.js`: unified error codes + `createError` / `normalizeError`.
-- `tests/`: browser-runnable smoke tests (`tests/p1-smoke-test.html`).
+- `tests/`: browser-runnable smoke tests (`tests/p1-smoke-test.html` + `tests/p1-smoke-test.js`; the JS is external so the page also runs under the extension's MV3 CSP).
 - `icons/`: extension icons (`16`, `48`, `128` sizes).
 - Root docs: `README.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`.
 
@@ -45,7 +45,7 @@ Local development:
 Automated checks (Node):
 - Syntax: `node --check <file>` for every `.js`.
 - Unit logic (no browser needed): streaming helpers (`audio/convert.js` — floatToInt16 / resampleFloat32) and `store/history` are pure logic — testable in Node with small mocks.
-- Browser smoke test: open `tests/p1-smoke-test.html` in Chrome (loads real modules, verifies crypto / config / messaging / error helpers).
+- Browser smoke test: open `tests/p1-smoke-test.html` in Chrome (loads real modules, verifies crypto / config / messaging / error helpers). Runs in all three contexts — `file://`, `http://`, and `chrome-extension://` (the cases live in `tests/p1-smoke-test.js` so the page is not blocked by the extension CSP).
 
 ## Coding Style & Naming Conventions
 - JavaScript/CSS/HTML use 2-space indentation and semicolons, matching current files.

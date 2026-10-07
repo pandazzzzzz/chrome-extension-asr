@@ -33,7 +33,7 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-const server = http.createServer((req, res) => {
+const handleRequest = (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   // 防路径穿越：resolve 后必须仍在 ROOT 内。
   // decodeURIComponent 遇非法 % 序列会抛 URIError —— 单独兜底，别让畸形请求打崩服务器。
@@ -62,19 +62,24 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
     res.end(data);
   });
-});
+};
 
 // 仅绑回环：文件头声明"仅本机开发用""不鉴权"，且托管整个仓库根目录（任意文件可读）。
 // 默认 0.0.0.0/:: 会把仓库暴露到 LAN/公网 —— 必须限制到回环。
 // 同时绑 IPv4 与 IPv6 回环：bridge 会认 hostname '[::1]'（见 1d6383c），只绑 127.0.0.1
 // 会让 http://[::1]:PORT/... 连不上。
-server.on('error', (err) => {
-  // 某回环族不可用（如系统禁用 IPv6）→ EADDRNOTAVAIL，忽略该族即可；
-  // 其余错误（如端口占用 EADDRINUSE）照常抛出。
-  if (err.code !== 'EADDRNOTAVAIL') throw err;
-});
+//
+// 每个回环必须用**独立的 server 实例**：对同一个 server 连调两次 listen() 时，
+// Node 让后一次接管，前一次静默失效（实测 address() 只剩 '::1'，127.0.0.1 直接
+// ECONNREFUSED），而 bridge 的白名单同时接受 127.0.0.1 与 localhost。
 const LOOPBACKS = ['127.0.0.1', '::1'];
 LOOPBACKS.forEach((host) => {
+  const server = http.createServer(handleRequest);
+  server.on('error', (err) => {
+    // 某回环族不可用（如系统禁用 IPv6）→ EADDRNOTAVAIL，忽略该族即可；
+    // 其余错误（如端口占用 EADDRINUSE）照常抛出。
+    if (err.code !== 'EADDRNOTAVAIL') throw err;
+  });
   server.listen(PORT, host, () => {
     const shown = host.includes(':') ? `[${host}]` : host;
     console.log(`诊断页静态服务器已启动： http://${shown}:${PORT}/tests/stream-debug.html`);

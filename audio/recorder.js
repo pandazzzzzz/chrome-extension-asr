@@ -59,14 +59,14 @@ globalThis.AudioRecorder = class AudioRecorder {
   }
 
   /**
-   * 停止录制并合并分片。
+   * 停止录制并合并分片（5s 兜底超时，见下）。
    * @returns {Promise<Blob>} 录制结果
    */
   stop() {
     if (!this.recorder) return Promise.reject(new Error('Not recording'));
     if (!this.isRecording) return Promise.resolve(this.getBlob());
 
-    return new Promise((resolve, reject) => {
+    const p = new Promise((resolve, reject) => {
       this.recorder.onstop = () => {
         this.isRecording = false;
         try {
@@ -82,6 +82,10 @@ globalThis.AudioRecorder = class AudioRecorder {
         reject(err);
       }
     });
+    // 守卫：MediaRecorder 在 track 异常终止或浏览器内部错误时可能不触发 onstop，
+    // Promise 永挂会让 UI 卡在 "Stopping..."。超时 reject 让调用方走 catch/finally
+    // 做 release/关 ctx（withTimeout 不取消底层 recorder，清理责任在调用方）。
+    return globalThis.withTimeout(p, 5000, 'MediaRecorder.stop (onstop)');
   }
 
   /** 合并当前分片为 Blob。 */
