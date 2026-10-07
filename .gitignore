@@ -29,8 +29,8 @@ venv/
 .yarnrc
 
 # Build outputs
-# Build outputs — root-only so a source dir like docs/out/ isn't dropped.
-# Nested build output is covered by unanchored dist/ and build/ above.
+# 仅根目录 /out/ 属于构建输出；加前导斜杠可避免误伤 docs/out/ 这类真实源码目录。
+# 注：本仓库无打包步骤（README 说明 load-unpacked），故没有 dist/ 与 build/ 规则。
 /out/
 *.zip
 *.tgz
@@ -83,8 +83,8 @@ docs/HANDOFF.md
 docs/notes/
 docs/*.local.md
 
-# Claude Code local overrides (personal permissions — never share).
-# .claude/settings.json stays tracked; only the local one is ignored.
+# Claude Code 本地配置（个人权限，不共享）。
+# .claude/ 下只有本地覆盖文件被忽略；settings.json 若需共享可手动 git add。
 .claude/settings.local.json
 
 # Logs
@@ -138,9 +138,24 @@ temp/**
 *.m4a
 *.flac
 *.pcm
-# 例外：测试/示例样例可提交
-!samples/**
-!samples/**/*
+# 例外：只放行 samples/ 下 README 约定的样例类型（扩展名白名单）。
+# 早先是 `!samples/**` + `!samples/**/*` 全量豁免 —— 那会让 samples/ 下任何文件
+# 都绕过本文件的所有规则，包括 .env / api_keys.json / *.pem 等密钥规则。
+# 白名单方向相反：新类型必须显式添加，密钥类文件默认仍然被忽略。
+!samples/**/*.wav
+!samples/**/*.mp3
+!samples/**/*.mp4
+!samples/**/*.ogg
+!samples/**/*.webm
+!samples/**/*.m4a
+!samples/**/*.flac
+!samples/**/*.pcm
+!samples/**/*.onnx
+!samples/**/*.bin
+!samples/**/*.gguf
+!samples/**/*.safetensors
+!samples/**/*.pb
+!samples/**/*.tflite
 
 # ML framework caches
 .huggingface/
