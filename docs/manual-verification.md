@@ -19,8 +19,9 @@
 | 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件 |
 
 **开始前记录基线**：popup 初始文案应为 `Start Recording` / `Record Tab` / `Save audio` /
-`Live Stream` / `Copy text` / `Fill into page`，且 **Copy/Fill 为禁用**（`syncResultButtons()`
-在结果为空时禁用）。
+`Live Stream` / `Copy text` / `Fill into page` / `Subtitles` / `Options` / `Side panel`，
+且 **Copy/Fill 为禁用**（`syncResultButtons()` 在结果为空时禁用）、**Subtitles 为关闭态**
+（`subtitlesEnabled=false`，非高亮）。
 
 ---
 
