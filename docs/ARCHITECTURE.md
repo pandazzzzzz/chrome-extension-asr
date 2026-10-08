@@ -20,6 +20,7 @@
 | `popup/app.js` + `sidepanel` + `options` | mic/Tab 录音 + **Live Stream 真流式** + 配置表单（Provider 为下拉框，API Key 加密） | — |
 | `background/background.js` | 消息路由 + offscreen 协调 + fill-text 转发 | 无 API 代理/转录（已删，设计取舍） |
 | `content/content.js` + `.css` | 页面听写注入（`asr:fill-text`），兼容受控组件 | — |
+| `content/subtitle.js` | 浮动字幕浮层（`asr:subtitle-show` / `-hide`）：closed Shadow DOM 渲染，可拖动、会话结束自动淡出 | — |
 | `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
@@ -127,8 +128,9 @@
 │   └── app.js              # 〔已有〕录音 + Live Stream + 配置表单（Provider 为下拉框）
 ├── sidepanel/               #  〔已有〕长会话面板（复用 popup/app.js + popup.css）
 ├── options/                 #  〔已有〕全局设置 + 转录历史 + 存储状态
-├── content/                 # 〔已有〕页面听写注入（监听 asr:fill-text 注入聚焦输入框）
-│   └── content.js / content.css
+├── content/                 # 〔已有〕页面听写注入（asr:fill-text）+ 浮动字幕（asr:subtitle-*）
+│   ├── content.js / content.css
+│   └── subtitle.js         # 浮动字幕浮层（closed Shadow DOM，可拖动）
 ├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder）
 │   └── offscreen.html / offscreen.js
 ├── background/
@@ -195,6 +197,7 @@
 | P2 | **真 WebSocket 流式**：重建 `transcription/` 流式 provider + 音频 PCM 层（Qwen run-task；服务端分句，无本地 VAD） | `transcription/providers/`、`audio/{convert,pcm-capture,pcm-worklet}` | ✅ 已落地（`5637a77`） |
 | P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
 | P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/recorder.js`、`manifest.json` | ✅ 已落地 |
+| P4 | **浮动字幕**：活动页浮动字幕浮层（`asr:subtitle-*`，closed Shadow DOM，可拖动） | `content/subtitle.js`、`background/`、`messaging/`、`popup/` | ✅ 已落地 |
 | P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ✅ 已落地 |
 | 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |
 
