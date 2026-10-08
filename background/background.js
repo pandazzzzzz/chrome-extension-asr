@@ -53,11 +53,10 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-// 转发 asr:fill-text 到当前活动 tab 的 content script
-async function handleFillText(payload) {
-  const { text } = payload || {};
-  if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
-
+// 查询当前活动 tab 并把消息转发给它的 content script。
+// content 的响应必须原样透传（如 fill-text 无聚焦字段时回 { ok:false, NO_FIELD }，
+// 丢掉它会让 popup 永远显示成功）；message 未定义时（异常路径）按失败处理。
+async function forwardToActiveTab(type, payload) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) {
     return { ok: false, error: globalThis.Errors.NO_TAB };
@@ -65,12 +64,10 @@ async function handleFillText(payload) {
 
   try {
     const response = await chrome.tabs.sendMessage(tab.id, {
-      type: globalThis.MESSAGES.FILL_TEXT,
-      payload: { text },
+      type,
+      payload,
       target: globalThis.TARGETS.CONTENT,
     });
-    // content 的响应必须原样转发：content 判定无聚焦字段时回 { ok:false, NO_FIELD }，
-    // 丢掉它会让 popup 永远显示"填充成功"。message 未定义时（异常路径）按失败处理。
     if (response && response.ok) return { ok: true, data: response.data };
     return {
       ok: false,
@@ -82,6 +79,27 @@ async function handleFillText(payload) {
     // content script 未注入（如 chrome:// 页面）时 sendMessage 会失败
     return { ok: false, error: globalThis.Errors.NO_CONTENT };
   }
+}
+
+// 转发 asr:fill-text 到当前活动 tab 的 content script
+async function handleFillText(payload) {
+  const { text } = payload || {};
+  if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
+  return forwardToActiveTab(globalThis.MESSAGES.FILL_TEXT, { text });
+}
+
+// 转发字幕浮层消息（asr:subtitle-show / asr:subtitle-hide，见 content/subtitle.js）
+async function handleSubtitleShow(payload) {
+  const text = payload?.text || '';
+  if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
+  return forwardToActiveTab(globalThis.MESSAGES.SUBTITLE_SHOW, {
+    text,
+    done: !!payload?.done,
+  });
+}
+
+async function handleSubtitleHide() {
+  return forwardToActiveTab(globalThis.MESSAGES.SUBTITLE_HIDE, {});
 }
 
 // ---------- Offscreen 协调（标签页录音） ----------
@@ -247,6 +265,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
     try {
       switch (type) {
+        case globalThis.MESSAGES.SUBTITLE_SHOW:
+          return await handleSubtitleShow(payload);
+        case globalThis.MESSAGES.SUBTITLE_HIDE:
+          return await handleSubtitleHide();
         case globalThis.MESSAGES.FILL_TEXT:
           return await handleFillText(payload);
         case globalThis.MESSAGES.TAB_RECORD_START:

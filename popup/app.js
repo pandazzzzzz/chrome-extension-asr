@@ -39,6 +39,13 @@ const STREAM = {
   frameSize: 1024,
 };
 
+// ---------- 字幕镜像（浮动字幕，可选按钮 #subtitleBtn） ----------
+// Live Stream 的 partial/final 实时镜像到当前活动标签页的浮动字幕浮层
+// （content/subtitle.js）。转发失败只打点不打断 —— 字幕是旁路输出，主流程
+// （结果区回显 / 历史落盘）不能因为它挂掉。popup 关闭后无人发送，浮层随
+// 页面刷新自然消失；无 #subtitleBtn 的入口页（options）该按钮功能静默缺失。
+let subtitlesEnabled = false;
+
 // ---------- 调试打点（诊断页 tests/stream-debug.html 经 debug/bridge.js 接收） ----------
 // bridge.js 未加载时静默跳过；绝不携带 apiKey（endpoint 也只传"是否设置"的布尔）。
 function debugEvt(phase, detail) {
@@ -120,6 +127,7 @@ function gatherElements() {
   els.fillBtn = document.getElementById('fillBtn');
   els.optionsBtn = document.getElementById('optionsBtn'); // 可选：sidepanel/options 有
   els.panelBtn = document.getElementById('panelBtn'); // 可选：popup 有
+  els.subtitleBtn = document.getElementById('subtitleBtn'); // 可选：popup/sidepanel 有
   els.statusDiv = document.getElementById('status');
 
   syncResultButtons();
@@ -194,9 +202,10 @@ function bindEvents() {
   els.streamBtn.addEventListener('click', toggleStreaming);
   els.copyBtn.addEventListener('click', handleCopy);
   els.fillBtn.addEventListener('click', handleFillIntoPage);
-  // 这两个按钮只在部分入口页存在（popup: options+panel；sidepanel: options）
+  // 这三个按钮只在部分入口页存在（popup: options+panel+subtitles；sidepanel: options+subtitles）
   els.optionsBtn?.addEventListener('click', handleOpenOptions);
   els.panelBtn?.addEventListener('click', handleOpenPanel);
+  els.subtitleBtn?.addEventListener('click', toggleSubtitles);
 }
 
 // 三路录音互斥：开启任一路时禁用其它两路按钮（active 路保留自身）
@@ -614,9 +623,10 @@ async function stopStreaming() {
   showStatus('Streaming stopped.', 'success');
   debugEvt('stream-stopped', { provider: streamSession.providerId, model: streamSession.model });
 
-  // 流式结束：把最终合并文本作为一条历史记录
+  // 流式结束：最终文本 —— 一条历史记录 + 字幕镜像（done=true 让浮层自动淡出）
   const finalText = els.resultText.value.trim();
   if (finalText) {
+    void pushSubtitle(finalText, true);
     saveToHistory(finalText, streamSession.providerId, streamSession.model);
     debugEvt('history-saved', { len: finalText.length });
   }
@@ -682,6 +692,10 @@ function renderStreamText() {
     .join(' ');
   els.resultText.value = parts.trim();
   syncResultButtons(); // 程序化赋值不触发 input，须显式同步按钮
+  // 字幕镜像：partial/final 每次刷新都同步到活动页浮层（done=false，不自动淡出）
+  if (subtitlesEnabled && parts.trim()) {
+    void pushSubtitle(parts.trim(), false);
+  }
 }
 
 // 停止时把未定稿的进行中句子并入定稿（服务端最后一句可能没有 sentence_end 标记）
@@ -690,6 +704,41 @@ function flushPartial() {
     streamSession.finalText = (streamSession.finalText + ' ' + streamSession.partialText).trim();
     streamSession.partialText = '';
     renderStreamText();
+  }
+}
+// ---------- Subtitle mirror（浮动字幕） ----------
+
+// 开关按钮回调：切换字幕开关并立即同步远端浮层（关闭时让当前活动页隐藏浮层）。
+// popup 关闭（DOM 销毁）后 UI 开关随之消失，无需（也无法）再同步。
+async function toggleSubtitles() {
+  subtitlesEnabled = !subtitlesEnabled;
+  els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
+  els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
+  await persistConfig();
+  if (subtitlesEnabled && els.resultText.value.trim()) {
+    // 已有结果时立即镜像到浮层（done=true：无新文本 2s 后自动淡出）
+    await pushSubtitle(els.resultText.value.trim(), true);
+  } else if (!subtitlesEnabled) {
+    await hideSubtitle();
+  }
+}
+
+// 把文本推给当前活动页的字幕浮层。fire-and-forget：失败只打点 —— 字幕是旁路
+// 输出（chrome:// 页、无 content script 的页面都会失败），不该打断流式主流程。
+async function pushSubtitle(text, done = false) {
+  if (!subtitlesEnabled || !text) return;
+  try {
+    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_SHOW, { text, done });
+  } catch (error) {
+    debugEvt('subtitle-error', { code: error?.code || '', message: error?.message || String(error) });
+  }
+}
+
+async function hideSubtitle() {
+  try {
+    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_HIDE, {});
+  } catch {
+    /* 浮层本就不存在（页面刷新走）时的 hide 失败无关紧要 */
   }
 }
 
@@ -771,6 +820,7 @@ function getDefaultConfig() {
     endpoint: '',
     model: '',
     audioType: 'audio/webm',
+    subtitles: false,
   };
 }
 
@@ -794,6 +844,12 @@ function applyConfigToUI(config) {
   els.modelInput.value = config.model || '';
   els.audioTypeSelect.value = config.audioType || 'audio/webm';
 
+  // 字幕开关：恢复上次选择并同步按钮文案/状态（无 #subtitleBtn 的入口页跳过）
+  subtitlesEnabled = !!config.subtitles;
+  if (els.subtitleBtn) {
+    els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
+    els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
+  }
   // If model is empty, fill with provider default
   if (!els.modelInput.value) {
     const provider = getCurrentProvider();
@@ -808,6 +864,7 @@ async function persistConfig() {
     endpoint: els.endpointInput.value.trim(),
     model: els.modelInput.value.trim(),
     audioType: els.audioTypeSelect.value,
+    subtitles: subtitlesEnabled,
   };
   await globalThis.ConfigStore.save(config);
   debugEvt('config-saved', {
@@ -815,6 +872,7 @@ async function persistConfig() {
     model: config.model,
     endpoint: config.endpoint, // 原值（诊断页可直接看出是不是 https 批量残留）
     audioType: config.audioType,
+    subtitles: config.subtitles,
     hasKey: !!config.apiKey,
   });
 }

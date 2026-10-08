@@ -34,6 +34,7 @@
         "messaging/messages.js",
         "shared/errors.js",
         "content/content.js",
+        "content/subtitle.js",
         "debug/bridge.js"
       ],
       "css": ["content/content.css"]

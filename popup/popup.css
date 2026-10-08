@@ -106,6 +106,13 @@ button.ghost {
   background: transparent;
 }
 
+/* 切换态按钮（如字幕开关）—— 高亮表示"已开启" */
+button.ghost.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
 #status {
   margin-top: 10px;
   padding: 8px 10px;

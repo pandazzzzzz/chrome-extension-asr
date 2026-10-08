@@ -15,18 +15,18 @@
  *   { ok: true,  data: ... }                    成功
  *   { ok: false, error: { code, message } }     失败
  *
- * 当前定义的动作：
+ *   asr:subtitle-show    popup/sidepanel → background → content
+ *                        payload: { text, done }（done=true 表示会话已结束，
+ *                        浮层再亮 2s 后自动淡出）
+ *                        data:    true
+ *
+ *   asr:subtitle-hide    popup/sidepanel → background → content
+ *                        payload: {}
+ *                        data:    true
+ *
  *   asr:fill-text        popup → background → content
  *                        payload: { text }
  *                        data:    true（content 已注入；失败时 ok:false + NO_FIELD 等）
- *
- *   asr:tab-record-start popup → background → offscreen
- *                        payload: { streamId }（background 取得的 tabCapture streamId）
- *                        data:    true
- *
- *   asr:tab-record-stop  popup → background → offscreen
- *                        payload: {}
- *                        data:    { b64, mime }（录制音频，见下方音频编码说明）
  *
  * 音频为什么编码传输：runtime 消息通道是 JSON 序列化（不是 structured clone），
  * Blob / ArrayBuffer / Uint8Array 都会丢失（Blob 变成 {}），所以音频统一走
@@ -34,6 +34,8 @@
  * decodeAudio 还原成 Blob。请求与响应两个方向都要编码。
  */
 globalThis.MESSAGES = Object.freeze({
+  SUBTITLE_SHOW: 'asr:subtitle-show',
+  SUBTITLE_HIDE: 'asr:subtitle-hide',
   FILL_TEXT: 'asr:fill-text',
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',

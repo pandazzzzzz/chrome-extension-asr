@@ -75,12 +75,14 @@ async function runTests() {
   try {
     const m = globalThis.MESSAGES;
     const ok = m.FILL_TEXT === 'asr:fill-text'
+      && m.SUBTITLE_SHOW === 'asr:subtitle-show'
+      && m.SUBTITLE_HIDE === 'asr:subtitle-hide'
       && m.TAB_RECORD_START === 'asr:tab-record-start'
       && m.TAB_RECORD_STOP === 'asr:tab-record-stop'
       && m.TRANSCRIBE === undefined
       && Object.isFrozen(m);
     addResult('MESSAGES: constants defined and frozen', ok,
-      `FILL_TEXT="${m.FILL_TEXT}", TAB_RECORD_START="${m.TAB_RECORD_START}", TAB_RECORD_STOP="${m.TAB_RECORD_STOP}", TRANSCRIBE removed=${m.TRANSCRIBE === undefined}`);
+      `FILL_TEXT="${m.FILL_TEXT}", SUBTITLE_SHOW="${m.SUBTITLE_SHOW}", SUBTITLE_HIDE="${m.SUBTITLE_HIDE}", TAB_RECORD_START="${m.TAB_RECORD_START}", TAB_RECORD_STOP="${m.TAB_RECORD_STOP}", TRANSCRIBE removed=${m.TRANSCRIBE === undefined}`);
   } catch (e) {
     addResult('MESSAGES: constants', false, e.message);
   }
