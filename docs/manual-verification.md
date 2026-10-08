@@ -98,6 +98,19 @@
 
 ---
 
+## 4b. 浮动字幕（Floating subtitles）
+
+| # | 操作 | 预期 | 失败含义 |
+|---|---|---|---|
+| 4b.1 | 开一个普通 http(s) 页面（如诊断页）→ 点 **Subtitles** | 按钮变 **Subtitles on**（高亮）；诊断页左下角出现半透明字幕浮层 | 无浮层 = content script 未注入（`chrome://` 页不支持）或 background 转发失败 |
+| 4b.2 | 开着 Subtitles 跑一次 **Live Stream** | 说话时浮层文本**随 partial 实时刷新**，停顿定稿后仍在 | 只更新结果区不见浮层 = `renderStreamText` 未镜像 |
+| 4b.3 | 点击 **Stop Stream** | 浮层保留约 2s 后**自动淡出**（`done=true` 超时） | 不消失 = 自动超时未生效 |
+| 4b.4 | 拖动浮层 | 浮层跟随指针移动，松手后停在原处；位置限制在视口内 | 拖不动 = pointer 事件/host 定位问题 |
+| 4b.5 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（消息只在发送瞬间转发，不跟随切 tab） | — |
+| 4b.6 | 关闭 **Subtitles** 开关 | 当前活动页浮层立即隐藏；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
+| 4b.7 | 在 `chrome://` 页面开 Subtitles 跑流式 | 结果区照常工作，浮层不出现且**不报错**（旁路输出失败被静默） | 主流程被字幕失败打断 = pushSubtitle 未吞错 |
+---
+
 ## 5. Side panel 与 Options
 
 | # | 操作 | 预期 |
@@ -123,10 +136,10 @@
 | 连不上 | `ws-connecting` → `ws-error` | WebSocket 握手失败（查 Key / endpoint / 网络） |
 | 卡在等待 | `ws-ready-fail` / `ready-timeout` | 10s 内未收到 `task-started` |
 | 模型被换 | `model-fallback` | 填了批量模型，已自动兜底 |
-| 无结果 | `pcm-stats` 显示帧数为 0 | 采集侧没数据（麦克风权限 / AudioWorklet） |
+| 停止异常 | `stop-ws-error` | 关闭时 WebSocket 报错（teardown 仍应完成） |
 | 结果丢失 | `ws-end-stale` | 旧会话残留的 `onEnd` 被正确忽略（**正常**） |
 | 提前结束 | `ws-ended-before-active` / `ws-ended-before-capture` | 启动期服务端就断开 |
-| 停止异常 | `stop-ws-error` | 关闭时 WebSocket 报错（teardown 仍应完成） |
+| 字幕没出现 | `subtitle-error` + `code` | 浮层消息转发失败（`NO_CONTENT`=页面无 content script，如 `chrome://`） |
 
 诊断页底部有**导出日志 (.txt)** 按钮，便于附到 issue。
 
@@ -137,7 +150,7 @@
 本次验证视为通过需同时满足：
 
 - [ ] **1.x 全部通过**（Live Stream 真机出 partial/final，且停止后历史有记录）
-- [ ] 2.x / 3.x / 4.x 无回归
+- [ ] 2.x / 3.x / 4.x / **4b.x** 无回归
 - [ ] 5.x 无回归
 - [ ] 无「标签页被静音」「麦克风红点常驻」「fill 静默失败」三类历史 bug 复现
 

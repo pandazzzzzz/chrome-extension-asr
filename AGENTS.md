@@ -11,6 +11,7 @@ Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 - `options/`: options page (`options.html` + `options.js`) — settings, history, storage status.
 - `background/background.js`: service worker — message routing, offscreen coordination, fill-text forwarding.
 - `content/content.js`, `content/content.css`: page dictation injection (`asr:fill-text`).
+- `content/subtitle.js`: floating subtitle overlay on the active page (`asr:subtitle-show` / `asr:subtitle-hide`); renders into a **closed Shadow DOM** so page CSS/JS cannot reach it and its styles cannot leak out.
 - `offscreen/`: offscreen document hosting tab-audio capture (MV3 cannot do this in a service worker).
 - `audio/`: audio layer — `recorder.js` (MediaRecorder wrapper, mic + tab), `convert.js` (floatToInt16 / resampleFloat32), `pcm-capture.js` + `pcm-worklet.js` (PCM frame capture via AudioWorklet for streaming). (VAD was removed with the old pseudo-streaming; server-side sentence-splitting handles streaming.)
 - `transcription/`: transcription layer — `providers/base.js` (streaming interface + capability metadata), `providers/qwen.js` (Qwen/DashScope realtime WebSocket), `providers/index.js` (registry). Batch transcribe and transcriber dispatch were removed with the old pseudo-streaming.
@@ -28,7 +29,13 @@ Keep feature logic close to its runtime context (popup/sidepanel/options vs cont
 ### Cross-context messaging
 All messages are `{ type, payload, requestId, target? }`. `target` is **required in practice**: `chrome.runtime.sendMessage` broadcasts, so `background`, `offscreen`, and `content` each filter by `target` (`messaging/messages.js` → `TARGETS`). Missing `target` means "to background".
 
-Current actions: `asr:fill-text`, `asr:tab-record-start`, `asr:tab-record-stop`. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
+Current actions: `asr:fill-text`, `asr:subtitle-show`, `asr:subtitle-hide`, `asr:tab-record-start`, `asr:tab-record-stop`. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
+
+The subtitle actions (`asr:subtitle-show` / `-hide`) turn the live transcript into a
+floating overlay on the active tab: `popup/app.js` mirrors each `renderStreamText`
+update, `background` forwards it to the active tab (same path as `fill-text`), and
+`content/subtitle.js` renders it. Forwarding failures are swallowed on purpose —
+the overlay is a side channel and must never break streaming.
 
 ### Global scripts (no modules)
 Scripts attach to `globalThis` (never `window`) so the same file works in popup, sidepanel, options, **and the service worker** (`importScripts`) / offscreen. If you add a provider later, add its `<script>` tag to **`popup/popup.html`, `sidepanel/sidepanel.html`, and `options/options.html`** and register it in `transcription/providers/index.js`. (Background does not load the transcription layer — it only handles message routing / offscreen coordination / fill-text.)
@@ -69,6 +76,7 @@ Manual validation before PR (each surface):
 - **Side panel**: open panel; mic/tab/stream recording works; status persists.
 - **Options**: settings save; history lists streaming results; storage status shows key present.
 - **Content**: paste text into Result → `Fill into page` inserts it into a focused input; with an empty Result, Copy/Fill are disabled (nothing to act on).
+- **Floating subtitles**: with **Subtitles** on, run a Live Stream and confirm the overlay appears on the active page, updates with partial/final text, and fades ~2s after Stop.
 - **Tab capture**: `Record Tab` keeps tab audio audible (must not mute the tab) and returns a recording.
 - Re-test install/update by reloading the extension.
 
