@@ -160,7 +160,7 @@
 │
 # ── 契约与共享层 ─────────────────────────────────────────
 ├── messaging/               # 〔已有〕跨上下文消息契约
-│   ├── messages.js         #  〔已有〕类型化 action + target 路由（fill-text / tab-record-*）
+│   ├── messages.js         #  〔已有〕类型化 action + target 路由（fill-text / subtitle-* / tab-record-*）
 │   └── client.js           #  〔已有〕sendMessage 封装（promise + 错误）
 ├── shared/
 │   ├── errors.js           #  〔已有〕统一错误码 + createError / normalizeError
