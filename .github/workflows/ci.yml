@@ -6,7 +6,7 @@
 #
 # `npm test` covers the streaming provider contract and PCM helpers
 # (tests/streaming.test.js). The browser smoke tests (tests/p1-smoke-test.html,
-# 17 cases) need a real Chrome and are NOT run here yet — see the note at the
+# 19 cases) need a real Chrome and are NOT run here yet — see the note at the
 # bottom of this file.
 name: CI
 
