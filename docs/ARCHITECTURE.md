@@ -21,7 +21,7 @@
 | `background/background.js` | 消息路由 + offscreen 协调 + fill-text 转发 | 无 API 代理/转录（已删，设计取舍） |
 | `content/content.js` + `.css` | 页面听写注入（`asr:fill-text`），兼容受控组件 | — |
 | `content/subtitle.js` | 浮动字幕浮层（`asr:subtitle-show` / `-hide`）：closed Shadow DOM 渲染，可拖动、会话结束自动淡出 | — |
-| `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式） | `vad.js` 已删（服务旧伪流式） |
+| `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
 | 构建 / 质量 | 无构建/无 TS；lint 占位；冒烟测试 `tests/p1-smoke-test.js`（已跟踪）；流式单测仅在本地 `temp/test-streaming-integration.js`（gitignored，未持久化） | 依赖脚本加载顺序；无类型契约；流式单测待移入 `tests/` 并挂 `npm test` |
@@ -140,6 +140,7 @@
 ├── audio/
 │   ├── recorder.js         #  〔已有〕MediaRecorder 封装（popup 麦克风 + offscreen 标签页共用）
 │   ├── convert.js          #  〔已有〕PCM 助手：floatToInt16 / resampleFloat32
+│   ├── devices.js          #  〔已有〕输入设备枚举 + getUserMedia 约束（麦克风选择）
 │   ├── pcm-capture.js      #  〔已有〕PCM 帧采集（AudioWorklet，回退 ScriptProcessorNode）
 │   └── pcm-worklet.js      #  〔已有〕AudioWorklet 处理器
 │
@@ -198,6 +199,7 @@
 | P2 | **本地推理**：transformers.js Whisper worker | `transcription/local/`、`store/model-cache` | ⏳ 待做（需引入构建/依赖，另确认） |
 | P3 | **标签页采集**：tabCapture + offscreen | `offscreen/`、`audio/recorder.js`、`manifest.json` | ✅ 已落地 |
 | P4 | **浮动字幕**：活动页浮动字幕浮层（`asr:subtitle-*`，closed Shadow DOM，可拖动） | `content/subtitle.js`、`background/`、`messaging/`、`popup/` | ✅ 已落地 |
+| P4 | **音频输入选择**：麦克风设备下拉框（枚举 + 持久化 + 失效回退） | `audio/devices.js`、`popup/`、`sidepanel/` | ✅ 已落地 |
 | P4 | **UI 扩展**：侧边栏 + 设置页 | `sidepanel/`、`options/` | ✅ 已落地 |
 | 远期 | **引入构建工具**：WXT / Plasmo（TS + HMR） | 全局，需一次迁移，另立计划 | ⏳ 待做 |
 

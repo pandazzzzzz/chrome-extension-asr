@@ -13,7 +13,10 @@ Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 - `content/content.js`, `content/content.css`: page dictation injection (`asr:fill-text`).
 - `content/subtitle.js`: floating subtitle overlay on the active page (`asr:subtitle-show` / `asr:subtitle-hide`); renders into a **closed Shadow DOM** so page CSS/JS cannot reach it and its styles cannot leak out.
 - `offscreen/`: offscreen document hosting tab-audio capture (MV3 cannot do this in a service worker).
-- `audio/`: audio layer — `recorder.js` (MediaRecorder wrapper, mic + tab), `convert.js` (floatToInt16 / resampleFloat32), `pcm-capture.js` + `pcm-worklet.js` (PCM frame capture via AudioWorklet for streaming). (VAD was removed with the old pseudo-streaming; server-side sentence-splitting handles streaming.)
+- `audio/`: audio layer — `recorder.js` (MediaRecorder wrapper, mic + tab), `convert.js` (floatToInt16 / resampleFloat32), `devices.js` (input-device enumeration + `getUserMedia` constraints), `pcm-capture.js` + `pcm-worklet.js` (PCM frame capture via AudioWorklet for streaming). (VAD was removed with the old pseudo-streaming; server-side sentence-splitting handles streaming.)
+
+Microphone selection: `#audioInput` in popup/sidepanel holds the chosen `deviceId` (`''` = system default) and persists it as `asrConfig.audioInput`. Device labels are only visible after the first successful `getUserMedia`, so the list is enumerated on load and refreshed after every grant; a stale id falls back to the default (`openMicrophone` in `audio/devices.js`).
+
 - `transcription/`: transcription layer — `providers/base.js` (streaming interface + capability metadata), `providers/qwen.js` (Qwen/DashScope realtime WebSocket), `providers/index.js` (registry). Batch transcribe and transcriber dispatch were removed with the old pseudo-streaming.
 - `store/`: storage layer — `config.js` (all config in `storage.local`), `crypto.js` (AES-GCM for API keys), `history.js` (transcription history, IndexedDB).
 - `messaging/`: cross-context message contract — `messages.js` (action types + `target` routing) + `client.js` (Promise `sendMessage` wrapper).
@@ -72,6 +75,7 @@ If you add lint/format tooling, keep rules aligned with the existing style and u
 ## Testing Guidelines
 Manual validation before PR (each surface):
 - **Popup**: record → stop → **Save audio** downloads a file; config fields save; API key appears encrypted in `chrome.storage.local`.
+- **Microphone selection**: the **Microphone** dropdown lists input devices (labels appear after the first permission grant); the choice applies to both recording and Live Stream and survives a reload; unplugging the chosen device falls back to the system default with a status message.
 - **Live Stream**: select Qwen + enter API key → **Live Stream** → partial text appears while speaking, final text locks after each sentence → stop → result copyable / fillable → history shows one entry.
 - **Side panel**: open panel; mic/tab/stream recording works; status persists.
 - **Options**: settings save; history lists streaming results; storage status shows key present.

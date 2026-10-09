@@ -10,6 +10,7 @@ No build step: load the directory unpacked and it runs.
 ## Features
 
 - **Microphone recording** — record from the popup (webm / mp4 / wav)
+- **Microphone selection** — pick which input device to use; the choice is persisted and falls back to the system default if the device disappears
 - **Tab audio recording** — capture tab audio (meetings, videos) via `chrome.tabCapture` + an offscreen document
 - **Live Stream** — realtime transcription over a WebSocket; partial and final sentences appear as you speak
 - **Floating subtitles** — mirror the live transcript into a draggable overlay on the active page (toggle with **Subtitles**)
@@ -28,6 +29,7 @@ No build step: load the directory unpacked and it runs.
 4. **Record**: click **Start Recording**, speak, then **Stop Recording** — or click **Record Tab** to capture the active tab's audio. **Save audio** downloads the result.
 5. **Transcribe live**: click **Live Stream**, speak, and watch text appear. Use **Copy text** or **Fill into page** to use it.
 6. **Floating subtitles**: click **Subtitles** to mirror the live transcript into a draggable overlay on the active page (useful when presenting from a window you are not looking at). The toggle is remembered; the overlay hides when streaming ends if no new text arrives.
+7. **Pick a microphone**: the **Microphone** dropdown lists your input devices (names appear after the first permission grant) and applies to both recording and Live Stream. The choice is remembered.
 
 Other entry points: **Side panel** keeps the panel open for long sessions;
 **Options** opens settings, history and storage status (also reachable from
@@ -64,6 +66,7 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 ├── audio/
 │   ├── recorder.js           # MediaRecorder wrapper (shared: popup mic + offscreen tab)
 │   ├── convert.js            # PCM helpers: floatToInt16, resampleFloat32
+│   ├── devices.js            # Input-device enumeration + getUserMedia constraints
 │   ├── pcm-capture.js        # PCM frame capture (AudioWorklet, ScriptProcessor fallback)
 │   └── pcm-worklet.js        # AudioWorklet processor for PCM capture
 ├── transcription/            # Streaming transcription layer (realtime WebSocket)

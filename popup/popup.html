@@ -21,6 +21,11 @@
       <input id="endpoint" type="text" placeholder="https://...">
     </div>
 
+    <div class="field" id="audioInputRow">
+      <label for="audioInput">Microphone</label>
+      <select id="audioInput"></select>
+    </div>
+
     <div class="row">
       <div class="field">
         <label for="audioType">Audio format</label>
@@ -68,6 +73,7 @@
   <script src="../store/history.js"></script>
   <script src="../audio/recorder.js"></script>
   <script src="../audio/convert.js"></script>
+  <script src="../audio/devices.js"></script>
   <script src="../audio/pcm-capture.js"></script>
   <script src="../transcription/providers/base.js"></script>
   <script src="../transcription/providers/qwen.js"></script>
