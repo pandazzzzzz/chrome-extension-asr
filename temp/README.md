@@ -13,6 +13,8 @@ temp/
 ├── audio/        # 临时录制的音频文件、测试音频样本
 ├── scripts/      # 本地调试用的一次性脚本、测试代码片段
 ├── notes/        # 开发笔记、调研记录、临时 markdown 文档
+│   # 说明：本地 e2e/探针脚本散落在 temp/ 根（如 subtitle-e2e.js / audio-input-e2e.js / run-smoke.js），
+│   # 它们依赖 temp/verify/chrome-win64 的 Chrome for Testing，不入库、CI 不跑。
 └── README.md     # 本说明文件
 ```
 

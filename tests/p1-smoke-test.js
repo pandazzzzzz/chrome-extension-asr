@@ -282,6 +282,45 @@ async function runTests() {
     addResult('MessageClient timeout', false, e.message);
   }
 
+  // --- 18. 音频输入设备：约束构造（'' = 系统默认；非空 = exact deviceId）---
+  try {
+    const def = globalThis.audioConstraintsForDevice('');
+    const picked = globalThis.audioConstraintsForDevice('abc123');
+    const ok = def.audio === true
+      && picked.audio?.deviceId?.exact === 'abc123'
+      && picked.audio?.echoCancellation === true
+      && globalThis.isAudioInputSelectionSupported() ===
+           !!(navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function');
+    addResult('audio devices: constraint builder + support probe', ok,
+      `default=${JSON.stringify(def.audio)}, picked deviceId=${picked.audio?.deviceId?.exact}`);
+  } catch (e) {
+    addResult('audio devices: constraints', false, e.message);
+  }
+
+  // --- 19. 音频输入设备：listAudioInputs 恒 resolve 且只回 audioinput ---
+  try {
+    const realMedia = globalThis.navigator.mediaDevices;
+    if (!realMedia) globalThis.navigator.mediaDevices = {};
+    globalThis.navigator.mediaDevices.enumerateDevices = async () => ([
+      { kind: 'audioinput', deviceId: 'default', label: '' },
+      { kind: 'videoinput', deviceId: 'cam1', label: 'Webcam' },
+      { kind: 'audioinput', deviceId: 'mic2', label: 'USB Mic' },
+    ]);
+    const list = await globalThis.listAudioInputs();
+    // 枚举抛错时也 resolve []（UI 据此隐藏整行，而不是崩掉 popup）
+    globalThis.navigator.mediaDevices.enumerateDevices = async () => { throw new Error('boom'); };
+    const onError = await globalThis.listAudioInputs();
+    if (!realMedia) delete globalThis.navigator.mediaDevices;
+    const ok = list.length === 2
+      && list[0].isDefault === true && list[0].label === 'Microphone 1'
+      && list[1].deviceId === 'mic2' && list[1].isDefault === false
+      && onError.length === 0;
+    addResult('audio devices: list filters audioinput, defaults label, never throws', ok,
+      `count=${list.length}, labels=${list.map((d) => d.label).join('/')}, onError=${onError.length}`);
+  } catch (e) {
+    addResult('audio devices: listAudioInputs', false, e.message);
+  }
+
   finish();
 }
 

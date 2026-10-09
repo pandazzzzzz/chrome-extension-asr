@@ -46,6 +46,11 @@ const STREAM = {
 // 页面刷新自然消失；无 #subtitleBtn 的入口页（options）该按钮功能静默缺失。
 let subtitlesEnabled = false;
 
+// ---------- 音频输入设备（可选下拉框 #audioInput） ----------
+// deviceId '' = 跟随系统默认。设备名只在首次 getUserMedia 授权成功后才可见，
+// 故枚举发生在授权之后（见 refreshAudioInputs / syncAudioInputOptions）。
+let selectedAudioInput = '';
+
 // ---------- 调试打点（诊断页 tests/stream-debug.html 经 debug/bridge.js 接收） ----------
 // bridge.js 未加载时静默跳过；绝不携带 apiKey（endpoint 也只传"是否设置"的布尔）。
 function debugEvt(phase, detail) {
@@ -99,6 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   onProviderChange(); // 按选中 provider 更新 endpoint 可见性 + 默认值
 
   bindEvents();
+  void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
   // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
   debugEvt('popup-ready', {
     provider: els.providerSelect.value,
@@ -106,6 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     hasKey: !!els.apiKeyInput.value.trim(),
     hasEndpoint: !!els.endpointInput.value.trim(),
     providers: (globalThis.PROVIDERS || []).map((p) => p.id),
+    audioInput: selectedAudioInput || 'default',
   });
 });
 
@@ -128,10 +135,16 @@ function gatherElements() {
   els.optionsBtn = document.getElementById('optionsBtn'); // 可选：sidepanel/options 有
   els.panelBtn = document.getElementById('panelBtn'); // 可选：popup 有
   els.subtitleBtn = document.getElementById('subtitleBtn'); // 可选：popup/sidepanel 有
+  els.audioInputSelect = document.getElementById('audioInput'); // 可选：支持设备枚举的入口页有
   els.statusDiv = document.getElementById('status');
 
   syncResultButtons();
   els.resultText.addEventListener('input', syncResultButtons);
+
+  // 设备热插拔（插入/拔出麦克风、系统切换默认设备）→ 重新枚举并保留当前选择
+  if (els.audioInputSelect && navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', () => { void refreshAudioInputs(); });
+  }
 }
 
 // 把注册表里的 provider 填进下拉框（<select id="provider">）
@@ -143,6 +156,70 @@ function populateProviderSelect() {
     option.textContent = provider.name;
     els.providerSelect.appendChild(option);
   });
+}
+
+// ---------- 音频输入设备 ----------
+
+// 用设备列表重建下拉框。首项固定为"跟随系统默认"（value=''），其余按枚举顺序。
+// 保留当前选择：设备仍在列表里就选中它，已消失则回退默认并纠正状态变量
+// （否则 selectedAudioInput 指向不存在的设备，下次录音会走 OverconstrainedError 分支）。
+function syncAudioInputOptions(devices) {
+  if (!els.audioInputSelect) return;
+
+  const select = els.audioInputSelect;
+  select.textContent = '';
+
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = 'System default';
+  select.appendChild(defaultOption);
+
+  devices.forEach((device) => {
+    const option = document.createElement('option');
+    // 'default' 哨兵与 '' 语义重复（都表示跟随默认），统一折叠到 '' 选项
+    option.value = device.isDefault ? '' : device.deviceId;
+    option.textContent = device.label;
+    if (!option.value) return; // 与默认项重复，跳过
+    select.appendChild(option);
+  });
+
+  const stillPresent = Array.from(select.options).some((o) => o.value === selectedAudioInput);
+  if (!stillPresent) {
+    selectedAudioInput = '';
+    debugEvt('audio-input-fallback', { reason: 'selected-device-gone' });
+  }
+  select.value = selectedAudioInput;
+}
+
+// 设备下拉框的可见性：不支持枚举的入口页（无元素）或枚举不到设备（旧浏览器/
+// 无麦克风）时整行隐藏，避免留一个点不动的空下拉框。
+function toggleAudioInputRow(visible) {
+  const row = els.audioInputSelect?.closest('.field') || els.audioInputSelect;
+  if (row) row.style.display = visible ? '' : 'none';
+}
+
+// 重新枚举并刷新下拉框。未授权时 Chrome 会返回设备条目但 label 为空（已由
+// listAudioInputs 用序号兜底），故此处只关心"有没有 audioinput"。
+async function refreshAudioInputs() {
+  if (!els.audioInputSelect || !globalThis.isAudioInputSelectionSupported?.()) {
+    toggleAudioInputRow(false);
+    return;
+  }
+  const devices = await globalThis.listAudioInputs();
+  toggleAudioInputRow(devices.length > 0);
+  syncAudioInputOptions(devices);
+}
+
+// 按选择打开麦克风（含失效回退），统一处理用户可见提示与打点。
+async function acquireMicrophone() {
+  const { stream, fellBack } = await globalThis.openMicrophone(selectedAudioInput);
+  if (fellBack) {
+    selectedAudioInput = '';
+    if (els.audioInputSelect) els.audioInputSelect.value = '';
+    showStatus('Selected microphone is unavailable — using system default.', 'error');
+    debugEvt('audio-input-fallback', { reason: 'device-unavailable' });
+  }
+  return stream;
 }
 
 function getCurrentProvider() {
@@ -195,6 +272,12 @@ function bindEvents() {
   els.endpointInput.addEventListener('change', persistConfig);
   els.modelInput.addEventListener('change', persistConfig);
   els.audioTypeSelect.addEventListener('change', persistConfig);
+  // 设备选择同样持久化（#audioInput 只在支持枚举的入口页存在）
+  els.audioInputSelect?.addEventListener('change', async () => {
+    selectedAudioInput = els.audioInputSelect.value;
+    debugEvt('audio-input-changed', { deviceId: selectedAudioInput || 'default' });
+    await persistConfig();
+  });
 
   els.recordBtn.addEventListener('click', toggleRecording);
   els.tabRecordBtn.addEventListener('click', toggleTabRecording);
@@ -243,7 +326,10 @@ async function startRecording() {
   try {
     audioBlob = null;
 
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // 按 #audioInput 选择打开麦克风；授权成功后设备名才可见 → 刷新下拉框
+    stream = await acquireMicrophone();
+    void refreshAudioInputs();
+    debugEvt('mic-open', { deviceId: selectedAudioInput || 'default' });
     recorder = new AudioRecorder({ mimeType: els.audioTypeSelect.value });
     recorder.attach(stream);
     recorder.start();
@@ -445,8 +531,12 @@ async function startStreaming() {
   debugEvt('start-begin', { provider: provider.id });
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    debugEvt('mic-acquired', { tracks: stream.getAudioTracks().length });
+    const stream = await acquireMicrophone();
+    debugEvt('mic-acquired', {
+      tracks: stream.getAudioTracks().length,
+      deviceId: selectedAudioInput || 'default',
+    });
+    void refreshAudioInputs(); // 授权后设备名才可见
     // 真流式服务端只收 16kHz PCM。直接把 AudioContext 建在 16kHz（官方 demo 同法），
     // 浏览器在源节点处做原生重采样 —— 避免逐帧软件重采样的相位不连续与时序漂移。
     // 旧浏览器不支持 sampleRate 选项时回退默认采样率，onStreamFrame 里再软件重采样。
@@ -821,6 +911,7 @@ function getDefaultConfig() {
     model: '',
     audioType: 'audio/webm',
     subtitles: false,
+    audioInput: '', // '' = 跟随系统默认设备
   };
 }
 
@@ -850,6 +941,11 @@ function applyConfigToUI(config) {
     els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
     els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
   }
+
+  // 音频输入设备：仅当该入口页有下拉框时回填；设备已不在列表时由
+  // syncAudioInputOptions 在下次枚举时回退到默认。
+  selectedAudioInput = config.audioInput || '';
+  if (els.audioInputSelect) els.audioInputSelect.value = selectedAudioInput;
   // If model is empty, fill with provider default
   if (!els.modelInput.value) {
     const provider = getCurrentProvider();
@@ -865,6 +961,7 @@ async function persistConfig() {
     model: els.modelInput.value.trim(),
     audioType: els.audioTypeSelect.value,
     subtitles: subtitlesEnabled,
+    audioInput: selectedAudioInput,
   };
   await globalThis.ConfigStore.save(config);
   debugEvt('config-saved', {
@@ -873,6 +970,7 @@ async function persistConfig() {
     endpoint: config.endpoint, // 原值（诊断页可直接看出是不是 https 批量残留）
     audioType: config.audioType,
     subtitles: config.subtitles,
+    audioInput: config.audioInput || 'default',
     hasKey: !!config.apiKey,
   });
 }

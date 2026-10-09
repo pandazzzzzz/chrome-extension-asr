@@ -65,6 +65,21 @@
 
 ---
 
+## 2b. 音频输入选择
+
+| # | 操作 | 预期 | 失败含义 |
+|---|---|---|---|
+| 2b.1 | 首次安装后打开 popup（从未授权麦克风） | **Microphone** 下拉框可见，只有 `System default` 一项或设备名为 `Microphone N` 占位 | 下拉框整行不可见 = `enumerateDevices` 返回 0 条 audioinput（无麦克风/`mediaDevices` 不可用），属预期隐藏 |
+| 2b.2 | 点 **Start Recording** 授权后再看下拉框 | 出现**真实设备名**（如 `麦克风阵列 (Realtek)`） | 仍是 `Microphone N` = 授权后未刷新（`refreshAudioInputs` 未触发） |
+| 2b.3 | 选一个非默认设备 → 录音 | 状态 `Recording... speak now.`；录完能从 `Save audio` 的文件听到**该设备**的声音（多设备时用不同音源对比） | 声音来自默认设备 = 约束未带 `deviceId.exact` |
+| 2b.4 | 选设备 → 重开 popup | 下拉框**回填**上次选择 | 回填丢失 = `asrConfig.audioInput` 未持久化/未回读 |
+| 2b.5 | 选设备 → 跑一次 **Live Stream** | 同样用所选设备（partial/final 正常出字） | 流式仍走默认 = `startStreaming` 未接入 `acquireMicrophone()` |
+| 2b.6 | **失效回退**：选一个设备后把它拔掉/禁用 → 再录音 | 状态提示 `Selected microphone is unavailable — using system default.`，录音**照常开始**（用默认设备），下拉框回到 `System default` | 报 `Cannot start recording: ...` = 回退逻辑失效 |
+| 2b.7 | 热插拔：录音空闲时插入/拔出 USB 麦克风 | 下拉框自动重建且**保留当前选择**（若该设备仍在） | 列表不更新 = `devicechange` 监听未生效 |
+| 2b.8 | sidepanel 打开 | 同样有 **Microphone** 下拉框，选择与 popup 共享 | 侧栏无此控件 = 复用 `popup/app.js` 的 `#audioInput` 缺失 |
+
+---
+
 ## 3. 标签页录音回归
 
 > ⚠️ **必须**从**扩展工具栏图标**打开 popup。`tabCapture.getMediaStreamId` 要求
@@ -151,7 +166,7 @@
 本次验证视为通过需同时满足：
 
 - [ ] **1.x 全部通过**（Live Stream 真机出 partial/final，且停止后历史有记录）
-- [ ] 2.x / 3.x / 4.x / **4b.x** 无回归
+- [ ] 2.x / **2b.x** / 3.x / 4.x / **4b.x** 无回归
 - [ ] 5.x 无回归
 - [ ] 无「标签页被静音」「麦克风红点常驻」「fill 静默失败」三类历史 bug 复现
 
