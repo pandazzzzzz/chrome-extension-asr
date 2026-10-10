@@ -71,24 +71,50 @@ t('Qwen: 流式能力元数据正确', () => {
   assert.strictEqual(Q.id, 'qwen');
   assert.strictEqual(Q.supportsStreaming, true);
   assert.strictEqual(Q.defaultStreamModel, 'fun-asr-realtime');
+  assert.ok(Array.isArray(Q.streamModels) && Q.streamModels.length > 0);
   assert.strictEqual(typeof Q.getDefaultStreamEndpoint(), 'string');
   assert.ok(Q.getDefaultStreamEndpoint().startsWith('wss://'));
+  assert.ok(Q.getDefaultStreamEndpoint().endsWith('/api-ws/v1/inference'));
 });
-t('BaseProvider.isStreamModel: 按 realtime|streaming 判定', () => {
+t('Qwen.isStreamModel: 只放行 run-task 白名单（含快照后缀）', () => {
+  assert.strictEqual(Q.isStreamModel('fun-asr-realtime'), true);
+  assert.strictEqual(Q.isStreamModel('fun-asr-realtime-2026-02-28'), true); // 快照版本靠前缀匹配
+  assert.strictEqual(Q.isStreamModel('qwen-audio-3.1-asr-flash-streaming'), true);
+  assert.strictEqual(Q.isStreamModel(''), false);
+  assert.strictEqual(Q.isStreamModel('fun-asr'), false); // 非实时模型
+  assert.strictEqual(Q.isStreamModel('qwen3-asr-flash'), false); // 批量模型必须被拒
+});
+t('Qwen.isStreamModel: 拒绝名字带 realtime 但走 /api-ws/v1/realtime 的会话制模型', () => {
+  // 这些模型名同样含 "realtime"，旧的名字正则会误放行 → run-task 发错路径 → task-failed
+  for (const m of [
+    'qwen3-asr-flash-realtime',
+    'qwen-audio-3.1-realtime-plus',
+    'qwen3.8-omni-flash-realtime',
+    'qwen3.5-livetranslate-flash-realtime',
+  ]) {
+    assert.strictEqual(Q.isStreamModel(m), false, m + ' 不应被 run-task 接受');
+  }
+});
+t('BaseProvider.isStreamModel: 基类白名单为空 → 一律拒绝', () => {
   const b = globalThis.BaseProvider;
-  assert.strictEqual(b.isStreamModel('fun-asr-realtime'), true);
-  assert.strictEqual(b.isStreamModel('qwen-audio-3.x-asr-flash-streaming'), true);
-  assert.strictEqual(b.isStreamModel('qwen3-asr-flash'), false); // 批量模型必须被拒
+  assert.deepStrictEqual(b.streamModels, []);
+  assert.strictEqual(b.isStreamModel('fun-asr-realtime'), false);
   assert.strictEqual(b.isStreamModel(''), false);
-  assert.strictEqual(Q.isStreamModel('qwen3-asr-flash'), false);
 });
 t('Qwen.createStreamSession: 缺 apiKey 抛 NO_API_KEY', () => {
   assert.throws(() => Q.createStreamSession({ apiKey: '', onResult() {} }),
     (e) => e.code === 'NO_API_KEY');
 });
-t('Qwen.createStreamSession: 批量模型被拒绝', () => {
+t('Qwen.createStreamSession: 非 run-task 模型被拒绝', () => {
   assert.throws(() => Q.createStreamSession({ apiKey: 'k', model: 'qwen3-asr-flash', onResult() {} }),
     (e) => e.code === 'UNKNOWN');
+  assert.throws(() => Q.createStreamSession({ apiKey: 'k', model: 'qwen3-asr-flash-realtime', onResult() {} }),
+    (e) => e.code === 'UNKNOWN');
+});
+t('Qwen.createStreamSession: 非 wss:// endpoint 提前报错（不喂给 new WebSocket）', () => {
+  assert.throws(() => Q.createStreamSession({
+    apiKey: 'k', model: 'fun-asr-realtime', endpoint: 'https://dashscope.aliyuncs.com/api/v1', onResult() {},
+  }), (e) => e.code === 'UNKNOWN' && /not a WebSocket URL/.test(e.message));
 });
 t('BaseProvider: 流式基类默认抛错（不实现就用不了）', () => {
   assert.throws(() => globalThis.BaseProvider.createStreamSession({}), /Streaming not supported/);
@@ -99,7 +125,9 @@ t('注册表: 只含支持流式的 provider，且都实现了 createStreamSessi
   list.forEach(p => {
     assert.ok(p.supportsStreaming, p.id + ' 应支持流式');
     assert.strictEqual(typeof p.createStreamSession, 'function', p.id + ' 缺 createStreamSession');
-    assert.ok(p.defaultStreamModel || p.defaultModel, p.id + ' 缺默认模型');
+    assert.ok(p.defaultStreamModel, p.id + ' 缺默认流式模型');
+    assert.ok(Array.isArray(p.streamModels) && p.streamModels.length > 0, p.id + ' 缺 run-task 白名单');
+    assert.ok(p.isStreamModel(p.defaultStreamModel), p.id + ' 默认模型必须在自己的白名单内');
   });
   assert.ok(list.includes(Q), '注册表应含 QwenProvider');
 });

@@ -233,13 +233,17 @@ function onProviderChange() {
 
   // Model 输入框为空时填入 provider 默认流式模型
   if (!els.modelInput.value.trim()) {
-    els.modelInput.value = provider.defaultModel || provider.defaultStreamModel || '';
+    els.modelInput.value = provider.defaultStreamModel || '';
   }
 
-  // 支持流式的 provider：提示可选流式模型（批量与流式模型常不同）
+  // 支持流式的 provider：提示本 provider 实际接受的模型（白名单，非名字正则）。
+  // 别的模型名带 "realtime" 也可能走不同的 WebSocket 协议，故直接列出可用项。
   if (provider.supportsStreaming) {
-    els.modelInput.placeholder = 'e.g. fun-asr-realtime';
-    els.modelInput.title = 'Live Stream 使用此模型；批量模型发给 run-task 会被服务端 task-failed';
+    const models = provider.streamModels || [];
+    els.modelInput.placeholder = models[0] || 'e.g. fun-asr-realtime';
+    els.modelInput.title = models.length
+      ? `Live Stream 只接受本 provider 的 run-task 模型：${models.join(', ')}（可带日期后缀）`
+      : '';
   } else {
     els.modelInput.removeAttribute('placeholder');
     els.modelInput.removeAttribute('title');
@@ -559,16 +563,22 @@ async function startStreaming() {
     streamSession.apiKey = apiKey;
     streamSession.finalText = '';
     streamSession.partialText = '';
-    streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel || provider.defaultModel;
+    streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel;
     streamSession.endpoint = els.endpointInput.value.trim() || undefined;
     streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
     streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
 
-    // 批量模型（如 qwen3-asr-flash）不能用于 run-task —— 用流式默认模型兜底
+    // 非 run-task 模型（批量模型、或走 /api-ws/v1/realtime 的会话制模型）不能用于本链路 ——
+    // 回落 provider 默认流式模型。仅在确有默认值时回落，否则交给 createStreamSession 抛错。
     if (!provider.isStreamModel(streamSession.model)) {
       debugEvt('model-fallback', { requested: streamSession.model, using: provider.defaultStreamModel });
-      streamSession.model = provider.defaultStreamModel || 'fun-asr-realtime';
-      showStatus(`Using realtime model ${streamSession.model} (batch model not valid for streaming).`, 'success');
+      if (provider.defaultStreamModel) {
+        streamSession.model = provider.defaultStreamModel;
+        showStatus(
+          `Using ${streamSession.model} — "${els.modelInput.value.trim()}" is not a run-task model.`,
+          'success',
+        );
+      }
     }
 
     // 先建会话：必须等 task-started（await ready）才开始采音，
@@ -949,7 +959,7 @@ function applyConfigToUI(config) {
   // If model is empty, fill with provider default
   if (!els.modelInput.value) {
     const provider = getCurrentProvider();
-    if (provider) els.modelInput.value = provider.defaultModel || provider.defaultStreamModel || '';
+    if (provider) els.modelInput.value = provider.defaultStreamModel || '';
   }
 }
 

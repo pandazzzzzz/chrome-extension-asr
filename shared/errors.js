@@ -9,14 +9,10 @@ globalThis.Errors = Object.freeze(
   Object.fromEntries(
     Object.entries({
       // 配置类
-      NO_PROVIDER: { code: 'NO_PROVIDER', message: 'No provider selected' },
       NO_API_KEY: { code: 'NO_API_KEY', message: 'API key is required' },
-      NO_AUDIO: { code: 'NO_AUDIO', message: 'No audio data' },
 
-      // 网络 / API 类
-      NETWORK: { code: 'NETWORK', message: 'Network request failed' },
+      // API 类
       API_ERROR: { code: 'API_ERROR', message: 'Provider API error' },
-      EMPTY_RESULT: { code: 'EMPTY_RESULT', message: 'Empty transcription result' },
 
       // 消息 / 协议类
       UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION', message: 'Unknown message type' },

@@ -100,8 +100,7 @@ async function runTests() {
   // --- 7. Errors: unified codes + normalizeError ---
   try {
     const e = globalThis.Errors;
-    const required = ['NO_PROVIDER', 'NO_API_KEY', 'NO_AUDIO',
-      'API_ERROR', 'EMPTY_RESULT', 'UNKNOWN_ACTION', 'UNKNOWN'];
+    const required = ['NO_API_KEY', 'API_ERROR', 'UNKNOWN_ACTION', 'UNKNOWN'];
     const codesOk = required.every(k => e[k] && e[k].code === k && typeof e[k].message === 'string');
     const norm1 = globalThis.normalizeError({ code: 'NO_API_KEY', message: 'x' });
     const norm1Ok = norm1.code === 'NO_API_KEY';

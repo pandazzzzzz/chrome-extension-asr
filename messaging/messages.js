@@ -73,7 +73,7 @@ globalThis.encodeAudio = async function encodeAudio(blob) {
 /**
  * encodeAudio 的逆操作。
  * @param {{b64: string, mime?: string}} enc
- * @returns {Blob|null} 形状不合法时返回 null（调用方按 NO_AUDIO 处理）
+ * @returns {Blob|null} 形状不合法时返回 null（调用方需自行判空/报错）
  */
 globalThis.decodeAudio = function decodeAudio(enc) {
   if (!enc || typeof enc.b64 !== 'string') return null;

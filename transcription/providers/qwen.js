@@ -1,29 +1,55 @@
 /**
  * Qwen ASR provider (DashScope) — 真流式（WebSocket run-task 协议）。
  *
- * Docs: https://help.aliyun.com/zh/dashscope/
- * 流式 endpoint: wss://dashscope.aliyuncs.com/api-ws/v1/inference
+ * 协议文档（模型 ↔ 路径对照表）：https://docs.bailian.console.aliyun.com/zh/model-studio/realtime-websocket-overview
+ * 本 provider 走**任务制** `/api-ws/v1/inference`：模型名放在 run-task 的 payload.model，
+ * 服务端事件为 task-started / result-generated / task-finished / task-failed。
  *
- * 批量 transcribe() 已随旧伪流式删除；本 provider 只提供真 WebSocket 流式
- * （run-task 协议，详见 createStreamSession 注释）。
+ * 不要与**会话制** `/api-ws/v1/realtime` 混淆（Qwen-ASR-Realtime / Qwen-Audio-Realtime /
+ * Omni-Realtime / LiveTranslate）：那条路径模型名在 URL query，事件是 session.* /
+ * input_audio_buffer.* —— 见 isStreamModel 的白名单说明。
+ *
+ * 批量 transcribe() 已随旧伪流式删除；本 provider 只提供真 WebSocket 流式。
  */
 class QwenProvider extends BaseProvider {
   static id = 'qwen';
   static name = 'Qwen (DashScope)';
-  static defaultModel = 'fun-asr-realtime'; // 流式默认模型
   static hasEndpoint = true;
   static supportsStreaming = true;
-  // 真流式只支持 Qwen-Audio-3.x-ASR-Flash-Streaming 与 Fun-ASR-Realtime 系列；
-  // 批量模型（qwen3-asr-flash 等）发给 run-task 会被服务端 task-failed。
+
+  /**
+   * 可用 run-task 的模型白名单（模型 ↔ 协议对照见文件头）。
+   * 覆盖主版本 + 带日期/规格后缀的快照版本（isStreamModel 前缀匹配）。
+   */
+  static streamModels = [
+    'fun-asr-realtime',                 // Fun-ASR-Realtime（含 fun-asr-realtime-2026-02-28 快照）
+    'fun-asr-flash-8k-realtime',        // 8k 电话场景；注意仅支持 8000 Hz 采样率
+    'qwen-audio-3.1-asr-flash-streaming',
+    'qwen-audio-3.0-asr-flash-streaming',
+    'qwen-audio-3.1-asr-flash-message',
+    'paraformer-realtime-v2',
+    'paraformer-realtime-8k-v2',
+  ];
+
+  /** 真流式默认模型。 */
   static defaultStreamModel = 'fun-asr-realtime';
 
-  /** 实时流式 ASR 的默认 WebSocket endpoint（通用地域）。 */
+  /**
+   * 实时流式 ASR 的默认 WebSocket endpoint。
+   *
+   * 官方推荐使用业务空间专属域名（并发/隔离/超时更好）：
+   *   华北2（北京）  wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference
+   *   新加坡        wss://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference
+   * 但 WorkspaceId 因账号而异，无法给出可用默认值，故这里回落到公共 DashScope 域名
+   * （华北2 北京）。**API Key 必须与地域匹配**，跨地域混用会握手 401。
+   * 国际站/其他地域请显式填 Endpoint URL（见 docs/manual-verification.md）。
+   */
   static getDefaultStreamEndpoint() {
     return 'wss://dashscope.aliyuncs.com/api-ws/v1/inference';
   }
 
   /**
-   * 实时流式 ASR（WebSocket，run-task 协议）。
+   * 实时流式 ASR（WebSocket，run-task 协议，`/api-ws/v1/inference`）。
    *
    * 协议依据官方「客户端事件 / 服务端事件」文档与 paraformer-realtime-js demo：
    *   1. onopen → 发 run-task（task_group=audio / task=asr / function=recognition）
@@ -36,11 +62,20 @@ class QwenProvider extends BaseProvider {
    *
    * 参数取舍：
    *   - 不传 language_hints：服务端默认自动识别语种（Fun-ASR 系列最多只认 1 个值，
-   *     硬编码 ['zh'] 会把英文等强制当中文）
+   *     硬编码 ['zh'] 会把英文等强制当中文；Message 系列则支持最多 4 个值）
    *   - heartbeat=true：持续静音时保活连接（否则超时断开）；心跳包由上面第 4 步过滤
-   *   - 不传 disfluency_removal_enabled（不在官方参数表中）
+   *   - 不传 disfluency_removal_enabled（Paraformer 参数，Fun-ASR/Qwen-Audio 无此表项）
+   *   - 不传 intermediate_result_enabled：仅 Qwen-Audio-ASR-Flash-Message 需要它才有
+   *     中间结果（sentence_end=false），其余模型默认就回中间结果，故不传以保持通用
+   *
+   * 采样率：请求固定 16kHz（调用方已把 AudioContext 建在 16kHz）。`fun-asr-flash-8k-realtime`
+   * 与 `paraformer-realtime-8k-v2` **只接受 8000 Hz**，用 16kHz 会被服务端拒绝 —— 这两个模型
+   * 需配套改采样率（当前未支持）。
    *
    * 鉴权：浏览器 WebSocket 无法自定义 header，apiKey 走 URL query 参数。
+   * ⚠️ `?api_key=` **未见于官方文档**（文档只写握手请求头 `Authorization: Bearer <key>`）；
+   * 实测服务端接受该 query 参数（无参 → "No API-key provided."，带无效值 → "Invalid API-key
+   * provided."），属未公开的兼容行为，可能随时失效 —— 见 docs/HANDOFF.md 的取舍记录。
    * 安全边界：本方法在 popup/sidepanel 调用，apiKey 进入页面 JS —— MV3 service
    * worker 无法持长连接，这是浏览器扩展的固有取舍（密钥仍只来自本地加密存储）。
    *
@@ -67,7 +102,10 @@ class QwenProvider extends BaseProvider {
     if (!this.isStreamModel(streamModel)) {
       throw globalThis.createError(
         globalThis.Errors.UNKNOWN,
-        `"${streamModel}" is a batch model; realtime requires fun-asr-realtime or qwen-audio-3.x-asr-flash-streaming`,
+        `"${streamModel}" is not usable with the run-task (/api-ws/v1/inference) protocol. ` +
+          `Supported here: ${this.streamModels.join(', ')}. ` +
+          'Session-protocol models (e.g. qwen3-asr-flash-realtime, *-omni-*-realtime, ' +
+          '*-livetranslate-*) and batch models (e.g. qwen3-asr-flash) need a different client.',
       );
     }
 
@@ -217,10 +255,22 @@ class QwenProvider extends BaseProvider {
       }
     };
 
+    // 握手失败（无效 Key / 地域不匹配 / 未开通模型）在浏览器里只表现为 onerror + onclose
+    // code=1006，服务端返回的 401/403 文本被浏览器吞掉（控制台仅有 "HTTP Authentication
+    // failed" 之类）。若 ready 尚未 settle，把错误明确指向「API Key 或地域」，否则用户只会
+    // 看到泛化的 "WebSocket connection error"，无从下手。
+    function handshakeError() {
+      return new Error(
+        'WebSocket handshake failed before task-started — usually an invalid API key, ' +
+          'an API key from a different region, or a model not activated for this account. ' +
+          'Check the API Key and the Endpoint region (Beijing / Singapore / other).',
+      );
+    }
+
     socket.onerror = () => {
       // 具体原因由 onclose 兜底（浏览器不暴露 WS 错误细节）
-      track('ws-error', { finishedSettled });
-      if (!finishedSettled) fail(new Error('WebSocket connection error'));
+      track('ws-error', { finishedSettled, started });
+      if (!finishedSettled) fail(handshakeError());
     };
 
     socket.onclose = (event) => {
@@ -228,7 +278,9 @@ class QwenProvider extends BaseProvider {
       if (!finishedSettled) {
         const reason = event?.reason || '';
         track('ws-close', { wasClean: !!event?.wasClean, code: event?.code, reason, started });
-        fail(started ? null : new Error('WebSocket closed before task started'));
+        // started=false：连接在任务启动前就断了 —— 握手鉴权失败或地址/地域错误。
+        // started=true：任务正常跑过，中途断开才是真正的网络问题。
+        fail(started ? null : handshakeError());
       }
     };
 
