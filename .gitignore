@@ -85,7 +85,7 @@ docs/*.local.md
 
 # Claude Code — 运行时产物与个人配置（不共享）。
 # 只列已知的运行时/本地文件，.claude/ 本身不整体忽略，
-# 这样共享配置（如 .claude/settings.json、.claude/skills/）仍可 git add。
+# 这样共享配置（如 .claude/settings.json）仍可 git add。
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/scheduled_tasks.json
@@ -97,6 +97,13 @@ docs/*.local.md
 .claude/worktrees/
 .claude/checkpoints/
 .claude/mailbox/
+
+# Agent skills —— `npx modern-web-guidance install` 的产物（纯 Markdown 知识库 + 锁文件）。
+# 属工具产物而非本仓库源码，不入库；仓库的 agent 上下文以根目录 AGENTS.md 为准。
+# 需要复现时重跑该 install 命令即可（.claude/skills/ 只是指向 .agents/skills/ 的 symlink）。
+.agents/
+.claude/skills/
+skills-lock.json
 
 # Logs
 logs/
