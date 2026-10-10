@@ -15,7 +15,7 @@
 | API Key | 百炼有效 Key。**Key 与地域必须匹配**（华北2 用北京 Key，新加坡用新加坡 Key，跨地域混用会握手 401） |
 | Provider | `Qwen (DashScope)` |
 | Model | `fun-asr-realtime`（默认）。**只接受 run-task 白名单模型**：`fun-asr-realtime`、`fun-asr-flash-8k-realtime`、`qwen-audio-3.{0,1}-asr-flash-streaming`、`qwen-audio-3.1-asr-flash-message`、`paraformer-realtime-{v2,8k-v2}`（可带日期后缀）。其余模型名——包括 `qwen3-asr-flash-realtime` 这类走 `/api-ws/v1/realtime` 会话制协议的——会被回落为默认模型 |
-| Endpoint | 留空即用默认 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`（华北2）。**国际站/其他地域必须显式填**：新加坡 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`，或官方推荐的业务空间专属域名 `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/api-ws/v1/inference` |
+| Region | 默认 `Beijing (华北2)` → 自动用 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`。切到 `Singapore (新加坡)` → 自动用 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`。选 `Custom` 才出现 Endpoint 文本框（业务空间专属域名 `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/api-ws/v1/inference` 等）。**Region 必须与 API Key 的地域一致**，否则握手 401 |
 | 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件 |
 
 **开始前记录基线**：popup 初始文案应为 `Start Recording` / `Record Tab` / `Save audio` /

@@ -72,7 +72,7 @@
 提交前建议本地跑一遍 CI 会跑的检查：
 
 ```
-npm test                        # 单元测试（15 用例，纯 Node）
+npm test                        # 单元测试（18 用例，纯 Node）
 node scripts/check-manifest.js  # manifest.json 与所引路径校验
 npm run pack                    # 打包 extension.zip
 ```
