@@ -18,6 +18,19 @@ class QwenProvider extends BaseProvider {
   static supportsStreaming = true;
 
   /**
+   * 地域与对应公共域名。`custom` 兜底（业务空间专属域名 `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/...`
+   * 与第三方代理场景都从这里手填）。
+   *
+   * 注意：DashScope 旧域名 `dashscope.aliyuncs.com` 自 2026-09-30 起不再支持新特性，
+   * 但现役端点仍可用 —— 故保留为默认。**API Key 必须与地域匹配**，跨地域混用会握手 401。
+   */
+  static regions = [
+    { id: 'cn-beijing',     label: 'Beijing (华北2)',  endpoint: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference' },
+    { id: 'ap-southeast-1', label: 'Singapore (新加坡)', endpoint: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference' },
+    { id: 'custom',         label: 'Custom',          endpoint: '' },
+  ];
+
+  /**
    * 可用 run-task 的模型白名单（模型 ↔ 协议对照见文件头）。
    * 覆盖主版本 + 带日期/规格后缀的快照版本（isStreamModel 前缀匹配）。
    */

@@ -23,6 +23,8 @@ function gatherElements() {
   els.provider = document.getElementById('provider');
   els.apiKey = document.getElementById('apiKey');
   els.endpoint = document.getElementById('endpoint');
+  els.endpointRow = document.getElementById('endpointRow');
+  els.region = document.getElementById('region');
   els.audioType = document.getElementById('audioType');
   els.model = document.getElementById('model');
   els.saveBtn = document.getElementById('saveBtn');
@@ -55,9 +57,43 @@ function applyToUI(config) {
   els.endpoint.value = config.endpoint || '';
   els.audioType.value = config.audioType || 'audio/webm';
   els.model.value = config.model || '';
+
+  // Region 下拉：选项来自当前 provider；老配置无 region 时，若存了 endpoint 则归 custom。
+  populateRegions(els.provider.value, config.region, config.endpoint);
+}
+
+/**
+ * 用当前 provider 的 regions 重建 region 下拉并选中 savedRegion。
+ * 无 savedRegion 但存了 endpoint（老配置/批量时代残留）时归为 custom，保留原值不猜地域。
+ */
+function populateRegions(providerId, savedRegion, savedEndpoint) {
+  const provider = (globalThis.PROVIDERS || []).find((p) => p.id === providerId);
+  const regions = provider?.regions || [];
+  els.region.innerHTML = '';
+  for (const r of regions) {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.label;
+    els.region.appendChild(opt);
+  }
+  const known = regions.some((r) => r.id === savedRegion);
+  els.region.value = known ? savedRegion : (savedEndpoint ? 'custom' : (regions[0]?.id || 'custom'));
+  setEndpointVisible(els.region.value === 'custom');
+}
+
+function setEndpointVisible(visible) {
+  if (els.endpointRow) els.endpointRow.style.display = visible ? '' : 'none';
 }
 
 function bindEvents() {
+  // 切换 provider → 重建 region 选项（地域与 API Key 强绑定，不同 provider 地域不同）
+  els.provider.addEventListener('change', () => {
+    populateRegions(els.provider.value, '', els.endpoint.value.trim());
+  });
+  // 只有 custom 地域需要手填 endpoint
+  els.region.addEventListener('change', () => {
+    setEndpointVisible(els.region.value === 'custom');
+  });
   els.saveBtn.addEventListener('click', save);
   els.clearHistoryBtn.addEventListener('click', clearHistory);
   els.refreshHistoryBtn.addEventListener('click', refreshHistory);
@@ -68,9 +104,9 @@ async function save() {
     await globalThis.ConfigStore.save({
       provider: els.provider.value,
       apiKey: els.apiKey.value.trim(),
+      region: els.region.value,
       endpoint: els.endpoint.value.trim(),
       model: els.model.value.trim(),
-      audioType: els.audioType.value,
     });
     show('Settings saved.', 'success');
     await refreshStorageStatus();

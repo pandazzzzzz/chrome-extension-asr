@@ -98,10 +98,12 @@ const els = {};
 document.addEventListener('DOMContentLoaded', async () => {
   gatherElements();
   populateProviderSelect();
+  // 必须先把 region <option> 建出来，applyConfigToUI 才能把保存的地域选回去
+  // （空 <select> 上赋 value 会静默失败 → 保存的地域丢失）。
+  onProviderChange();
 
   const config = await loadConfig();
   applyConfigToUI(config);
-  onProviderChange(); // 按选中 provider 更新 endpoint 可见性 + 默认值
 
   bindEvents();
   void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
@@ -123,6 +125,7 @@ function gatherElements() {
   els.apiKeyInput = document.getElementById('apiKey');
   els.endpointInput = document.getElementById('endpoint');
   els.endpointRow = document.getElementById('endpointRow');
+  els.regionSelect = document.getElementById('region'); // 可选：无 #region 的入口页跳过
   els.modelInput = document.getElementById('model');
   els.audioTypeSelect = document.getElementById('audioType');
   els.recordBtn = document.getElementById('recordBtn');
@@ -249,12 +252,41 @@ function onProviderChange() {
     els.modelInput.removeAttribute('title');
   }
 
-  // endpoint 字段显隐（provider.hasEndpoint 决定）
-  if (provider.hasEndpoint && els.endpointRow) {
-    els.endpointRow.style.display = '';
+  // Region 下拉框：选项来自当前 provider 的 regions；无 #region 的入口页跳过。
+  // 切换 provider 时重建选项并把 region 归到该 provider 的首个地域（地域与 API Key 强绑定）。
+  if (els.regionSelect) {
+    const regions = provider.regions || [];
+    const prev = els.regionSelect.value;
+    els.regionSelect.innerHTML = '';
+    for (const r of regions) {
+      const opt = document.createElement('option');
+      opt.value = r.id;
+      opt.textContent = r.label;
+      els.regionSelect.appendChild(opt);
+    }
+    const known = regions.some((r) => r.id === prev);
+    els.regionSelect.value = known ? prev : (regions[0]?.id || 'custom');
+    // 非 custom 时 endpoint 由 region 决定，文本框隐藏；custom 才显示给用户手填
+    setEndpointRowVisible(!provider.hasEndpoint || els.regionSelect.value === 'custom');
   } else if (els.endpointRow) {
-    els.endpointRow.style.display = 'none';
+    setEndpointRowVisible(provider.hasEndpoint);
   }
+}
+
+/** endpoint 文本框显隐（自定义地域才需要手填）。 */
+function setEndpointRowVisible(visible) {
+  if (els.endpointRow) els.endpointRow.style.display = visible ? '' : 'none';
+}
+
+/**
+ * 本次流式实际使用的 endpoint：custom 地域取用户填的 URL，其余取地域对应的公共域名。
+ * 空串时交给 provider.getDefaultStreamEndpoint() 兜底。
+ */
+function resolveEndpoint(provider) {
+  if (!provider) return '';
+  const region = els.regionSelect ? els.regionSelect.value : '';
+  if (region === 'custom') return els.endpointInput.value.trim();
+  return provider.endpointFor ? provider.endpointFor(region) : '';
 }
 
 // Result 为空时禁用 Copy / Fill（handleCopy / handleFillIntoPage 自己也会拦，
@@ -274,6 +306,11 @@ function bindEvents() {
   });
   els.apiKeyInput.addEventListener('change', persistConfig);
   els.endpointInput.addEventListener('change', persistConfig);
+  // 地域切换：custom 才显示 endpoint 文本框，并持久化选择
+  els.regionSelect?.addEventListener('change', async () => {
+    setEndpointRowVisible(els.regionSelect.value === 'custom');
+    await persistConfig();
+  });
   els.modelInput.addEventListener('change', persistConfig);
   els.audioTypeSelect.addEventListener('change', persistConfig);
   // 设备选择同样持久化（#audioInput 只在支持枚举的入口页存在）
@@ -564,7 +601,8 @@ async function startStreaming() {
     streamSession.finalText = '';
     streamSession.partialText = '';
     streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel;
-    streamSession.endpoint = els.endpointInput.value.trim() || undefined;
+    // endpoint 由地域决定（custom 才取手填值）；空串交给 provider 默认值兜底
+    streamSession.endpoint = resolveEndpoint(provider) || undefined;
     streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
     streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
 
@@ -917,7 +955,8 @@ function getDefaultConfig() {
   return {
     provider: firstProvider?.id || '',
     apiKey: '',
-    endpoint: '',
+    region: '', // '' = 未显式选择（applyConfigToUI 再决定落到首个地域还是 custom）
+    endpoint: '', // 仅 region === 'custom' 时使用
     model: '',
     audioType: 'audio/webm',
     subtitles: false,
@@ -941,9 +980,19 @@ function applyConfigToUI(config) {
   els.providerSelect.value = (hasOption && savedProvider) ? savedProvider : fallbackProvider;
   if (stale) debugEvt('stale-provider-fallback', { saved: savedProvider, fallback: fallbackProvider });
   els.apiKeyInput.value = config.apiKey || '';
+  // region：老配置没有该字段。若存了显式 endpoint（可能是 wss URL，也可能是批量时代
+  // 残留的 https REST URL），一律归为 custom 保留原值 —— 不猜地域、不静默改写用户数据。
+  // 两者都空时才落到 provider 首个地域。
+  const regionIds = (getCurrentProvider()?.regions || []).map((r) => r.id);
+  const hasRegion = !!config.region && regionIds.includes(config.region);
+  const legacyCustom = !config.region && !!config.endpoint;
+  if (els.regionSelect) {
+    els.regionSelect.value = hasRegion ? config.region : (legacyCustom ? 'custom' : regionIds[0] || 'custom');
+    if (legacyCustom) debugEvt('legacy-endpoint-kept', { endpoint: config.endpoint });
+  }
   els.endpointInput.value = config.endpoint || '';
+  setEndpointRowVisible(!els.regionSelect || els.regionSelect.value === 'custom');
   els.modelInput.value = config.model || '';
-  els.audioTypeSelect.value = config.audioType || 'audio/webm';
 
   // 字幕开关：恢复上次选择并同步按钮文案/状态（无 #subtitleBtn 的入口页跳过）
   subtitlesEnabled = !!config.subtitles;
@@ -967,6 +1016,7 @@ async function persistConfig() {
   const config = {
     provider: els.providerSelect.value,
     apiKey: els.apiKeyInput.value.trim(),
+    region: els.regionSelect ? els.regionSelect.value : '',
     endpoint: els.endpointInput.value.trim(),
     model: els.modelInput.value.trim(),
     audioType: els.audioTypeSelect.value,

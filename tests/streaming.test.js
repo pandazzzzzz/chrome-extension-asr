@@ -116,6 +116,38 @@ t('Qwen.createStreamSession: 非 wss:// endpoint 提前报错（不喂给 new We
     apiKey: 'k', model: 'fun-asr-realtime', endpoint: 'https://dashscope.aliyuncs.com/api/v1', onResult() {},
   }), (e) => e.code === 'UNKNOWN' && /not a WebSocket URL/.test(e.message));
 });
+t('Qwen.regions: 每个地域有 id/label，custom 兜底且 endpoint 为空', () => {
+  const regions = Q.regions;
+  assert.ok(Array.isArray(regions) && regions.length >= 2);
+  for (const r of regions) {
+    assert.strictEqual(typeof r.id, 'string');
+    assert.ok(r.id, 'region 缺 id');
+    assert.strictEqual(typeof r.label, 'string');
+    assert.ok(r.label, 'region 缺 label');
+    assert.strictEqual(typeof r.endpoint, 'string');
+  }
+  const custom = regions.find((r) => r.id === 'custom');
+  assert.ok(custom, '必须提供 custom 地域');
+  assert.strictEqual(custom.endpoint, '', 'custom 的 endpoint 必须为空（由 UI 文本框收集）');
+  // 非 custom 的地域必须是可用的 wss URL —— 否则会把用户导向错误地址
+  for (const r of regions.filter((x) => x.id !== 'custom')) {
+    assert.ok(/^wss:\/\//.test(r.endpoint), `${r.id} 的 endpoint 必须是 wss://：${r.endpoint}`);
+  }
+});
+t('Qwen.endpointFor: 按地域解析，custom 返回空串，未知回退首个地域', () => {
+  assert.strictEqual(Q.endpointFor('cn-beijing'), 'wss://dashscope.aliyuncs.com/api-ws/v1/inference');
+  assert.strictEqual(Q.endpointFor('ap-southeast-1'), 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference');
+  assert.strictEqual(Q.endpointFor('custom'), '');
+  // 未知/空值 → 首个地域（不能返回 undefined，否则 createStreamSession 会拿到坏 URL）
+  assert.strictEqual(Q.endpointFor('nope'), Q.regions[0].endpoint);
+  assert.strictEqual(Q.endpointFor(''), Q.regions[0].endpoint);
+  assert.strictEqual(Q.endpointFor(undefined), Q.regions[0].endpoint);
+});
+t('BaseProvider.endpointFor: 无 regions 的基类回退 getDefaultStreamEndpoint', () => {
+  const b = globalThis.BaseProvider;
+  assert.deepStrictEqual(b.regions.map((r) => r.id), ['custom']);
+  assert.strictEqual(b.endpointFor('anything'), '');
+});
 t('BaseProvider: 流式基类默认抛错（不实现就用不了）', () => {
   assert.throws(() => globalThis.BaseProvider.createStreamSession({}), /Streaming not supported/);
 });
@@ -128,6 +160,8 @@ t('注册表: 只含支持流式的 provider，且都实现了 createStreamSessi
     assert.ok(p.defaultStreamModel, p.id + ' 缺默认流式模型');
     assert.ok(Array.isArray(p.streamModels) && p.streamModels.length > 0, p.id + ' 缺 run-task 白名单');
     assert.ok(p.isStreamModel(p.defaultStreamModel), p.id + ' 默认模型必须在自己的白名单内');
+    assert.ok(Array.isArray(p.regions) && p.regions.length > 0, p.id + ' 缺 regions');
+    assert.ok(p.regions.some((r) => r.id === 'custom'), p.id + ' 必须提供 custom 地域兜底');
   });
   assert.ok(list.includes(Q), '注册表应含 QwenProvider');
 });
