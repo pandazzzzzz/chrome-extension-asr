@@ -42,7 +42,7 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 - `tabCapture` — capture tab audio (pairs with an offscreen document)
 - `sidePanel` — open the persistent side panel
 - `offscreen` — create the offscreen document that hosts tab capture (MV3 service workers have no DOM)
-- Host permissions: `https://dashscope.aliyuncs.com/*` and `https://dashscope-intl.aliyuncs.com/*` — the Qwen/DashScope realtime endpoint. The WebSocket origin is covered by the `https://` pattern; `wss://` is not a valid Chrome match pattern.
+- Host permissions: `https://dashscope.aliyuncs.com/*` and `https://dashscope-intl.aliyuncs.com/*`. Note that these cover **HTTP** requests only: the streaming path uses `new WebSocket(...)` from the popup/side-panel page, and extension pages are **not** subject to `host_permissions` for WebSocket connections (verified: a `wss://` connection to an undeclared host still reaches the server). `wss://` is not a valid Chrome match pattern. The extension currently makes no `fetch()` calls, so these entries are effectively unused — kept as documentation of the endpoint hosts.
 
 ## Tests
 

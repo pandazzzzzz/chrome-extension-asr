@@ -147,7 +147,7 @@
 # ── 转录层（流式已落地；批量/调度待重建） ───────────────
 ├── transcription/
 │   └── providers/          #  〔已有〕真 WebSocket 流式 provider
-│       ├── base.js         #  〔已有〕流式接口 + 能力元数据 + post 助手
+│       ├── base.js         #  〔已有〕流式接口 + 能力元数据（含 run-task 模型白名单）
 │       ├── qwen.js         #  〔已有〕Qwen (DashScope) run-task 流式
 │       └── index.js        #  〔已有〕provider 注册表
 │   # transcriber.js        #  〔规划〕批量调度（批量/重试/错误标准化，当前不存在）
