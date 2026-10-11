@@ -183,6 +183,28 @@
 
 ---
 
+## 6c. 性能基线（可复现，无需 API Key）
+
+不需要真机 Key：用 stub WebSocket 隔离插件自身开销（`temp/perf/`，gitignored）。
+
+```sh
+cd temp/perf && node run.js all      # A 首字延迟 / B 30s 内存 / C offscreen 生命周期
+```
+
+| # | 检查 | 预期（2026-10-11 基线） |
+|---|---|---|
+| 6c.1 | A：`frameSize` 是否为 **256** | 帧间隔 p50 ≈ 19–20ms、max ≤ 25ms；「点击 → 首帧送达」≈ 80ms |
+| 6c.2 | A：帧长若被改回 1024 | 首帧累积变 64ms（总延迟 +41ms）、帧间隔 max 涨到 ~71ms —— 属**回退** |
+| 6c.3 | B：30s 流式后**页面元素数**（不是 CDP nodes） | 与 3s 时**相同**（不涨 = 无 DOM 泄漏）；堆停止后回落 |
+| 6c.4 | C：8 轮 offscreen create/close | 每轮 15–20ms，**无逐轮变慢**；结束后残留文档数 = 0 |
+| 6c.5 | C：`createDocument` 冷启动 | ≈ 30–65ms（只首次录音付一次） |
+
+> ⚠️ **判断 DOM 泄漏别用 CDP 的 `Memory.getDOMCounters().nodes`** —— 它会随 `textarea.value`
+> 赋值次数持续增长（30s 涨 ~1000），与流式无关；对照实验见 `temp/perf/dom-control.js`。
+> 看页面侧 `document.getElementsByTagName('*').length`。
+
+---
+
 ## 7. 通过标准
 
 本次验证视为通过需同时满足：
@@ -191,6 +213,7 @@
 - [ ] 2.x / **2b.x** / 3.x / 4.x / **4b.x** 无回归
 - [ ] 5.x / **5.6b / 5.6c / 5.8 / 5.9** 无回归（导出、深色）
 - [ ] **6b.x 通过**（快捷键；须真实键盘，见上）
+- [ ] **6c.x 通过**（性能基线；可自动化复跑，帧长未被改回 1024）
 - [ ] 无「标签页被静音」「麦克风红点常驻」「fill 静默失败」三类历史 bug 复现
 
 ## 8. 完成后
