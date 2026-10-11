@@ -124,10 +124,10 @@
 │
 # ── 入口层 ──────────────────────────────────────────────
 ├── popup/                   # 〔保留〕快速录音 + 真流式窗口
-│   ├── popup.html / popup.css
+│   ├── popup.html / popup.css   # 调色板为 :root 变量 + prefers-color-scheme 深色覆盖
 │   └── app.js              # 〔已有〕录音 + Live Stream + 配置表单（Provider 为下拉框）
 ├── sidepanel/               #  〔已有〕长会话面板（复用 popup/app.js + popup.css）
-├── options/                 #  〔已有〕全局设置 + 转录历史 + 存储状态
+├── options/                 #  〔已有〕全局设置 + 转录历史（可导出 JSON）+ 存储状态（自带同套 CSS 变量）
 ├── content/                 # 〔已有〕页面听写注入（asr:fill-text）+ 浮动字幕（asr:subtitle-*）
 │   ├── content.js / content.css
 │   └── subtitle.js         # 浮动字幕浮层（closed Shadow DOM，可拖动）
@@ -156,7 +156,7 @@
 ├── store/
 │   ├── config.js           #  〔已有〕配置读写（全部存 storage.local，apiKey 经 WebCrypto 加密）
 │   ├── crypto.js           #  〔已有〕WebCrypto AES-GCM 加解密（密钥存 IndexedDB）
-│   ├── history.js          #  〔已有〕转录历史（IndexedDB，上限 50 条自动裁剪）
+│   ├── history.js          #  〔已有〕转录历史（IndexedDB，上限 50 条自动裁剪；options 可导出 JSON）
 │   └── model-cache.js      #  〔新增〕本地模型缓存（Cache API / IDB）
 │
 # ── 契约与共享层 ─────────────────────────────────────────

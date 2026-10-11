@@ -18,8 +18,9 @@ No build step: load the directory unpacked and it runs.
 - **Result actions** — copy to clipboard, or fill the focused input on the active page
 - **Config** — provider / API key / region / endpoint / model / audio format, persisted locally. **Region** picks the endpoint (Beijing / Singapore / Custom); the endpoint field only appears for Custom, so the URL and the API key's region can't silently drift apart.
 - **Encrypted storage** — API keys are encrypted (AES-GCM via WebCrypto) in `chrome.storage.local`; no cloud sync
-- **Transcription history** — every streaming session is recorded in IndexedDB
+- **Transcription history** — every streaming session is recorded in IndexedDB, and the options page can **export it as JSON** (a timestamped download; no `downloads` permission needed)
 - **Side panel + options page** — a persistent panel for long sessions, plus settings, history and storage status
+- **Dark mode** — the popup, side panel and options page follow the OS/browser colour scheme automatically (`prefers-color-scheme`); no toggle to configure
 
 ## Quick Start
 

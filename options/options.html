@@ -17,6 +17,26 @@
       --ok-text: #1b6f3d;
       --err-bg: #fdecec;
       --err-text: #8a2430;
+      --surface-2: #eef2f7; /* 内联 code 底色 */
+      color-scheme: light;
+    }
+    /* 深色模式：跟随系统，不做用户开关（同 popup.css）。 */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12161c;
+        --card: #1a2029;
+        --border: #2d3746;
+        --text: #e6edf5;
+        --muted: #94a6bd;
+        --primary: #2563eb; /* 白色按钮文字需 ≥4.5:1 对比度 */
+        --primary-hover: #1d4ed8;
+        --ok-bg: #14301f;
+        --ok-text: #6ee7a0;
+        --err-bg: #3a1a1e;
+        --err-text: #ff9aa5;
+        --surface-2: #232c38;
+        color-scheme: dark;
+      }
     }
     body {
       margin: 0;
@@ -59,7 +79,7 @@
     .history-meta { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
     .history-text { white-space: pre-wrap; word-break: break-word; }
     .empty { color: var(--muted); font-size: 13px; }
-    code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
     table.storage { width: 100%; border-collapse: collapse; font-size: 13px; }
     table.storage td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
     table.storage td:first-child { color: var(--muted); width: 40%; }
@@ -110,6 +130,7 @@
     <div id="historyList"><div class="empty">No history yet.</div></div>
     <div class="btn-row">
       <button id="clearHistoryBtn" class="danger">Clear history</button>
+      <button id="exportHistoryBtn">Export JSON</button>
       <button id="refreshHistoryBtn">Refresh</button>
     </div>
 
@@ -125,6 +146,7 @@
   </div>
 
   <script src="../shared/errors.js"></script>
+  <script src="../shared/format.js"></script>
   <script src="../debug/bridge.js"></script>
   <script src="../store/crypto.js"></script>
   <script src="../store/config.js"></script>

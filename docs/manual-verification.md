@@ -139,7 +139,11 @@
 | 5.4 | options 页看存储状态 | API Key 显示 `configured (encrypted at rest)` |
 | 5.5 | options 页看历史列表 | 列出最近 **20** 条流式结果，条目可读 |
 | 5.6 | options 页点清空历史 | 列表清空 |
+| 5.6b | options 页点 **Export JSON**（历史非空时） | 下载 `asr-history-<时间戳>.json`；内容为 `{exportedAt, count, entries[]}`，`entries` 按时间降序、`text` 完整（含中文与长文本） |
+| 5.6c | 历史为空时点 **Export JSON** | 提示 `Nothing to export.`，**不产生文件** |
 | 5.7 | 在 `chrome.storage.local` 检查密钥 | **不应出现明文 Key**（DevTools → Application → Storage）；且 `asr-crypto` IndexedDB 中密钥 `extractable === false` |
+| 5.8 | 把系统/浏览器切到深色（`chrome://settings` → Appearance → Dark）后打开 popup / 侧栏 / options | 三处**全部**变深色：页面底、输入框、按钮、状态条；`<select>` 下拉菜单也是深色（靠 `color-scheme: dark`）。**无任何区域仍是白底** |
+| 5.9 | 深色下检查对比度 | 正文与按钮文字清晰可读（自动化实测：正文 15.4:1、主按钮白字 5.2:1） |
 
 ---
 

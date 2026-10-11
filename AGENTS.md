@@ -6,9 +6,9 @@ This repository is a Manifest V3 Chrome extension with **no bundler step** (load
 Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 
 - `manifest.json`: extension metadata, permissions, and entry points.
-- `popup/`: popup UI. `popup.html` + `popup.css` are reused by `sidepanel/`; `app.js` is the shared UI logic (mic recording, tab recording, realtime streaming, config forms, result actions).
+- `popup/`: popup UI. `popup.html` + `popup.css` are reused by `sidepanel/`; `app.js` is the shared UI logic (mic recording, tab recording, realtime streaming, config forms, result actions). `popup.css` defines the palette as `:root` custom properties and flips them under `@media (prefers-color-scheme: dark)` — the options page keeps its own inline copy of the same variables, so **add new colours as variables in both places**, never as literals in a rule.
 - `sidepanel/`: persistent side panel (`sidepanel.html` — reuses `popup/app.js` + `popup.css`).
-- `options/`: options page (`options.html` + `options.js`) — settings, history, storage status.
+- `options/`: options page (`options.html` + `options.js`) — settings, history (with **Export JSON**, a local download via `createObjectURL`), storage status.
 - `background/background.js`: service worker — message routing, offscreen coordination, fill-text forwarding.
 - `content/content.js`, `content/content.css`: page dictation injection (`asr:fill-text`).
 - `content/subtitle.js`: floating subtitle overlay on the active page (`asr:subtitle-show` / `asr:subtitle-hide`); renders into a **closed Shadow DOM** so page CSS/JS cannot reach it and its styles cannot leak out.
@@ -20,7 +20,7 @@ Microphone selection: `#audioInput` in popup/sidepanel holds the chosen `deviceI
 - `transcription/`: transcription layer — `providers/base.js` (streaming interface + capability metadata: `streamModels` run-task whitelist, `regions`/`endpointFor()`), `providers/qwen.js` (Qwen/DashScope realtime WebSocket, task protocol `/api-ws/v1/inference`; declares `regions` = Beijing / Singapore / Custom), `providers/index.js` (registry). `isStreamModel` is an **explicit whitelist**, not a name regex — Alibaba Cloud Bailian has several WebSocket protocols and names like `qwen3-asr-flash-realtime` contain "realtime" but use the session protocol `/api-ws/v1/realtime`. Region and endpoint are coupled in the provider metadata (a region maps to a `wss://` URL; `custom` leaves it empty for the user to type) because the API key must match the region. Batch transcribe and transcriber dispatch were removed with the old pseudo-streaming.
 - `store/`: storage layer — `config.js` (all config in `storage.local`), `crypto.js` (AES-GCM for API keys), `history.js` (transcription history, IndexedDB).
 - `messaging/`: cross-context message contract — `messages.js` (action types + `target` routing) + `client.js` (Promise `sendMessage` wrapper).
-- `shared/`: cross-context helpers — `errors.js` (unified error codes + `createError` / `normalizeError`), `timeout.js` (`withTimeout` guard for promises that never settle).
+- `shared/`: cross-context helpers — `errors.js` (unified error codes + `createError` / `normalizeError`), `timeout.js` (`withTimeout` guard for promises that never settle), `format.js` (`Format.timestampForFile` — filesystem-safe timestamp shared by the audio download and the history export).
 - `debug/bridge.js`: diagnostic telemetry bridge, injected as a content script (active only on the local debug page).
 - `tests/`: browser-runnable smoke tests (`tests/p1-smoke-test.html` + `tests/p1-smoke-test.js`; the JS is external so the page also runs under the extension's MV3 CSP), plus `stream-debug.html` + `serve-debug.js` (streaming diagnostics page and its loopback-only static server).
 - `scripts/pack.js`: builds `extension.zip`. `samples/` holds small committed test fixtures; `temp/` is local-only scratch (gitignored).

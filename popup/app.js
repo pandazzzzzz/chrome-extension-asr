@@ -546,7 +546,7 @@ function handleSaveAudio() {
   const url = URL.createObjectURL(audioBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `recording-${timestampForFile()}.${extensionForMime(audioBlob.type)}`;
+  a.download = `recording-${globalThis.Format.timestampForFile()}.${extensionForMime(audioBlob.type)}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -555,10 +555,6 @@ function handleSaveAudio() {
   showStatus(`Saved recording (${Math.max(1, Math.round(audioBlob.size / 1024))} KB).`, 'success');
 }
 
-/** 文件名时间戳：2026-09-28T19-30-00（冒号在 Windows 文件名非法）。 */
-function timestampForFile() {
-  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-}
 function extensionForMime(mime) {
   const type = (mime || '').split(';')[0].trim();
   if (type === 'audio/webm') return 'webm';

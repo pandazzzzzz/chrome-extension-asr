@@ -29,6 +29,7 @@ function gatherElements() {
   els.model = document.getElementById('model');
   els.saveBtn = document.getElementById('saveBtn');
   els.clearHistoryBtn = document.getElementById('clearHistoryBtn');
+  els.exportHistoryBtn = document.getElementById('exportHistoryBtn');
   els.refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
   els.historyList = document.getElementById('historyList');
   els.status = document.getElementById('status');
@@ -96,6 +97,7 @@ function bindEvents() {
   });
   els.saveBtn.addEventListener('click', save);
   els.clearHistoryBtn.addEventListener('click', clearHistory);
+  els.exportHistoryBtn.addEventListener('click', exportHistory);
   els.refreshHistoryBtn.addEventListener('click', refreshHistory);
 }
 
@@ -142,6 +144,50 @@ async function clearHistory() {
   await globalThis.HistoryStore.clear();
   await refreshHistory();
   show('History cleared.', 'success');
+}
+
+/**
+ * 导出全部历史为 JSON 文件。
+ *
+ * 用 list() 的默认上限（maxEntries = 50）—— 与页面上看到的一致，不做「导出更多」，
+ * 因为 HistoryStore 本来就会把超出上限的旧记录丢弃，库里没有第 51 条。
+ * 下载走 createObjectURL + a[download]，与 popup 的 Save audio 同一套做法，
+ * 因此**不需要 downloads 权限**。
+ */
+async function exportHistory() {
+  let items;
+  try {
+    items = await globalThis.HistoryStore.list();
+  } catch (e) {
+    show(`Export failed: ${e.message}`, 'error');
+    return;
+  }
+  if (!items.length) {
+    show('Nothing to export.', 'error');
+    return;
+  }
+
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    count: items.length,
+    entries: items.map((it) => ({
+      createdAt: new Date(it.createdAt).toISOString(),
+      provider: it.provider || '',
+      model: it.model || '',
+      text: it.text,
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `asr-history-${globalThis.Format.timestampForFile()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000); // 下载触发后再回收
+  show(`Exported ${items.length} ${items.length === 1 ? 'entry' : 'entries'}.`, 'success');
 }
 
 async function refreshStorageStatus() {
