@@ -16,10 +16,15 @@
  *     `temp/` harness (holds a ~200MB Chrome-for-Testing install).
  *   - distribution noise is dropped even when tracked:
  *     '*.git*', 'node_modules/', '*.zip', docs/dev/test metadata (AGENTS.md,
- *     CONTRIBUTING.md, .env.example, tests/, docs/), plus secrets/logs —
- *     so the fallback below leaks nothing even without .gitignore.
+ *     CONTRIBUTING.md, .env.example, tests/, docs/), agent-skill installs
+ *     (.agents/, .claude/skills/, skills-lock.json), repo dev tooling that
+ *     ships nowhere (package*.json, samples/, scripts/, editor config, LICENSE
+ *     — all root-level only, so a same-named source dir is never dropped),
+ *     plus secrets/logs — so the fallback below leaks nothing even without
+ *     .gitignore.
  *   Fallback when git is unavailable: filesystem walk + the static excludes
- *   (secrets and logs included — `.gitignore` cannot be read without git).
+ *   (secrets, logs, and the dev-only set included — `.gitignore` cannot be read
+ *   without git, and it is what normally keeps the dev-only files out).
  */
 'use strict';
 
@@ -46,6 +51,25 @@ const EXCLUDE = [
   /^\.vscode\//, // IDE settings — root-level only
   /^tests\//,
   /^docs\//,
+  // Agent-skill installs (`npx modern-web-guidance install`) and repo dev
+  // tooling. All are gitignored and therefore absent from the git path, but
+  // collectFromDisk() cannot read .gitignore — without these the fallback
+  // packs ~1.8MB of skill docs plus the dev files into the store archive.
+  /^\.agents\//,
+  /^\.claude\//, // skills/ symlinks + runtime locks; nothing here ships
+  /^skills-lock\.json$/,
+  /^\.github\//,
+  // Root-level only (`^`): a same-named source dir such as audio/samples/ must
+  // survive, and these files are never referenced by the runtime.
+  // LICENSE is deliberately absent — a legal notice, not dev tooling.
+  /^package\.json$/,
+  /^package-lock\.json$/,
+  /^samples\//,
+  /^scripts\//,
+  /^\.editorconfig$/,
+  /^\.prettierrc$/,
+  // Any-depth: these are repo/dev docs, never shipped (icons/README.md included).
+  /(^|\/)README\.md$/,
   // Secrets & logs. These are normally caught by .gitignore, but
   // collectFromDisk() (no git available) cannot honor .gitignore — without
   // these, a stray .env or logs/*.log in a source export ships in the zip,
@@ -58,7 +82,6 @@ const EXCLUDE = [
   /_secret\.json$/,
   /(^|\/)logs\//,
   /\.log$/,
-  /^\.claude\/settings\.local\.json$/,
 ];
 
 function isExcluded(relPosix, isDir) {
