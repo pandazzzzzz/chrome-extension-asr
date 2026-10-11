@@ -42,7 +42,6 @@
   ],
   "permissions": [
     "storage",
-    "activeTab",
     "tabCapture",
     "sidePanel",
     "offscreen"

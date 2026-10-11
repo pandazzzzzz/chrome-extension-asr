@@ -222,7 +222,8 @@ async function handleTabRecordStart(payload) {
     return { ok: false, error: globalThis.Errors.NO_TAB };
   }
 
-  // getMediaStreamId 需要用户手势（点击扩展图标）授予的 activeTab
+  // getMediaStreamId 需要「用户调用扩展」标记（点击工具栏图标授予；本扩展未声明
+  // activeTab —— 该标记由 tabCapture 权限的 tab-specific 授予产生，与 activeTab 无关）
   let streamId;
   try {
     streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });

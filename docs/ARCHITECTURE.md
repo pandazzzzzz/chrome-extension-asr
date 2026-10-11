@@ -25,7 +25,7 @@
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
 | 构建 / 质量 | 无构建/无 TS；lint 占位；`npm test` = `tests/streaming.test.js`（18）+ `tests/pack.test.js`（5）；冒烟测试 `tests/p1-smoke-test.js`（19，需真 Chrome，未入 CI） | 依赖脚本加载顺序；无类型契约 |
-| `manifest.json` | `storage`/`activeTab`/`tabCapture`/`sidePanel`/`offscreen` + **2 个 host_permissions**（dashscope 国内 + 国际） | — |
+| `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen` + **2 个 host_permissions**（dashscope 国内 + 国际）。**无 `activeTab`**（2026-10-11 移除，实测不承载功能：content 的 host 访问来自 `content_scripts` 的 `<all_urls>`，tabCapture 授权只看 `tabCapture`） | host_permissions 对 `wss://` 无作用（见 README） |
 
 ### 1.2 目标能力
 
