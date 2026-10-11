@@ -107,6 +107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   bindEvents();
   void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
+  void syncTabRecordingState(); // 录音活在 offscreen 里，popup 重开必须与真实状态对齐
   // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
   debugEvt('popup-ready', {
     provider: els.providerSelect.value,
@@ -423,6 +424,35 @@ async function stopRecording() {
   }
 }
 
+// 装载时与 background 对账标签页录音状态。popup 只是 UI 壳：关掉即丢内存变量，
+// 而录音仍在 offscreen 里跑。不对账的后果是按钮复位成"可点"，再点只会拿到
+// ALREADY_RECORDING，用户再也停不掉这段录音（详见 background 的 TAB_RECORDING_KEY）。
+async function syncTabRecordingState() {
+  let recording = false;
+  try {
+    const data = await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_STATE, {});
+    recording = !!data?.recording;
+  } catch {
+    // 查询失败（SW 刚被回收等）：按"空闲"处理（见下），返回值告诉调用方未对齐成功。
+    return false;
+  }
+
+  // 以 background 为准**双向**对齐：录着就切成 Stop，没录就复位。
+  // 只往一个方向改是不够的 —— 失败路径（如"另一路正在录"）恰恰要覆盖掉
+  // 乐观置上的 busy 态，把用户引到唯一能停止录音的那个按钮上。
+  isTabRecording = recording;
+  if (recording) {
+    els.tabRecordBtn.textContent = 'Stop Tab Rec';
+    disableOtherRecordButtons(els.tabRecordBtn);
+    showStatus('Recording tab audio... play something in the tab.', 'success');
+    debugEvt('tab-record-restored', {});
+  } else {
+    els.tabRecordBtn.textContent = 'Record Tab';
+    enableAllRecordButtons();
+  }
+  return true;
+}
+
 // ---------- Recording (tab audio, via offscreen) ----------
 
 async function toggleTabRecording() {
@@ -453,8 +483,16 @@ async function startTabRecording() {
     debugEvt('tab-record-started', {});
   } catch (error) {
     debugEvt('tab-record-error', { where: 'start', message: error?.message || String(error) });
-    showStatus(`Tab record failed: ${error.message}`, 'error');
-    enableAllRecordButtons();
+    // 失败时先按真实状态对账，再决定怎么报。这里**不按错误码分支**：同一个"另一路
+    // 正在录"会因失败点不同而报不同码（start 早退是 ALREADY_RECORDING，而
+    // tabCapture 先失败时是 TAB_CAPTURE "Cannot capture a tab with an active stream"），
+    // 枚举码必然漏。对账成功且确实在录 → 不报错，按钮已指向可停止的 Stop。
+    if (await syncTabRecordingState()) {
+      if (!isTabRecording) showStatus(`Tab record failed: ${error.message}`, 'error');
+    } else {
+      showStatus(`Tab record failed: ${error.message}`, 'error');
+      enableAllRecordButtons();
+    }
   } finally {
     isTabRecordingBusy = false;
   }
@@ -480,12 +518,19 @@ async function stopTabRecording() {
     );
     debugEvt('tab-record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
     showStatus('Tab recording complete.', 'success');
+    enableAllRecordButtons();
   } catch (error) {
     debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
-    showStatus(`Tab record stop failed: ${error.message}`, 'error');
+    // 停止失败（超时/offscreen 失联）时录音**可能还在跑** —— 乐观复位成空闲会再次
+    // 制造"停不掉的录音"。与 start 同样处理：以 background 为准重新对齐。
+    if (await syncTabRecordingState()) {
+      if (!isTabRecording) showStatus(`Tab record stop failed: ${error.message}`, 'error');
+    } else {
+      showStatus(`Tab record stop failed: ${error.message}`, 'error');
+      enableAllRecordButtons();
+    }
   } finally {
     isTabRecordingBusy = false;
-    enableAllRecordButtons();
   }
 }
 

@@ -60,5 +60,7 @@ jobs:
 #   - Browser smoke tests — they load real modules under file:// and need a
 #     Chrome binary. ubuntu-latest ships google-chrome, so this is feasible via
 #     puppeteer-core with an explicit executablePath, but it is not wired up yet.
-#   - Live Stream end-to-end — requires a real DashScope API key and a human
-#     clicking the toolbar icon; tracked in docs/HANDOFF.md §3.
+#   - Live Stream / Record Tab end-to-end — needs a real DashScope API key and a
+#     Chrome-for-Testing binary. Record Tab itself IS automatable
+#     (page.triggerExtensionAction()); the blocker is the key, not the gesture.
+#     Tracked in docs/HANDOFF.md §3.

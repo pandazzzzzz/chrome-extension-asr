@@ -28,6 +28,12 @@
  *                        payload: { text }
  *                        data:    true（content 已注入；失败时 ok:false + NO_FIELD 等）
  *
+ *   asr:tab-record-state popup/sidepanel → background
+ *                        payload: {}
+ *                        data:    { recording: boolean }
+ *                        标签页录音的状态活在 background/offscreen 里，popup 只是镜像；
+ *                        popup 每次装载都要对齐一次（它随时可能被关闭而丢内存状态）。
+ *
  * 音频为什么编码传输：runtime 消息通道是 JSON 序列化（不是 structured clone），
  * Blob / ArrayBuffer / Uint8Array 都会丢失（Blob 变成 {}），所以音频统一走
  * encodeAudio → { b64, mime }（base64 字符串可无损穿过消息通道），接收端用
@@ -39,6 +45,7 @@ globalThis.MESSAGES = Object.freeze({
   FILL_TEXT: 'asr:fill-text',
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',
+  TAB_RECORD_STATE: 'asr:tab-record-state', // 查询标签页录音是否在进行（popup 装载时对齐）
   DEBUG_EVT: 'asr:debug',
   DEBUG_SUBSCRIBE: 'asr:debug-subscribe',     // 诊断页 content 桥 → background 登记本 tab
   DEBUG_UNSUBSCRIBE: 'asr:debug-unsubscribe', // 诊断页离开/关闭 → 退订

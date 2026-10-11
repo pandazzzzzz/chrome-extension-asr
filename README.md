@@ -38,7 +38,7 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 ## Permissions
 
 - `storage` — persist configuration in `chrome.storage.local`; API keys are encrypted at rest
-- `activeTab` — query the active tab for "Fill into page" and for tab audio capture
+- `activeTab` — **appears unused** (verified 2026-10-11): content-script host access for "Fill into page" comes from the `content_scripts` `<all_urls>` match, and the tab-capture grant is tied to `tabCapture`, not `activeTab`. Kept pending a separate removal decision; see `docs/HANDOFF.md` §5.3.
 - `tabCapture` — capture tab audio (pairs with an offscreen document)
 - `sidePanel` — open the persistent side panel
 - `offscreen` — create the offscreen document that hosts tab capture (MV3 service workers have no DOM)
@@ -46,9 +46,10 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 
 ## Tests
 
-`npm test` runs the Node unit tests (`tests/streaming.test.js`): the PCM helpers
-(`floatToInt16`, `resampleFloat32`) and the streaming provider contract. No
-browser or network needed.
+`npm test` runs the Node unit tests: `tests/streaming.test.js` (PCM helpers
+`floatToInt16` / `resampleFloat32` and the streaming provider contract) and
+`tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and
+no dev-only/agent artifacts). No browser or network needed.
 
 For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
 the real modules and checks crypto, config, messaging and error helpers; the

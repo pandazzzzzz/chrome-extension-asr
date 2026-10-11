@@ -93,6 +93,8 @@
 | 3.4 | 点 **Stop Tab Rec** | 状态 `Tab recording complete.`，返回录音（超时放宽到 20s） |
 | 3.5 | 点 **Save audio** | 下载的文件**能播放且含标签页音频** |
 | 3.6 | 非扩展页面上点 **Record Tab** | 报 `TAB_CAPTURE` 类错误，按钮复原（不卡在录音态） |
+| 3.7 | **关键**：录音中**关掉 popup 再打开**（点页面/切窗口都算） | 按钮仍为 `Stop Tab Rec`、三路互斥仍在，**能正常停止** —— 录音状态由 background 持有（§5.3），popup 重开会对账恢复 |
+| 3.8 | 录音中，从 sidepanel 点 **Record Tab** | 按钮切为 `Stop Tab Rec`（对齐到真实录音中），**不报错**且能停止 |
 
 ---
 
@@ -182,6 +184,7 @@
 
 - **WebSocket 协议细节**（run-task 握手、`task-started`/`task-finished` 时序）—— 已由
   `tests/streaming.test.js` 覆盖契约层，网络层只能真机验
-- **Record Tab 的自动化** —— `tabCapture` 的「用户调用扩展」标记是浏览器硬约束，
-  自动化无法模拟，只能人工
+- **Record Tab 的自动化** —— ✅ **已可自动化**（2026-10-11）：`page.triggerExtensionAction()`
+  等价于真实工具栏点击（`--allowlisted-extension-id` 只是对照手段，非必需）。
+  仅「标签页声音不被静音」这一**听感**断言仍需人工听一次
 - **长时间流式稳定性**（>10 分钟）—— 建议单独做一次长跑，观察内存与连接保持

@@ -146,6 +146,44 @@ async function closeOffscreenDocument() {
 let offscreenGeneration = 0;
 let activeOffscreenToken = null;
 
+// ---------- 标签页录音状态（跨 popup 生命周期） ----------
+// popup 是随时会被关掉的 UI 壳，而录音活在 offscreen 里 —— 状态不能只存 popup
+// 的内存变量：关掉再打开 popup 会丢掉「正在录音」，按钮复位成可点，此时再点
+// Record Tab 只会拿到 ALREADY_RECORDING，而**没有任何 UI 路径能停止录音**
+//（offscreen 文档与标签页采集一直留到浏览器关闭）。故把状态放在 background
+// 这一侧，用 storage.session 持久化（SW 挂起重启后仍在，浏览器关闭即清空）。
+const TAB_RECORDING_KEY = 'tabRecording';
+
+async function setTabRecording(recording) {
+  try {
+    await chrome.storage.session.set({ [TAB_RECORDING_KEY]: recording });
+  } catch {
+    /* storage.session 不可用（极旧版本）时降级为无状态：不影响录音本身 */
+  }
+}
+
+// 读取真实状态：storage.session 的标记要与 offscreen 文档的存在性对账。
+// 文档不在 → 录音必然不在（它就在文档里），顺手清掉可能残留的标记自愈。
+async function isTabRecording() {
+  let flagged = false;
+  try {
+    const r = await chrome.storage.session.get(TAB_RECORDING_KEY);
+    flagged = r?.[TAB_RECORDING_KEY] === true;
+  } catch {
+    return false;
+  }
+  if (!flagged) return false;
+  const ctxs = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
+  });
+  if (ctxs.length === 0) {
+    await setTabRecording(false);
+    return false;
+  }
+  return true;
+}
+
 // 给 offscreen 发消息并按 { ok, data, error } 归一化。
 // 超时兜底：文档被关/崩溃时回调可能迟迟不来,background 的 onMessage handler 会
 // 永久悬挂占用 SW。预算须 **小于** popup 端对应超时（START 10s / STOP 20s）,
@@ -213,8 +251,12 @@ async function handleTabRecordStart(payload) {
     await closeOffscreenDocument();
     activeOffscreenToken = null;
   }
-  // 成功即认领当代（token 须在此同步刷新,handleTabRecordStop 靠它判断归属）
-  if (result.ok) activeOffscreenToken = ++offscreenGeneration;
+  // 成功即认领当代（token 须在此同步刷新,handleTabRecordStop 靠它判断归属），
+  // 并把「正在录音」落到 storage.session —— popup 关掉重开要靠它对齐 UI。
+  if (result.ok) {
+    activeOffscreenToken = ++offscreenGeneration;
+    await setTabRecording(true);
+  }
   return result;
 }
 
@@ -231,6 +273,10 @@ async function handleTabRecordStop() {
     await closeOffscreenDocument();
     activeOffscreenToken = null;
   }
+  // STOP 送达（result.ok）即录音确已停止 → 清状态。失败分支分不清文档里是否还有
+  // 活跃录音（如代际不匹配时我们故意留着文档），保留标记让 popup 仍显示「录音中」，
+  // 由 isTabRecording() 的文档存在性对账兜底。
+  if (result.ok) await setTabRecording(false);
   return result;
 }
 
@@ -275,6 +321,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return await handleTabRecordStart(payload);
         case globalThis.MESSAGES.TAB_RECORD_STOP:
           return await handleTabRecordStop();
+        case globalThis.MESSAGES.TAB_RECORD_STATE:
+          return { ok: true, data: { recording: await isTabRecording() } };
         default:
           return { ok: false, error: globalThis.Errors.UNKNOWN_ACTION };
       }

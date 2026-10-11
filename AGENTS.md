@@ -32,7 +32,9 @@ Keep feature logic close to its runtime context (popup/sidepanel/options vs cont
 ### Cross-context messaging
 All messages are `{ type, payload, requestId, target? }`. `target` is **required in practice**: `chrome.runtime.sendMessage` broadcasts, so `background`, `offscreen`, and `content` each filter by `target` (`messaging/messages.js` → `TARGETS`). Missing `target` means "to background".
 
-Current actions: `asr:fill-text`, `asr:subtitle-show`, `asr:subtitle-hide`, `asr:tab-record-start`, `asr:tab-record-stop`. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
+Current actions: `asr:fill-text`, `asr:subtitle-show`, `asr:subtitle-hide`, `asr:tab-record-start`, `asr:tab-record-stop`, `asr:tab-record-state`. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
+
+Tab-recording state lives in **`background`** (`chrome.storage.session` key `tabRecording`), not in the popup: the recording runs in the offscreen document and outlives the popup, so `popup/app.js` re-syncs its buttons on load via `asr:tab-record-state`. Never let the popup be the source of truth for "is a tab recording running".
 
 The subtitle actions (`asr:subtitle-show` / `-hide`) turn the live transcript into a
 floating overlay on the active tab: `popup/app.js` mirrors each `renderStreamText`
@@ -47,8 +49,8 @@ Scripts attach to `globalThis` (never `window`) so the same file works in popup,
 - `npm ci`: installs the single devDependency (`puppeteer-core`) from `package-lock.json`. Only the gitignored `temp/` harness scripts need it — the extension itself has **no runtime dependencies** and no build step.
 - `npm run build`: placeholder (no compile step — load the directory unpacked).
 - `npm run lint`: placeholder; wire a linter before enforcing CI.
-- `npm run pack`: creates `extension.zip` for distribution via `scripts/pack.js` — tries **PowerShell .NET `ZipFile` first** (explicit entry paths; `Compress-Archive` flattens relative paths and breaks the archive), falls back to a dependency-free `node:zlib` zip writer (`node scripts/pack.js --node` forces the fallback). The PowerShell path is Windows-only (`pack.js` returns early off-win32), so CI always uses the fallback. Excludes `.git*`, `node_modules/`, `*.zip`, `tests/`, `docs/`, `temp/` (local harness, may hold a ~200MB Chrome-for-Testing). Runs on any OS.
-- `npm test`: runs `tests/streaming.test.js` — 12 Node cases over the PCM helpers (`floatToInt16` / `resampleFloat32`) and the streaming provider contract. No browser, no network, deterministic.
+- `npm run pack`: creates `extension.zip` for distribution via `scripts/pack.js` — tries **PowerShell .NET `ZipFile` first** (explicit entry paths; `Compress-Archive` flattens relative paths and breaks the archive), falls back to a dependency-free `node:zlib` zip writer (`node scripts/pack.js --node` forces the fallback). The PowerShell path is Windows-only (`pack.js` returns early off-win32), so CI always uses the fallback. Excludes `.git*`, `node_modules/`, `*.zip`, `tests/`, `docs/`, `temp/` (local harness, may hold a ~200MB Chrome-for-Testing), agent-skill installs (`.agents/`, `.claude/`, `skills-lock.json`) and dev-only files (`package*.json`, `samples/`, `scripts/`, `.github/`, editor config, `README.md`; `LICENSE` is kept). Runs on any OS. `tests/pack.test.js` pins these rules.
+- `npm test`: runs `tests/streaming.test.js` (18 Node cases over the PCM helpers `floatToInt16` / `resampleFloat32` and the streaming provider contract) then `tests/pack.test.js` (5 cases asserting the packaged zip contains every manifest-referenced path and no dev-only/agent artifacts). No browser, no network, deterministic.
 - `node scripts/check-manifest.js`: validates `manifest.json` and every path it references (popup, side panel, options, service worker, content scripts, icons), and checks declared icon sizes against the real PNG dimensions.
 
 Local development:
