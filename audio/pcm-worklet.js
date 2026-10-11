@@ -4,12 +4,12 @@
  * 由 audio/pcm-capture.js 经 audioContext.audioWorklet.addModule() 注册。
  * 此文件运行在 AudioWorklet 作用域（禁止当普通 <script> 引入）。
  *
- * processorOptions: { frameSize: number }  输出帧长（默认 1024 采样）
+ * processorOptions: { frameSize: number }  输出帧长（默认 256 采样 = 16kHz 下 16ms）
  */
 class PcmCaptureProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    this.frameSize = (options && options.processorOptions && options.processorOptions.frameSize) || 1024;
+    this.frameSize = (options && options.processorOptions && options.processorOptions.frameSize) || 256;
     this.buffer = new Float32Array(this.frameSize);
     this.offset = 0;
   }

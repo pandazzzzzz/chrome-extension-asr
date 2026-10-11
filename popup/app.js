@@ -36,7 +36,17 @@ const streamSession = {
 let streamSessionSeq = 0; // streamSession.sessionId 的自增源
 
 const STREAM = {
-  frameSize: 1024,
+  // PCM 帧长（采样数）。16kHz 下每帧累积 16ms —— 这是**首字延迟里唯一由插件
+  // 决定的固定项**：采集必须攒满一帧才会 sendAudio，服务端也要等音频才出结果。
+  // 实测（stub WS，本地 RTT≈0，6s 会话；「点击 → 首帧送达」含固定启动 ~50ms）：
+  //   frameSize=1024 (64ms): 累积 64ms · 合计 123ms · 92 帧 · 间隔 p50 60ms max 71ms
+  //   frameSize= 512 (32ms): 累积 36ms · 合计  ~95ms · 186 帧 · 间隔 p50 30ms max 41ms
+  //   frameSize= 256 (16ms): 累积 31ms · 合计  82ms · 372 帧 · 间隔 p50 19ms max 21ms
+  // 三档字节总量一致（~190KB/6s），且 256 的节奏反而**更稳**（max 71 → 21ms）。
+  // 取 256：端到端 −41ms、抖动 −70%。代价（消息数 ×4）已实测：6s 内主线程任务时间
+  // 只从 0.2ms 涨到 0.3ms（`temp/perf/cpu.js`）。再往下（128）收益已不明显而消息数
+  // 再翻倍，故不取。
+  frameSize: 256,
 };
 
 // ---------- 字幕镜像（浮动字幕，可选按钮 #subtitleBtn） ----------
