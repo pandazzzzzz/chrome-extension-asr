@@ -14,7 +14,7 @@ Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 - `content/content.js`, `content/content.css`: page dictation injection (`asr:fill-text`).
 - `content/subtitle.js`: floating subtitle overlay on the active page (`asr:subtitle-show` / `asr:subtitle-hide`); renders into a **closed Shadow DOM** so page CSS/JS cannot reach it and its styles cannot leak out.
 - `offscreen/`: offscreen document hosting tab-audio capture (MV3 cannot do this in a service worker).
-- `audio/`: audio layer — `recorder.js` (MediaRecorder wrapper, mic + tab), `convert.js` (floatToInt16 / resampleFloat32), `devices.js` (input-device enumeration + `getUserMedia` constraints), `pcm-capture.js` + `pcm-worklet.js` (PCM frame capture via AudioWorklet for streaming; **frame size is a tuned constant** — see `STREAM.frameSize` in `popup/app.js` and HANDOFF §5.6). (VAD was removed with the old pseudo-streaming; server-side sentence-splitting handles streaming.)
+- `audio/`: audio layer — `recorder.js` (MediaRecorder wrapper, mic + tab), `convert.js` (floatToInt16 / resampleFloat32), `devices.js` (input-device enumeration + `getUserMedia` constraints), `pcm-capture.js` + `pcm-worklet.js` (PCM frame capture via AudioWorklet for streaming). (VAD was removed with the old pseudo-streaming; server-side sentence-splitting handles streaming.)
 
 Microphone selection: `#audioInput` in popup/sidepanel holds the chosen `deviceId` (`''` = system default) and persists it as `asrConfig.audioInput`. Device labels are only visible after the first successful `getUserMedia`, so the list is enumerated on load and refreshed after every grant; a stale id falls back to the default (`openMicrophone` in `audio/devices.js`).
 

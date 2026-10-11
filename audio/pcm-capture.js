@@ -18,10 +18,7 @@ globalThis.createPcmCapture = function createPcmCapture({
   stream,
   context,
   onFrame,
-  // 与 popup/app.js 的 STREAM.frameSize 保持一致（16kHz = 16ms/帧）。
-  // 该值经实测选取：帧越长首帧延迟越大（1024 → 64ms 累积），帧越短消息数越多。
-  // 改动时请两处同步 —— 调用方总是显式传参，这个默认值只为独立调用/测试兜底。
-  frameSize = 256,
+  frameSize = 1024,
 }) {
   let source = null;
   let node = null;
