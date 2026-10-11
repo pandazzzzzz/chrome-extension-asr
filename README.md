@@ -21,6 +21,7 @@ No build step: load the directory unpacked and it runs.
 - **Transcription history** — every streaming session is recorded in IndexedDB, and the options page can **export it as JSON** (a timestamped download; no `downloads` permission needed)
 - **Side panel + options page** — a persistent panel for long sessions, plus settings, history and storage status
 - **Dark mode** — the popup, side panel and options page follow the OS/browser colour scheme automatically (`prefers-color-scheme`); no toggle to configure
+- **Keyboard shortcuts** — `Ctrl+Shift+Y` opens the popup, `Ctrl+Shift+U` the side panel (`Cmd+Shift+…` on macOS). `Open the options page` ships **without** a default key — assign one at `chrome://extensions/shortcuts`
 
 ## Quick Start
 
@@ -35,6 +36,8 @@ No build step: load the directory unpacked and it runs.
 Other entry points: **Side panel** keeps the panel open for long sessions;
 **Options** opens settings, history and storage status (also reachable from
 `chrome://extensions` → Details → Extension options).
+**Shortcuts** can be rebound (or given a key, for the options command) at
+`chrome://extensions/shortcuts`.
 
 ## Permissions
 

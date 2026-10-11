@@ -6,10 +6,11 @@ This repository is a Manifest V3 Chrome extension with **no bundler step** (load
 Layered layout (see `docs/ARCHITECTURE.md` for the full architecture):
 
 - `manifest.json`: extension metadata, permissions, and entry points.
+- `manifest.json` → `commands`: `_execute_action` (popup, `Ctrl+Shift+Y`), `open-side-panel` (`Ctrl+Shift+U`), `open-options` (**no default key** — the user assigns one at `chrome://extensions/shortcuts`). Reserved keys cannot be claimed: Chrome silently drops a `suggested_key` that collides with a browser shortcut (e.g. `Ctrl+Shift+O` = Bookmark Manager), leaving that command with an empty shortcut.
 - `popup/`: popup UI. `popup.html` + `popup.css` are reused by `sidepanel/`; `app.js` is the shared UI logic (mic recording, tab recording, realtime streaming, config forms, result actions). `popup.css` defines the palette as `:root` custom properties and flips them under `@media (prefers-color-scheme: dark)` — the options page keeps its own inline copy of the same variables, so **add new colours as variables in both places**, never as literals in a rule.
 - `sidepanel/`: persistent side panel (`sidepanel.html` — reuses `popup/app.js` + `popup.css`).
 - `options/`: options page (`options.html` + `options.js`) — settings, history (with **Export JSON**, a local download via `createObjectURL`), storage status.
-- `background/background.js`: service worker — message routing, offscreen coordination, fill-text forwarding.
+- `background/background.js`: service worker — message routing, offscreen coordination, fill-text forwarding, and the `commands.onCommand` handler (keyboard shortcuts). **`chrome.sidePanel.open()` must be called synchronously** — no `await` before it (not even `chrome.tabs.query`), or the user gesture is gone; pass `chrome.windows.WINDOW_ID_CURRENT` and let Chrome resolve the window.
 - `content/content.js`, `content/content.css`: page dictation injection (`asr:fill-text`).
 - `content/subtitle.js`: floating subtitle overlay on the active page (`asr:subtitle-show` / `asr:subtitle-hide`); renders into a **closed Shadow DOM** so page CSS/JS cannot reach it and its styles cannot leak out.
 - `offscreen/`: offscreen document hosting tab-audio capture (MV3 cannot do this in a service worker).

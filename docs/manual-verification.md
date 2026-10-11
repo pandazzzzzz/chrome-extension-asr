@@ -167,13 +167,30 @@
 
 ---
 
+## 6b. 键盘快捷键
+
+> ⚠️ **必须用真实键盘**：自动化（puppeteer keyboard / CDP `Input.dispatchKeyEvent`）
+> **到不了浏览器级 accelerator** —— 已用对照实验确认（`Ctrl+T` 新建标签同样无效）。
+> 本仓库用 headed Chrome + PowerShell `SendKeys` 才能测（`temp/verify/probe-cmd-keys.js`）。
+
+| # | 操作 | 预期 |
+|---|---|---|
+| 6b.1 | 按 `Ctrl+Shift+Y`（mac `Cmd+Shift+Y`） | popup 打开（与点工具栏图标等价） |
+| 6b.2 | 按 `Ctrl+Shift+U`（mac `Cmd+Shift+U`） | **side panel 打开**。若报 `` `sidePanel.open()` may only be called in response to a user gesture `` → handler 里在 `open()` 前多了一个 `await`（见 `HANDOFF.md` §5.5） |
+| 6b.3 | `chrome://extensions/shortcuts` 里给 **Open the ASR options page** 设一个键，再按 | options 页打开 |
+| 6b.4 | 6b.1 之后立刻点 **Record Tab** | 正常开始录音（快捷键算一次「扩展调用」，tab 级授权成立） |
+| 6b.5 | 在 `chrome://extensions/shortcuts` 查看三条命令 | 前两条有默认键，第三条（options）为空 —— 属预期，用户自设 |
+
+---
+
 ## 7. 通过标准
 
 本次验证视为通过需同时满足：
 
 - [ ] **1.x 全部通过**（Live Stream 真机出 partial/final，且停止后历史有记录）
 - [ ] 2.x / **2b.x** / 3.x / 4.x / **4b.x** 无回归
-- [ ] 5.x 无回归
+- [ ] 5.x / **5.6b / 5.6c / 5.8 / 5.9** 无回归（导出、深色）
+- [ ] **6b.x 通过**（快捷键；须真实键盘，见上）
 - [ ] 无「标签页被静音」「麦克风红点常驻」「fill 静默失败」三类历史 bug 复现
 
 ## 8. 完成后

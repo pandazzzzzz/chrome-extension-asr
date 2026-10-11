@@ -53,6 +53,37 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+// ---------- Keyboard shortcuts（manifest.commands） ----------
+// 只有需要自己处理的两个命令在这里；`_execute_action` 是保留命令，由 Chrome 直接
+// 打开 popup，**不会**触发 onCommand，故不在此列。
+//
+// ⚠️ `sidePanel.open()` 的调用**前面不能有任何 await**（与 `chrome.permissions.request()`
+// 同一类约束）：用户手势只在 listener 的**第一个同步轮次**内有效，中间隔一个
+// `await chrome.tabs.query(...)` 手势就没了，报 "may only be called in response to
+// a user gesture"。所以这里传 `WINDOW_ID_CURRENT`，让 Chrome 在内部同步解析窗口
+// （side_panel_api.cc 的注释：「This handles e.g. the WINDOW_ID_CURRENT constant by
+// converting it to the concrete window ID」），而不是自己去查 tab。
+//
+// onCommand 的 sender 不携带 tab 信息（事件本身没有 tab 字段），需要 tab 只能自己
+// 查 —— 这也是快捷键**不**用于启动标签页录音的原因：`tabCapture` 要的 tab 级授权
+// 虽然同样由「键盘快捷键」这类手势授予（Chrome 文档《The activeTab permission》
+// 明确列出 "Executing a keyboard shortcut"），但录音状态机活在 popup 的模块作用域里，
+// 从 SW 启动需要把整条录音链路搬出 popup，属于独立改动（见 HANDOFF §5.5）。
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'open-side-panel') {
+    // 同步调用，不 await 任何东西在前（见上）。
+    chrome.sidePanel
+      .open({ windowId: chrome.windows.WINDOW_ID_CURRENT })
+      .catch((error) => console.warn('open-side-panel failed:', error?.message || error));
+    return;
+  }
+  if (command === 'open-options') {
+    chrome.runtime.openOptionsPage().catch((error) => {
+      console.warn('open-options failed:', error?.message || error);
+    });
+  }
+});
+
 // 查询当前活动 tab 并把消息转发给它的 content script。
 // content 的响应必须原样透传（如 fill-text 无聚焦字段时回 { ok:false, NO_FIELD }，
 // 丢掉它会让 popup 永远显示成功）；message 未定义时（异常路径）按失败处理。
