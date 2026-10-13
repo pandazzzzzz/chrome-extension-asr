@@ -42,15 +42,19 @@
 
 完整规范见 **[`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**。要点：
 
-格式为 `<type>: <title>`，类型为以下 7 个之一（全小写）：
+格式为 `<type>: <title>`，类型为以下 11 个之一（全小写）：
 
 - `feat:` 新增功能或行为变化
 - `fix:` 修复缺陷
-- `docs:` 文档
-- `style:` 格式调整（不影响逻辑）
+- `perf:` 性能优化（不改变外部行为）
 - `refactor:` 重构（行为不变）
+- `docs:` 文档
 - `test:` 测试
-- `chore:` 构建、依赖、工具链
+- `build:` 构建系统、依赖、打包
+- `ci:` CI 配置与脚本
+- `chore:` 其它杂项
+- `style:` 格式调整（不影响逻辑）
+- `revert:` 回滚提交
 
 **长度限制**（title 与 body 分别计算）：
 

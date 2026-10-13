@@ -94,7 +94,7 @@ Known environment constraints: MV3 service worker has no DOM (`FileReader`/`Medi
 ## Commit & Pull Request Guidelines
 The full spec is **[`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)** — follow it.
 
-- Format `<type>: <title>`, types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore` (lowercase).
+- Format `<type>: <title>`, types (lowercase): `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `revert`.
 - `title` ≤ **80 chars** (aim ≤50); `body` ≤ **280 chars**, separated by one blank line, explaining *why*.
 - **No scope parentheses** (`feat(popup): …`) and **no `!`** (`feat!: …`); put the area in the title and declare breaking changes with a `BREAKING CHANGE:` footer.
 - Imperative mood, no trailing period on the title.
