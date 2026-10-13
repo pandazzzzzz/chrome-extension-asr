@@ -92,16 +92,12 @@ This is the short version. For a step-by-step procedure with expected status str
 Known environment constraints: MV3 service worker has no DOM (`FileReader`/`MediaRecorder` unavailable there — use `Blob.arrayBuffer()`); tab capture must run in the offscreen document.
 
 ## Commit & Pull Request Guidelines
-Follow the commit prefixes documented in `CONTRIBUTING.md`:
-- `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`.
+The full spec is **[`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)** — follow it.
 
-A commit-msg hook enforces: `<type>: <subject>` — subject on a single line, ≤80 chars for `feat`/`fix`/`test`, ≤50 for `docs`/`style`/`chore`, 20–200 for `refactor`. **No scope parentheses** (e.g. `feat(P1): …` is rejected).
-
-> **Hook scope warning**: the enforcing hook lives at the *global* `core.hooksPath`
-> (`C:/Users/panda-zzz/.git-hooks/commit-msg`) on the original dev machine, **not**
-> inside this repository. A fresh clone or CI **will not be checked** unless you
-> install your own hook (e.g. `npx husky init` + commitlint) and update
-> `npm run lint` / CI accordingly. Format is still binding by convention either way.
+- Format `<type>: <title>`, types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore` (lowercase).
+- `title` ≤ **80 chars** (aim ≤50); `body` ≤ **280 chars**, separated by one blank line, explaining *why*.
+- **No scope parentheses** (`feat(popup): …`) and **no `!`** (`feat!: …`); put the area in the title and declare breaking changes with a `BREAKING CHANGE:` footer.
+- Imperative mood, no trailing period on the title.
 
 PR checklist:
 - Clear summary of behavior changes.

@@ -40,22 +40,34 @@
 
 ### 提交信息规范
 
-使用清晰的提交信息（仓库有 commit-msg 钩子校验，格式必须为 `<type>: <subject>`）：
+完整规范见 **[`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**。要点：
 
-- `feat: 添加新功能`
-- `fix: 修复 bug`
-- `docs: 更新文档`
-- `style: 代码格式调整`
-- `refactor: 代码重构`
-- `test: 添加测试`
-- `chore: 构建或辅助工具的变动`
+格式为 `<type>: <title>`，类型为以下 7 个之一（全小写）：
 
-注意：**subject 必须单行**（≤80 字符，docs/style/chore 为 ≤50），**不支持 scope 括号**（`feat(P1): xxx` 会被拒绝）。如需说明细节，请放在 commit body 或 PR 描述里。
+- `feat:` 新增功能或行为变化
+- `fix:` 修复缺陷
+- `docs:` 文档
+- `style:` 格式调整（不影响逻辑）
+- `refactor:` 重构（行为不变）
+- `test:` 测试
+- `chore:` 构建、依赖、工具链
 
-> **关于校验钩子**：当前的 commit-msg 钩子配置在原开发机的**全局** `core.hooksPath`
-> （`C:/Users/panda-zzz/.git-hooks/commit-msg`），**不在本仓库内**。因此新克隆或 CI
-> 环境**不会自动校验**——但上述格式仍是强制约定，请自行遵守。如需在自己的环境启用，
-> 可自行安装 commitlint + husky 并更新 `core.hooksPath`。
+**长度限制**（title 与 body 分别计算）：
+
+- `title` ≤ **80 字符**（建议 ≤50），非空、祈使语气、不以句号结尾
+- `body` ≤ **280 字符**，可选；与 title 之间空一行；说明**为什么**
+
+**不使用** scope 括号（`feat(popup): …`）与 `!` 标记（`feat!: …`）——
+需要点明范围时写进 title，破坏性变更用 `BREAKING CHANGE:` footer 声明。
+
+```
+feat: add region selector to the popup
+
+Region maps to an endpoint through provider metadata, so the API key
+cannot silently drift from its region.
+```
+
+> 提交前请对照规范末尾的[自检清单](docs/COMMIT_CONVENTION.md#8-提交前自检)。
 
 ## 开发流程
 
