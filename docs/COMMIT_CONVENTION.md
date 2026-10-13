@@ -20,7 +20,7 @@
 | `<type>` | §3 白名单之一，**全小写** |
 | 分隔符 | 冒号 + **一个半角空格**（`: `） |
 | `<title>` | **≤ 80 字符**，非空，不以句号结尾 |
-| `<body>` | 可选；**≤ 280 字符**；title 后**空一行**再写 |
+| `<body>` | 可选；**≤ 280 字符**且**每行 ≤ 72 字符**；title 后**空一行**再写 |
 | 计数方式 | title 与 body **分别计算**，互不占用额度 |
 
 **一行示例**
@@ -145,8 +145,32 @@ BREAKING CHANGE: providers no longer expose transcribe().
 |---|---|---|
 | `title` | **80 字符** | 从 `type: ` 之后到行尾；不含 type 前缀 |
 | `body` | **280 字符** | body 全文；含内部分段空行 |
+| body 每行 | **72 字符** | 见下方「body 换行」 |
 
-两者**分别计算**，互不挤占。
+title 与 body **分别计算**，互不挤占。
+
+### body 换行
+
+body 的**每一行**不超过 **72 字符**，长句手动换行。
+
+**为什么是 72**：`git log` 默认按 80 列显示，而它会**给 body 额外缩进 4 个空格**
+（标题不受影响）。因此 body 在 80 列终端里的可用宽度是 72；超出就会折行或被截断，
+破坏可读性。72 也是 Kubernetes 与 Chromium 的取值（Linux 用 75，理由相同）。
+
+```
+fix: keep tab recording state across popup lifetimes
+
+State lived only in the popup's module scope, so closing the popup
+reset the buttons while audio kept recording. It now lives in the
+service worker, keyed to the offscreen document's existence.
+```
+
+**换行是语义换行，不是硬折行**：在句子或从句的边界断开，不要把一个词组从中间劈开。
+代码标识符、URL、文件路径**不要**为凑宽度而拆开 —— 让该行略超 72 比拆断标识符更好。
+
+> 这一条是**约定**（靠 review 把关），不做自动校验：它与 280 字符的总额度是两个维度
+> —— 前者管「单行可读性」，后者管「body 别变成变更日志」。极端情况下 body 可以既满足
+> 280 总长、又只有 3–4 行（因为每行 72）。
 
 ### 为什么不按类型细分
 
@@ -253,6 +277,7 @@ footer 放在 body 之后，**空一行**，每行一条，格式 `Token: value`
 | **title 首字母小写** | 紧跟 `type: ` 之后不大写（专有名词如 `Chrome`、`DashScope` 除外） |
 | **body 讲「为什么」** | diff 已说明「做了什么」；body 解释动机、取舍、副作用 |
 | **body 用完整句子** | 便于日后 `git log` 阅读；不要写成关键词堆叠 |
+| **body 每行 ≤72 字符** | 见 §4「body 换行」；`git log` 会给 body 缩进 4 格，80 列终端下可用 72 |
 | **一行一件事** | 见 §3「类型选择原则」 |
 | **不写无信息量的 title** | `fix: bug`、`feat: update` 无价值，需说明具体对象 |
 | **不引用本地路径** | 不要写 `temp/…`、`C:\…`；这些对他人无意义 |
@@ -265,7 +290,7 @@ footer 放在 body 之后，**空一行**，每行一条，格式 `Token: value`
 - [ ] 冒号后有且仅有一个半角空格
 - [ ] title 非空、≤ 80 字符、祈使语气、不以句号结尾
 - [ ] 有 body 时，title 与 body 之间恰好一个空行
-- [ ] body ≤ 280 字符（含内部分段空行）
+- [ ] body ≤ 280 字符（含内部分段空行），且**每行 ≤ 72 字符**
 - [ ] 未使用 scope 括号与 `!`
 - [ ] 破坏性变更已用 `BREAKING CHANGE:` footer 声明
 - [ ] 关联的 issue 已写入 footer（`Refs:` / `Closes:`）
@@ -281,6 +306,11 @@ footer 放在 body 之后，**空一行**，每行一条，格式 `Token: value`
 **Q：title 里能带数字、版本号、代码标识符吗？**
 可以，且鼓励具体：`fix: correct the 16 kHz resample ratio`。
 注意反引号（`` ` ``）在 commit 信息中不渲染，不要用它做强调。
+
+**Q：body 换行要手动敲吗？有工具吗？**
+是，手动换行。规范不强制工具，但多数编辑器可设置「硬换行 72 列」，
+`git config core.editor` 指向的编辑器通常也支持（如 Vim 的 `:set textwidth=72`）。
+提交前看一眼 `git log -1` 的输出即可发现折行问题。
 
 **Q：一次提交改了多个文件，怎么定类型？**
 看**主要意图**，不是文件数量。例如新增功能顺带调了格式 → `feat`（格式调整是附带的）。
