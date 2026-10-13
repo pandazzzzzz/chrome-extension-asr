@@ -84,26 +84,58 @@ BREAKING CHANGE: providers no longer expose transcribe().
 
 ## 3. 类型白名单
 
-只使用以下 7 个类型，**全小写**：
+只使用以下 11 个类型，**全小写**：
 
 | 类型 | 用于 | 示例 |
 |---|---|---|
 | `feat` | 新增功能、面向用户的行为变化 | `feat: add keyboard shortcuts` |
 | `fix` | 修复缺陷 | `fix: keep tab recording state` |
-| `docs` | 文档（含注释、README、本规范） | `docs: clarify the length rule` |
-| `style` | 格式调整，不影响逻辑 | `style: reindent popup.css` |
+| `perf` | 性能优化（**不改变外部行为**） | `perf: halve the streaming frame latency` |
 | `refactor` | 重构：行为不变，结构改变 | `refactor: deduplicate the timestamp helper` |
+| `docs` | 文档（含注释、README、本规范） | `docs: clarify the length rule` |
 | `test` | 新增或修改测试 | `test: cover the frame size boundary` |
-| `chore` | 构建、依赖、工具链、杂项 | `chore: bump puppeteer-core` |
+| `build` | 构建系统、依赖、打包产物 | `build: bump puppeteer-core` |
+| `ci` | CI 配置与脚本（`.github/workflows/`） | `ci: cache npm between runs` |
+| `chore` | 其它不影响源码的杂项 | `chore: ignore agent skill installs` |
+| `style` | 格式调整，不影响逻辑 | `style: reindent popup.css` |
+| `revert` | 回滚此前的提交 | `revert: undo the direct push` |
 
 ### 类型选择原则
 
-- **有行为变化就是 `feat` 或 `fix`**，不要用 `chore` 含糊带过。
-- **性能优化**没有专属类型：若改变行为 → `feat`；若纯粹内部调整 → `refactor`。
-- **CI / 构建配置** → `chore`（本仓库无 `ci` 类型）。
-- **回滚提交** → `chore: revert <what>`（本仓库无 `revert` 类型）。
-- **依赖升级** → `chore`；若升级带来功能变化，用 `feat` 并说明。
+**先判断改动是否影响运行时行为**：
+
+| 改动性质 | 用 |
+|---|---|
+| 新增功能 / 行为变化 | `feat` |
+| 修缺陷 | `fix` |
+| 性能更好、行为不变 | `perf` |
+| 结构更清晰、行为不变 | `refactor` |
+| 只有格式变化 | `style` |
+
+**再按「改的是哪一层」区分非代码类改动**：
+
+| 改动对象 | 用 |
+|---|---|
+| 文档 / 注释 / 本规范 | `docs` |
+| 测试代码 | `test` |
+| `package.json`、依赖版本、打包脚本 | `build` |
+| `.github/workflows/`、CI 脚本 | `ci` |
+| 仓库配置（`.gitignore`、编辑器配置等） | `chore` |
+| 撤销某个已有提交 | `revert` |
+
+**容易混的几组**：
+
+- `perf` vs `refactor` —— 前者**以性能为目的**（且不改行为），后者以结构为目的。若一次改动同时做了两件事，拆开提交。
+- `build` vs `chore` —— 凡涉及 `package.json` / 依赖 / 打包，用 `build`；仓库配置等其它杂项用 `chore`。
+- `ci` vs `build` —— CI 配置本身用 `ci`；CI 里用到的构建脚本仍属 `build`。
+- `revert` —— 用 `git revert` 生成时，title 写清回滚了什么；body 里用 `This reverts commit <SHA>.` 注明来源。
 - 一次提交只做一件事。类型混用时**拆成多个提交**。
+
+> **为什么是这 11 个**：`feat` 与 `fix` 由 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+> 强制（对应语义化版本的 MINOR / PATCH），其余为团队自定。本仓库的这组取自
+> commitlint 的 `config-conventional`（在 Angular 约定的基础上补入 `chore` / `style` / `revert`）。
+> 选型依据是**本仓库历史中实际发生过的归类困难**：此前 `chore` 承担了构建、CI、性能、回滚四类语义，
+> 混杂度超过一半；补入 `build` / `ci` / `perf` / `revert` 后，`chore` 只留真正的杂项。
 
 ---
 
@@ -152,11 +184,15 @@ BREAKING CHANGE: providers no longer expose transcribe().
 ```
 feat: add region selector to the popup
 fix: keep tab recording state across popup lifetimes
-docs: clarify the title and body length rules
+perf: halve the streaming frame latency
 refactor: deduplicate the timestamp helper
+docs: clarify the title and body length rules
 test: cover the frame size boundary
-chore: bump puppeteer-core
+build: bump puppeteer-core
+ci: cache npm between workflow runs
+chore: ignore agent skill installs
 style: normalize indentation in the options page
+revert: undo the direct push of the frame latency change
 ```
 
 带 body：
@@ -181,10 +217,10 @@ service worker, keyed to the offscreen document's existence.
 | `add region selector` | 缺 `<type>: ` 前缀 |
 | `feat: add region selector.` | title 以句号结尾（§7） |
 | `feat: added the region selector` | 用祈使语气 `add`，不用 `added`（§7） |
+| `wip: start the region selector` | `wip` 不在白名单（§3） |
+| `update: tweak the popup` | `update` 不在白名单（§3） |
 | title 超过 80 字符 | 超限（§4） |
 | body 超过 280 字符 | 超限（§4） |
-| `perf: halve the frame latency` | `perf` 不在白名单；改用 `refactor:`（§3） |
-| `revert: undo the direct push` | `revert` 不在白名单；改用 `chore: revert …`（§3） |
 
 ---
 
