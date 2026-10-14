@@ -2,8 +2,10 @@
 // transcription/providers/* 均为 globalThis 脚本，无 chrome./DOM 引用）。
 //
 // 覆盖：PCM 数值助手（floatToInt16 / resampleFloat32）与 provider 契约
-// （能力元数据、isStreamModel 判定、createStreamSession 前置校验、注册表不变量）。
-// 不含 WebSocket 网络链路 —— 那属于真机端到端验证（见 docs/HANDOFF.md §3）。
+// （能力元数据、isStreamModel / sampleRateFor 判定、createStreamSession 前置校验、
+// run-task 报文的 sample_rate、注册表不变量）。
+// **不联网**：WebSocket 用本文件内的假件（withFakeSocket）驱动，只断言发出去的报文；
+// 真实网络链路属真机端到端验证（见 docs/HANDOFF.md §3）。
 //
 // 运行：npm test（或 node tests/streaming.test.js）
 //
@@ -15,6 +17,7 @@ const assert = require('node:assert');
 // 仅用这些测试实际断言到的错误码 —— 不引真实 errors.js，避免牵入无关依赖。
 globalThis.Errors = {
   NO_API_KEY: { code: 'NO_API_KEY', message: 'key' },
+  NO_ENDPOINT: { code: 'NO_ENDPOINT', message: 'endpoint' },
   UNKNOWN: { code: 'UNKNOWN', message: 'u' },
   NETWORK: { code: 'NETWORK', message: 'n' },
   API_ERROR: { code: 'API_ERROR', message: 'a' },
@@ -75,6 +78,7 @@ t('Qwen: 流式能力元数据正确', () => {
   assert.strictEqual(typeof Q.getDefaultStreamEndpoint(), 'string');
   assert.ok(Q.getDefaultStreamEndpoint().startsWith('wss://'));
   assert.ok(Q.getDefaultStreamEndpoint().endsWith('/api-ws/v1/inference'));
+  assert.strictEqual(Q.defaultSampleRate, 16000);
 });
 t('Qwen.isStreamModel: 只放行 run-task 白名单（含快照后缀）', () => {
   assert.strictEqual(Q.isStreamModel('fun-asr-realtime'), true);
@@ -116,6 +120,28 @@ t('Qwen.createStreamSession: 非 wss:// endpoint 提前报错（不喂给 new We
     apiKey: 'k', model: 'fun-asr-realtime', endpoint: 'https://dashscope.aliyuncs.com/api/v1', onResult() {},
   }), (e) => e.code === 'UNKNOWN' && /not a WebSocket URL/.test(e.message));
 });
+t('Qwen.createStreamSession: endpoint 为空串报 NO_ENDPOINT（不静默回落默认端点）', () => {
+  // Custom 地域没填 URL 时 resolveEndpoint 返回 ''。若被 `endpoint || default` 吞掉，
+  // 就会静默拨公共北京端点 —— 用户明明选了 Custom，而地域与 API Key 强绑定，必然 401。
+  assert.throws(() => Q.createStreamSession({
+    apiKey: 'k', model: 'fun-asr-realtime', endpoint: '', onResult() {},
+  }), (e) => e.code === 'NO_ENDPOINT');
+});
+t('Qwen.createStreamSession: 省略 endpoint 回落默认端点（区别于显式空串）', () => {
+  // 「未指定」与「显式空串」必须分开：前者回落 getDefaultStreamEndpoint()，后者报错。
+  // 注意 Node 22+ 自带原生全局 WebSocket，**不能**用 ReferenceError 当"通过校验"的
+  // 探针 —— 那会真的向 dashscope 发起一次连接尝试。改用假件断言 URL。
+  // （withFakeSocket 是函数声明，提升到模块顶部，故此处可调用。）
+  withFakeSocket((sockets) => {
+    const session = Q.createStreamSession({ apiKey: 'k', model: 'fun-asr-realtime', onResult() {} });
+    assert.strictEqual(sockets.length, 1);
+    assert.ok(
+      sockets[0].url.startsWith(Q.getDefaultStreamEndpoint() + '?'),
+      '省略 endpoint 应回落到默认端点，实际：' + sockets[0].url.replace(/api_key=[^&]*/, 'api_key=<redacted>'),
+    );
+    session.close();
+  });
+});
 t('Qwen.regions: 每个地域有 id/label，custom 兜底且 endpoint 为空', () => {
   const regions = Q.regions;
   assert.ok(Array.isArray(regions) && regions.length >= 2);
@@ -148,6 +174,97 @@ t('BaseProvider.endpointFor: 无 regions 的基类回退 getDefaultStreamEndpoin
   assert.deepStrictEqual(b.regions.map((r) => r.id), ['custom']);
   assert.strictEqual(b.endpointFor('anything'), '');
 });
+t('Qwen.sampleRateFor: 8k 电话模型返回 8000，其余继承 defaultSampleRate', () => {
+  // 这两个模型**只接受** 8000 Hz，发 16000 会被服务端拒绝
+  assert.strictEqual(Q.sampleRateFor('fun-asr-flash-8k-realtime'), 8000);
+  assert.strictEqual(Q.sampleRateFor('paraformer-realtime-8k-v2'), 8000);
+  // 快照后缀靠前缀匹配命中（与 isStreamModel 同一规则）
+  assert.strictEqual(Q.sampleRateFor('fun-asr-flash-8k-realtime-2026-01-28'), 8000);
+  // 16k 模型（paraformer-realtime-v2 目录描述为「支持任意采样率」）走默认值
+  assert.strictEqual(Q.sampleRateFor('fun-asr-realtime'), 16000);
+  assert.strictEqual(Q.sampleRateFor('fun-asr-realtime-2026-02-28'), 16000);
+  assert.strictEqual(Q.sampleRateFor('paraformer-realtime-v2'), 16000);
+  assert.strictEqual(Q.sampleRateFor('qwen-audio-3.1-asr-flash-streaming'), 16000);
+  // 空值不炸，回退默认
+  assert.strictEqual(Q.sampleRateFor(''), Q.defaultSampleRate);
+  assert.strictEqual(Q.sampleRateFor(undefined), Q.defaultSampleRate);
+});
+t('BaseProvider.sampleRateFor: 例外表为空 → 一律 defaultSampleRate', () => {
+  const b = globalThis.BaseProvider;
+  assert.deepStrictEqual(b.sampleRates, {});
+  assert.strictEqual(b.defaultSampleRate, 16000);
+  assert.strictEqual(b.sampleRateFor('fun-asr-flash-8k-realtime'), 16000);
+  assert.strictEqual(b.sampleRateFor('anything'), b.defaultSampleRate);
+});
+
+// 假 WebSocket：只记录构造 URL 与 send() 的报文，完全不联网。
+// **不能**在构造器里同步触发 onopen —— qwen.js 是先 `new WebSocket(url)`、之后才赋
+// `socket.onopen`，同步触发会把事件丢掉。故由用例手动驱动。
+// close() 主动触发 onclose，让 createStreamSession 内的 10s readyTimer 被 clearTimeout，
+// 不留悬挂定时器。
+function withFakeSocket(fn) {
+  const sockets = [];
+  class FakeSocket {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 1; // OPEN
+      this.sent = [];
+      sockets.push(this);
+    }
+    send(data) { this.sent.push(data); }
+    close() {
+      this.readyState = 3; // CLOSED
+      this.onclose?.({ wasClean: true, code: 1000, reason: '' });
+    }
+  }
+  const prev = globalThis.WebSocket;
+  globalThis.WebSocket = FakeSocket;
+  try {
+    fn(sockets);
+  } finally {
+    if (prev === undefined) delete globalThis.WebSocket;
+    else globalThis.WebSocket = prev;
+  }
+}
+
+t('Qwen run-task 报文: sample_rate 随模型走（8k 发 8000，其余发 16000）', () => {
+  // 这是「元数据对」与「真正发出去的报文对」之间的差别：sampleRateFor 只证明查表正确，
+  // 本用例证明它确实进了 run-task 的 payload.parameters.sample_rate。
+  const cases = [
+    ['fun-asr-realtime', 16000],
+    ['paraformer-realtime-v2', 16000],
+    ['qwen-audio-3.1-asr-flash-streaming', 16000],
+    ['paraformer-realtime-8k-v2', 8000],
+    ['fun-asr-flash-8k-realtime', 8000],
+    ['fun-asr-flash-8k-realtime-2026-01-28', 8000], // 快照后缀同样命中
+  ];
+  for (const [model, want] of cases) {
+    withFakeSocket((sockets) => {
+      const session = Q.createStreamSession({ apiKey: 'k', model, onResult() {} });
+      assert.strictEqual(sockets.length, 1, model + ' 应恰好建一个 socket');
+      sockets[0].onopen(); // 手动驱动握手（见 withFakeSocket 注释）
+      const runTask = JSON.parse(sockets[0].sent[0]);
+      assert.strictEqual(runTask.header.action, 'run-task', model + ' 首帧应为 run-task');
+      assert.strictEqual(runTask.payload.model, model, model + ' 应原样透传');
+      assert.strictEqual(
+        runTask.payload.parameters.sample_rate, want,
+        `${model} 的 sample_rate 应为 ${want}`,
+      );
+      assert.strictEqual(runTask.payload.parameters.format, 'pcm');
+      session.close();
+    });
+  }
+});
+t('Qwen run-task 报文: 显式空 endpoint 在建 socket 之前就被拦下', () => {
+  // 与上面的探针互补：证明 NO_ENDPOINT 守卫位于 `new WebSocket` 之前，
+  // 连 socket 都不会创建（不会有任何连接尝试）。
+  withFakeSocket((sockets) => {
+    assert.throws(() => Q.createStreamSession({
+      apiKey: 'k', model: 'fun-asr-realtime', endpoint: '', onResult() {},
+    }), (e) => e.code === 'NO_ENDPOINT');
+    assert.strictEqual(sockets.length, 0, '空 endpoint 不应创建任何 socket');
+  });
+});
 t('BaseProvider: 流式基类默认抛错（不实现就用不了）', () => {
   assert.throws(() => globalThis.BaseProvider.createStreamSession({}), /Streaming not supported/);
 });
@@ -162,6 +279,22 @@ t('注册表: 只含支持流式的 provider，且都实现了 createStreamSessi
     assert.ok(p.isStreamModel(p.defaultStreamModel), p.id + ' 默认模型必须在自己的白名单内');
     assert.ok(Array.isArray(p.regions) && p.regions.length > 0, p.id + ' 缺 regions');
     assert.ok(p.regions.some((r) => r.id === 'custom'), p.id + ' 必须提供 custom 地域兜底');
+    // 采样率元数据：白名单里每个模型都要能解析出可用速率，否则该模型实际不可用
+    // （8k 模型发 16000 会被服务端拒 —— 这正是本次修复的缺陷）。
+    assert.strictEqual(typeof p.sampleRateFor, 'function', p.id + ' 缺 sampleRateFor');
+    assert.ok(Number.isInteger(p.defaultSampleRate) && p.defaultSampleRate > 0,
+      p.id + ' defaultSampleRate 必须是正整数');
+    assert.ok(Number.isInteger(p.sampleRateFor(p.defaultStreamModel)) && p.sampleRateFor(p.defaultStreamModel) > 0,
+      p.id + ' 默认模型的采样率必须为正');
+    for (const m of p.streamModels) {
+      const rate = p.sampleRateFor(m);
+      assert.ok(Number.isInteger(rate) && rate > 0, `${p.id}: ${m} 解析不到有效采样率（${rate}）`);
+    }
+    // 例外表的每个键本身必须是白名单模型 —— 否则是拼写错或已删模型的死条目，
+    // 静默失效（该模型会拿到 defaultSampleRate 而被服务端拒绝）。
+    for (const key of Object.keys(p.sampleRates || {})) {
+      assert.ok(p.isStreamModel(key), `${p.id}: sampleRates 的键 "${key}" 不在 streamModels 白名单内`);
+    }
   });
   assert.ok(list.includes(Q), '注册表应含 QwenProvider');
 });

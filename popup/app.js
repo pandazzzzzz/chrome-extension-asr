@@ -31,6 +31,10 @@ const streamSession = {
   model: '',
   endpoint: '',
   apiKey: '',
+  // 本次会话的 PCM 目标采样率（Hz），来自 provider.sampleRateFor(最终模型)。
+  // run-task 向服务端声明的就是这个值，故 onStreamFrame 必须重采样到同一个速率，
+  // 否则声明与实际不符。onStreamFrame 拿不到 provider，只能经 streamSession 传递。
+  targetSampleRate: 0,
   sessionId: 0,      // 每次 startStreaming 自增，用于跨会话 onEnd 竞态防护
 };
 let streamSessionSeq = 0; // streamSession.sessionId 的自增源
@@ -46,6 +50,11 @@ const STREAM = {
   // 取 256：端到端 −41ms、抖动 −70%。代价（消息数 ×4）已实测：6s 内主线程任务时间
   // 只从 0.2ms 涨到 0.3ms（`temp/perf/cpu.js`）。再往下（128）收益已不明显而消息数
   // 再翻倍，故不取。
+  //
+  // ⚠️ 本值是**采样数**，所以上面「16ms」只在 16kHz 下成立。采样率现随模型走
+  // （provider.sampleRateFor），8k 电话模型下每帧累积 32ms —— 仍在电话语音的常规
+  // 帧长范围（20–40ms），且基准数据只对 256 有效，故**不**为 8k 单独调优（改成
+  // `Math.round(rate * 0.016)` 可让各速率都维持 ~16ms，但消息数翻倍且无基准背书）。
   frameSize: 256,
 };
 
@@ -291,7 +300,9 @@ function setEndpointRowVisible(visible) {
 
 /**
  * 本次流式实际使用的 endpoint：custom 地域取用户填的 URL，其余取地域对应的公共域名。
- * 空串时交给 provider.getDefaultStreamEndpoint() 兜底。
+ * custom 且用户没填 → 返回空串；调用方（startStreaming）据此**硬拦**，不再回落默认
+ * 端点（回落会把 Custom 静默变成北京，跨地域 Key 必然握手 401）。非 custom 地域经
+ * endpointFor 必得真实 wss URL。空串只应来自 custom 留空这一种情况。
  */
 function resolveEndpoint(provider) {
   if (!provider) return '';
@@ -576,8 +587,10 @@ debugEvt('app-loaded', { hasBridge: typeof globalThis.emitDebug === 'function' }
 
 // ---------- Streaming transcription (realtime WebSocket) ----------
 //
-// 原理：麦克风 → PCM 帧（AudioWorklet，createPcmCapture）→ 重采样 16kHz →
+// 原理：麦克风 → PCM 帧（AudioWorklet，createPcmCapture）→ 重采样到目标采样率 →
 // Int16 → WebSocket（百炼 run-task）→ 服务端逐句返回 partial/final → 字幕式回显。
+// 目标采样率随模型走（provider.sampleRateFor：16kHz，8k 电话模型为 8kHz），且必须
+// 与 run-task 里声明的 sample_rate 一致，否则服务端按错误速率解析音频。
 // 服务端负责分段，本地不做 VAD（VAD 分段批量已随伪流式删除）。
 
 async function toggleStreaming() {
@@ -618,6 +631,19 @@ async function startStreaming() {
     return;
   }
 
+  // Custom 地域必须手填 endpoint：留空时 resolveEndpoint 返回 ''，而 provider 会把
+  // 空串当成"未指定"回落到公共北京端点 —— 用户明明选了 Custom 却被静默拨到别的地域
+  // （地域与 API Key 强绑定，必然握手 401，且报错信息完全指不到这里）。故在**开麦之前**
+  // 拦下：早退路径不能留下音轨（见 docs/manual-verification.md 的历史 bug #4）。
+  // 只算一次，下面直接复用，避免守卫与实际连接读到不同的值。
+  const endpoint = resolveEndpoint(provider);
+  if (els.regionSelect?.value === 'custom' && !endpoint) {
+    debugEvt('start-fail', { reason: 'no-endpoint', region: 'custom' });
+    showStatus('Custom region requires an endpoint URL.', 'error');
+    isStreamingBusy = false;
+    return;
+  }
+
   // 尽早禁用，把重入窗口压到最小
   els.streamBtn.disabled = true;
   debugEvt('start-begin', { provider: provider.id });
@@ -629,16 +655,6 @@ async function startStreaming() {
       deviceId: selectedAudioInput || 'default',
     });
     void refreshAudioInputs(); // 授权后设备名才可见
-    // 真流式服务端只收 16kHz PCM。直接把 AudioContext 建在 16kHz（官方 demo 同法），
-    // 浏览器在源节点处做原生重采样 —— 避免逐帧软件重采样的相位不连续与时序漂移。
-    // 旧浏览器不支持 sampleRate 选项时回退默认采样率，onStreamFrame 里再软件重采样。
-    let context;
-    try {
-      context = new AudioContext({ sampleRate: 16000 });
-    } catch {
-      context = new AudioContext();
-    }
-    await context.resume(); // 用户手势内解锁
 
     // 跨会话竞态防护：streamSession 是原地复用的单例，旧会话的延迟 onclose/onEnd
     // 可能在新会话启动期间触发。每次 startStreaming 自增 sessionId，onEnd 闭包持有
@@ -646,14 +662,20 @@ async function startStreaming() {
     const mySessionId = ++streamSessionSeq;
 
     streamSession.stream = stream;
-    streamSession.context = context;
+    // context 与 targetSampleRate 必须显式重置：AudioContext 要等模型定下来才能建
+    // （采样率随模型走），在此之前 onStreamFrame 的 !session.context 守卫必须看到
+    // null，而不是上一会话的残值。
+    streamSession.context = null;
+    streamSession.targetSampleRate = 0;
     streamSession.providerId = provider.id;
     streamSession.apiKey = apiKey;
     streamSession.finalText = '';
     streamSession.partialText = '';
     streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel;
-    // endpoint 由地域决定（custom 才取手填值）；空串交给 provider 默认值兜底
-    streamSession.endpoint = resolveEndpoint(provider) || undefined;
+    // endpoint 由地域决定（custom 才取手填值）；已在上面的守卫里算过一次，直接复用。
+    // Custom 留空已被拦下，故这里的 '' 只可能来自无 #region 的入口页 —— 那种情况
+    // 交给 provider 的默认端点兜底（undefined 才回落，'' 会被 provider 判为错误）。
+    streamSession.endpoint = endpoint || undefined;
     streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
     streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
 
@@ -670,12 +692,34 @@ async function startStreaming() {
       }
     }
 
+    // 采样率随模型走（8k 电话模型只接受 8000 Hz）。必须在模型回落**之后**取值，
+    // 否则回落到默认模型后仍按用户填的 8k 模型建 8kHz 图，声明与实际不符。
+    // provider 内部用同一个 sampleRateFor(最终模型串) 填 run-task 的 sample_rate，
+    // 两侧同入同出，构造上不会漂移。
+    const targetSampleRate = provider.sampleRateFor(streamSession.model);
+    streamSession.targetSampleRate = targetSampleRate;
+
+    // 直接把 AudioContext 建在目标采样率（官方 demo 同法），浏览器在源节点处做原生
+    // 重采样 —— 避免逐帧软件重采样的相位不连续与时序漂移。旧浏览器不支持 sampleRate
+    // 选项时回退默认采样率，onStreamFrame 里再软件重采样到 targetSampleRate。
+    let context;
+    try {
+      context = new AudioContext({ sampleRate: targetSampleRate });
+    } catch {
+      context = new AudioContext();
+    }
+    // 先挂上再 resume：resume 抛错时 teardownStreaming 才拿得到这个 context 并关掉它。
+    // 反过来的顺序会让 context 只存在于局部变量里 → AudioContext 泄漏。
+    streamSession.context = context;
+    await context.resume(); // 用户手势内解锁
+
     // 先建会话：必须等 task-started（await ready）才开始采音，
     // 否则 task-started 之前的音频帧被 sendAudio 丢弃 → 丢开头首句
     debugEvt('ws-connecting', {
       model: streamSession.model,
       endpointConfigured: !!streamSession.endpoint,
       ctxSampleRate: context.sampleRate,
+      targetSampleRate,
     });
     const wsSession = provider.createStreamSession({
       apiKey: streamSession.apiKey,
@@ -745,7 +789,7 @@ async function startStreaming() {
       frameSize: STREAM.frameSize,
       ctxSampleRate: context.sampleRate,
     });
-    startPcmStats(context.sampleRate, 16000);
+    startPcmStats(context.sampleRate, targetSampleRate);
 
     // 竞态检查（必须在 isStreaming 置位前的最后一步）：从 createStreamSession 到这里的
     // 每个 await（ready / capture.start）期间 onEnd 都可能触发。它发生在 isStreaming 仍为
@@ -848,12 +892,12 @@ async function teardownStreaming() {
   }
 }
 
-// 每收到一帧 PCM：重采样到 16kHz → 转 Int16 → 发 WebSocket（服务端负责分段）
+// 每收到一帧 PCM：重采样到本会话的目标采样率 → 转 Int16 → 发 WebSocket（服务端负责分段）
 function onStreamFrame(frame) {
   const session = streamSession;
-  if (!session.wsSession || !session.context) return;
-  const sampleRate = session.context.sampleRate;
-  const resampled = globalThis.resampleFloat32(frame, sampleRate, 16000);
+  // targetSampleRate 是 run-task 里向服务端声明的速率，必须与实际发出的 PCM 一致
+  if (!session.wsSession || !session.context || !session.targetSampleRate) return;
+  const resampled = globalThis.resampleFloat32(frame, session.context.sampleRate, session.targetSampleRate);
   const int16 = globalThis.floatToInt16(resampled);
   session.wsSession.sendAudio(int16);
   pcmStats.frames += 1;

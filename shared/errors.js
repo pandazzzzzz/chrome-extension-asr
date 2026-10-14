@@ -10,6 +10,7 @@ globalThis.Errors = Object.freeze(
     Object.entries({
       // 配置类
       NO_API_KEY: { code: 'NO_API_KEY', message: 'API key is required' },
+      NO_ENDPOINT: { code: 'NO_ENDPOINT', message: 'Endpoint URL is required' },
 
       // API 类
       API_ERROR: { code: 'API_ERROR', message: 'Provider API error' },

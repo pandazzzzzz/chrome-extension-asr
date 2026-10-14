@@ -48,6 +48,21 @@ class QwenProvider extends BaseProvider {
   static defaultStreamModel = 'fun-asr-realtime';
 
   /**
+   * 采样率例外表 —— **只有** 8k 电话场景模型需要偏离默认的 16000 Hz。
+   *
+   * 这两个模型**只接受 8000 Hz**（`paraformer-realtime-8k-v2` 的目录描述：「支持8kHz
+   * 电话客服等场景下的实时语音识别」），用 16kHz 会被服务端拒绝。其余白名单模型
+   * （`paraformer-realtime-v2` 目录描述为「支持任意采样率」）继承 `defaultSampleRate`。
+   *
+   * 键为模型名前缀，匹配规则见 BaseProvider.sampleRateFor（覆盖带日期后缀的快照，
+   * 如 `fun-asr-flash-8k-realtime-2026-01-28`）。
+   */
+  static sampleRates = {
+    'fun-asr-flash-8k-realtime': 8000,
+    'paraformer-realtime-8k-v2': 8000,
+  };
+
+  /**
    * 实时流式 ASR 的默认 WebSocket endpoint。
    *
    * 官方推荐使用业务空间专属域名（并发/隔离/超时更好）：
@@ -67,7 +82,8 @@ class QwenProvider extends BaseProvider {
    * 协议依据官方「客户端事件 / 服务端事件」文档与 paraformer-realtime-js demo：
    *   1. onopen → 发 run-task（task_group=audio / task=asr / function=recognition）
    *   2. task-started → ready resolve，之后才可发音频
-   *   3. 音频帧以二进制 Int16Array 发送（16kHz / 16-bit / 单声道小端 PCM）
+   *   3. 音频帧以二进制 Int16Array 发送（采样率由 run-task 的 sample_rate 声明：
+   *      16kHz，8k 电话模型为 8kHz / 16-bit / 单声道小端 PCM）
    *   4. result-generated → payload.output.sentence.text；sentence_end=true 为完整句；
    *      heartbeat=true 的心跳包跳过
    *   5. finish-task → task-finished；失败时服务端发 task-failed（header.error_message），
@@ -81,9 +97,14 @@ class QwenProvider extends BaseProvider {
    *   - 不传 intermediate_result_enabled：仅 Qwen-Audio-ASR-Flash-Message 需要它才有
    *     中间结果（sentence_end=false），其余模型默认就回中间结果，故不传以保持通用
    *
-   * 采样率：请求固定 16kHz（调用方已把 AudioContext 建在 16kHz）。`fun-asr-flash-8k-realtime`
-   * 与 `paraformer-realtime-8k-v2` **只接受 8000 Hz**，用 16kHz 会被服务端拒绝 —— 这两个模型
-   * 需配套改采样率（当前未支持）。
+   * 采样率：**按模型自适应** —— `sample_rate` 取自 `sampleRateFor(streamModel)`，
+   * 8k 电话模型（`fun-asr-flash-8k-realtime` / `paraformer-realtime-8k-v2`）发 8000，
+   * 其余发 `defaultSampleRate`（16000）。调用方必须用**同一个** `sampleRateFor()` 结果
+   * 建 AudioContext 并作为逐帧重采样的目标率（见 popup/app.js 的 startStreaming），
+   * 否则发出去的 PCM 与声明的采样率不符，服务端会按错误速率解析音频。
+   *
+   * endpoint：**空串是错误**（NO_ENDPOINT），不是"未指定"。只有 `undefined`/省略才回落
+   * 到 getDefaultStreamEndpoint()；Custom 地域没填 URL 必须明确失败，见下方守卫。
    *
    * 鉴权：浏览器 WebSocket 无法自定义 header，apiKey 走 URL query 参数。
    * ⚠️ `?api_key=` **未见于官方文档**（文档只写握手请求头 `Authorization: Bearer <key>`）；
@@ -119,6 +140,23 @@ class QwenProvider extends BaseProvider {
           `Supported here: ${this.streamModels.join(', ')}. ` +
           'Session-protocol models (e.g. qwen3-asr-flash-realtime, *-omni-*-realtime, ' +
           '*-livetranslate-*) and batch models (e.g. qwen3-asr-flash) need a different client.',
+      );
+    }
+
+    // 采样率随模型走（8k 电话模型必须发 8000，否则服务端拒绝）。调用方用同一个
+    // sampleRateFor() 建 AudioContext 与重采样，故这里声明的速率与实际 PCM 一致。
+    const sampleRate = this.sampleRateFor(streamModel);
+
+    // 显式空串 = 调用方（Custom 地域）本应给出 URL 却没给。**不能**与"未指定 endpoint"
+    // 混为一谈：后者才允许回落到 getDefaultStreamEndpoint()。若不在此拦住，空串会被
+    // 下面的 `||` 吞掉 → 静默拨公共北京端点，而用户明明选了 Custom（地域与 API Key
+    // 强绑定，拨错地域必然握手 401）。regions 表里 custom 项的 endpoint 本就是 ''，
+    // 且 endpointFor('custom') === '' 是被测试锁定的契约 —— 故"空即错误"属于消费方。
+    if (endpoint === '') {
+      throw globalThis.createError(
+        globalThis.Errors.NO_ENDPOINT,
+        'Custom region requires an endpoint URL (e.g. ' +
+          `wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference or ${this.getDefaultStreamEndpoint()}).`,
       );
     }
 
@@ -196,13 +234,13 @@ class QwenProvider extends BaseProvider {
           model: streamModel,
           parameters: {
             format: 'pcm',
-            sample_rate: 16000,
+            sample_rate: sampleRate,
             heartbeat: true, // 静音保活，防长时间无语音导致服务端超时断连
           },
           input: {},
         },
       }));
-      track('run-task-sent', { model: streamModel });
+      track('run-task-sent', { model: streamModel, sampleRate });
     };
 
     socket.onmessage = (event) => {

@@ -102,12 +102,27 @@ function bindEvents() {
 }
 
 async function save() {
+  const region = els.region.value;
+  const endpoint = els.endpoint.value.trim();
+
+  // Custom 地域必须有 endpoint：这里不挡的话，region:'custom' + endpoint:'' 会被写进
+  // asrConfig，而 popup 的 resolveEndpoint 对空串会回落到 provider 的默认端点（北京）——
+  // 用户明明选了 Custom 却被静默拨到别的地域，跨地域的 API Key 必然握手 401，且报错
+  // 信息完全指不到这个配置项。Save 是显式动作、有状态条，故在此拒绝。
+  //
+  // 刻意的不对称：popup 的 persistConfig 是 change 驱动的「草稿保存」，**不**做这个
+  // 校验（否则用户还没填完 URL 就丢输入），真正的强制点在 startStreaming 的守卫。
+  if (region === 'custom' && !endpoint) {
+    show('Custom region requires an endpoint URL.', 'error');
+    return;
+  }
+
   try {
     await globalThis.ConfigStore.save({
       provider: els.provider.value,
       apiKey: els.apiKey.value.trim(),
-      region: els.region.value,
-      endpoint: els.endpoint.value.trim(),
+      region,
+      endpoint,
       model: els.model.value.trim(),
     });
     show('Settings saved.', 'success');
