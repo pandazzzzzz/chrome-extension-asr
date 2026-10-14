@@ -13,6 +13,8 @@
  *   - supportsStreaming: 是否支持真 WebSocket 流式
  *   - streamModels:  可用 run-task 的模型白名单（默认空 = 一个都不接受）
  *   - defaultStreamModel: 流式默认模型名
+ *   - sampleRates:   采样率例外表（**只列**非 defaultSampleRate 的模型，如 8k 电话模型）
+ *   - defaultSampleRate: 未列入 sampleRates 的模型所用的 PCM 采样率
  */
 class BaseProvider {
   static id = 'base';
@@ -52,6 +54,39 @@ class BaseProvider {
    * 匹配规则：与白名单项完全相等，或以 `<项>-` 开头（覆盖带日期/规格后缀的快照版本）。
    */
   static streamModels = [];
+
+  /**
+   * 采样率例外表：模型名前缀 → PCM 采样率（Hz）。
+   *
+   * **只列非 `defaultSampleRate` 的模型**（如仅支持 8000 Hz 的电话场景模型）。把全部
+   * 模型都列进来会让前缀匹配依赖 `Object.entries` 的键顺序 —— 例如 `paraformer-realtime`
+   * 与 `paraformer-realtime-8k-v2` 同时入表时，后者能否命中取决于谁先被遍历。只放例外
+   * 则不存在歧义：命中即例外，否则一律默认。
+   */
+  static sampleRates = {};
+
+  /** 未列入 `sampleRates` 的模型所用采样率。 */
+  static defaultSampleRate = 16000;
+
+  /**
+   * 取某个流式模型要求的 PCM 采样率（Hz）。
+   *
+   * 匹配规则与 `isStreamModel` 一致（完全相等，或以 `<键>-` 开头），故带日期后缀的
+   * 快照版本（如 `fun-asr-flash-8k-realtime-2026-01-28`）同样能解析到正确采样率。
+   *
+   * 单一事实源：调用方（UI 建 AudioContext、逐帧重采样）与 provider（run-task 的
+   * `sample_rate`）都用同一个最终模型串调本方法，两侧不可能漂移。
+   *
+   * @param {string} model
+   * @returns {number} 采样率；model 为空时回退 defaultSampleRate
+   */
+  static sampleRateFor(model) {
+    if (!model) return this.defaultSampleRate;
+    for (const [prefix, rate] of Object.entries(this.sampleRates || {})) {
+      if (model === prefix || model.startsWith(`${prefix}-`)) return rate;
+    }
+    return this.defaultSampleRate;
+  }
 
   /**
    * Resolve endpoint for a given region id. Falls back to the first region

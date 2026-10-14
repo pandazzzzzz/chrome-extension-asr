@@ -24,7 +24,7 @@
 | `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式；帧长是调优常量，见 `popup/app.js` 的 `STREAM.frameSize` 与 HANDOFF §5.6） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
-| 构建 / 质量 | 无构建/无 TS；lint 占位；`npm test` = `tests/streaming.test.js`（18）+ `tests/pack.test.js`（5）；冒烟测试 `tests/p1-smoke-test.js`（19，需真 Chrome，未入 CI） | 依赖脚本加载顺序；无类型契约 |
+| 构建 / 质量 | 无构建/无 TS；lint 占位；`npm test` = `tests/streaming.test.js`（24）+ `tests/pack.test.js`（6）；冒烟测试 `tests/p1-smoke-test.js`（19，需真 Chrome，未入 CI） | 依赖脚本加载顺序；无类型契约 |
 | `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen` + **2 个 host_permissions**（dashscope 国内 + 国际）+ **`commands` 3 条**（popup / side panel / options）。**无 `activeTab`**（2026-10-11 移除，实测不承载功能：content 的 host 访问来自 `content_scripts` 的 `<all_urls>`，tabCapture 授权只看 `tabCapture`） | host_permissions 对 `wss://` 无作用（见 README） |
 
 ### 1.2 目标能力
@@ -147,7 +147,7 @@
 # ── 转录层（流式已落地；批量/调度待重建） ───────────────
 ├── transcription/
 │   └── providers/          #  〔已有〕真 WebSocket 流式 provider
-│       ├── base.js         #  〔已有〕流式接口 + 能力元数据（run-task 白名单 + 地域/endpoint）
+│       ├── base.js         #  〔已有〕流式接口 + 能力元数据（run-task 白名单 + 地域/endpoint + 采样率）
 │       ├── qwen.js         #  〔已有〕Qwen (DashScope) run-task 流式
 │       └── index.js        #  〔已有〕provider 注册表
 │   # transcriber.js        #  〔规划〕批量调度（批量/重试/错误标准化，当前不存在）
