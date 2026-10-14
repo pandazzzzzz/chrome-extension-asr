@@ -56,6 +56,51 @@ jobs:
           path: extension.zip
           if-no-files-found: error
 
+  # Commit messages are part of the project's public record, so they are linted
+  # against docs/COMMIT_CONVENTION.md (via commitlint.config.mjs) — the same
+  # rules the local .husky/commit-msg hook enforces. Without this, the convention
+  # would only be checked on machines that ran `npm install`.
+  commitlint:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A range needs history on both ends; the default shallow clone has neither.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # On a PR, lint exactly the commits it adds. github.event.pull_request.base.sha
+      # is used rather than origin/<base_ref> because the base branch may have moved
+      # on since the PR was opened.
+      - name: Lint the commits in this pull request
+        if: github.event_name == 'pull_request'
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.sha }} --verbose
+
+      # The PR title becomes the commit subject when the PR is squash-merged,
+      # so it must satisfy the same rules. Passed via env to avoid shell interpolation.
+      - name: Lint the pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | npx commitlint --verbose
+
+      # On a direct push, lint what the push added. `before` is all zeros for a
+      # brand-new branch, in which case there is no range to walk.
+      - name: Lint the pushed commits
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: npx commitlint --from ${{ github.event.before }} --to ${{ github.sha }} --verbose
+
 # Not covered here (deliberately):
 #   - Browser smoke tests — they load real modules under file:// and need a
 #     Chrome binary. ubuntu-latest ships google-chrome, so this is feasible via

@@ -80,6 +80,11 @@ t('zip 不含 dev-only 文件（package*.json / samples / scripts / .github / �
   assert.deepStrictEqual(bad, [], 'zip 混入 dev-only 文件');
 });
 
+t('zip 不含 commit 工具链（.husky/ 与 commitlint 配置）', () => {
+  const bad = entries.filter((e) => /^\.husky\//.test(e) || /^commitlint\.config\./.test(e));
+  assert.deepStrictEqual(bad, [], 'zip 混入 commit 工具链');
+});
+
 t('zip 保留 LICENSE（法律声明，非 dev 工具）', () => {
   assert.ok(entries.includes('LICENSE'), 'LICENSE 应随分发产物发布');
 });

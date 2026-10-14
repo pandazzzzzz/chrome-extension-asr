@@ -295,6 +295,29 @@ footer 放在 body 之后，**空一行**，每行一条，格式 `Token: value`
 - [ ] 破坏性变更已用 `BREAKING CHANGE:` footer 声明
 - [ ] 关联的 issue 已写入 footer（`Refs:` / `Closes:`）
 
+### 自动校验
+
+本规范**已可执行**，不靠自觉：
+
+| 位置 | 机制 |
+|---|---|
+| 本地提交 | `.husky/commit-msg` → 跑 `commitlint --edit`，不合规直接拒绝提交 |
+| CI（PR） | 校验该 PR 新增的提交**与 PR 标题**（squash 合并时标题会成为 commit subject） |
+| CI（push） | 校验本次推送新增的提交 |
+
+规则配置在 [`commitlint.config.mjs`](../commitlint.config.mjs)，与本文档逐条对应。
+
+```sh
+npm install              # 装依赖时会自动装上钩子（husky 的 prepare 脚本）
+npm run lint:commit      # 手动检查当前分支相对 origin/main 的提交
+```
+
+**例外**：`Merge …`、`Revert …`、`fixup!`、`squash!` 与纯版本号消息由 commitlint 默认跳过
+（`defaultIgnores`），因为它们是 git 生成的，不适用本规范。
+
+> 校验范围只覆盖 `feat`/`fix`/… 这类**格式**要求。§7 的写作约定（祈使语气、body 讲「为什么」）
+> 无法自动检测，仍由 code review 把关。
+
 ---
 
 ## 9. 常见问题
@@ -336,3 +359,4 @@ GitHub 的 PR 合并提交（`Merge pull request #N from …`）由平台生成�
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — 贡献流程与提交前缀速查
 - [`AGENTS.md`](../AGENTS.md) — 面向 AI 编码代理的仓库约定
 - [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) — 本规范的上游约定
+- [`commitlint.config.mjs`](../commitlint.config.mjs) — 本规范的可执行版本（含与上游默认配置的偏离说明）

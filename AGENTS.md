@@ -99,6 +99,11 @@ The full spec is **[`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)** �
 - **No scope parentheses** (`feat(popup): …`) and **no `!`** (`feat!: …`); put the area in the title and declare breaking changes with a `BREAKING CHANGE:` footer.
 - Imperative mood, no trailing period on the title.
 
+Enforced, not just documented: `commitlint.config.mjs` + `.husky/commit-msg` reject non-conforming
+messages at commit time, and CI lints both the commits in a PR and the PR title (which becomes the
+squash-merge subject). `Merge …` / `Revert …` / `fixup!` / `squash!` are skipped by commitlint's
+`defaultIgnores`. Run `npm run lint:commit` to check a branch locally.
+
 PR checklist:
 - Clear summary of behavior changes.
 - Linked issue (for bugs/features).
