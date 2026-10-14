@@ -74,6 +74,10 @@ cannot silently drift from its region.
 
 > 提交前请对照规范末尾的[自检清单](docs/COMMIT_CONVENTION.md#8-提交前自检)。
 
+**自动校验**：`npm install` 会装上 husky 钩子，提交信息不合规会**直接拒绝提交**；
+CI 另会校验 PR 内的提交与 PR 标题。规则见 `commitlint.config.mjs`，
+本地可用 `npm run lint:commit` 手动检查。
+
 ## 开发流程
 
 1. 克隆仓库

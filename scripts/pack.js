@@ -68,6 +68,11 @@ const EXCLUDE = [
   /^scripts\//,
   /^\.editorconfig$/,
   /^\.prettierrc$/,
+  // Commit-message tooling: husky hooks, the commitlint config, and the
+  // .gitattributes/.gitignore-style dotfiles that only matter in a checkout.
+  // None of it is loaded by the extension at runtime.
+  /^\.husky\//,
+  /^commitlint\.config\./,
   // Any-depth: these are repo/dev docs, never shipped (icons/README.md included).
   /(^|\/)README\.md$/,
   // Secrets & logs. These are normally caught by .gitignore, but
