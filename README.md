@@ -50,7 +50,9 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 ## Tests
 
 `npm test` runs the Node unit tests: `tests/streaming.test.js` (PCM helpers
-`floatToInt16` / `resampleFloat32` and the streaming provider contract) and
+`floatToInt16` / `resampleFloat32` and the streaming provider contract),
+`tests/config.test.js` (`ConfigStore.save` merge semantics and the apiKey
+encrypt/clear boundary, via in-memory `chrome.storage` mocks), and
 `tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and
 no dev-only/agent artifacts). No browser or network needed.
 

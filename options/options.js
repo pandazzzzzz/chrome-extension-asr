@@ -118,12 +118,16 @@ async function save() {
   }
 
   try {
+    // 只提交本页实际编辑的字段。`subtitles` / `audioInput` 在本页无控件，故不提交 ——
+    // ConfigStore.save 是 merge 语义（issue #19），未传字段保持原值，不会被这次保存抹掉。
+    // `audioType` 本页有控件（applyToUI 回填过），故读它一并提交，用户在此改的格式能落盘。
     await globalThis.ConfigStore.save({
       provider: els.provider.value,
       apiKey: els.apiKey.value.trim(),
       region,
       endpoint,
       model: els.model.value.trim(),
+      audioType: els.audioType.value,
     });
     show('Settings saved.', 'success');
     await refreshStorageStatus();

@@ -39,12 +39,21 @@ globalThis.ConfigStore = (() => {
 
   /**
    * 保存配置；apiKey 加密后存储，其余偏好明文。
-   * @param {{provider?:string, endpoint?:string, model?:string, audioType?:string, apiKey?:string}} config
+   *
+   * **merge 语义（issue #19）**：`chrome.storage.local.set` 对 `asrConfig` 键是整对象
+   * 替换，而各写入方提交的字段集并不一致 —— popup/sidepanel 的 `persistConfig` 提交全部
+   * 8 个字段，options 的 Save 只提交它自己编辑的那几个。若 save 直接替换，options 的一次
+   * 保存就会把 `audioType/subtitles/audioInput` 抹掉（回默认）。故这里先读回已存对象、
+   * 把传入字段覆盖其上再写回：**没传的字段保持原值**。apiKey 是例外 —— 传空串视为清除
+   * （显式动作），传值则加密覆盖。
+   *
+   * @param {{provider?:string, region?:string, endpoint?:string, model?:string, audioType?:string, subtitles?:boolean, audioInput?:string, apiKey?:string}} config
    */
   async function save(config) {
     const { apiKey = '', ...prefs } = config;
     const encKey = apiKey ? await globalThis.CryptoStore.encrypt(apiKey) : '';
-    await chrome.storage.local.set({ [CONFIG_KEY]: { ...prefs, apiKey: encKey } });
+    const { [CONFIG_KEY]: existing = {} } = await chrome.storage.local.get(CONFIG_KEY);
+    await chrome.storage.local.set({ [CONFIG_KEY]: { ...existing, ...prefs, apiKey: encKey } });
   }
 
   return { load, save };
