@@ -1100,6 +1100,11 @@ function applyConfigToUI(config) {
   // syncAudioInputOptions 在下次枚举时回退到默认。
   selectedAudioInput = config.audioInput || '';
   if (els.audioInputSelect) els.audioInputSelect.value = selectedAudioInput;
+
+  // 音频格式：此前 persistConfig 会存 audioType、gatherElements 也取了控件，但
+  // applyConfigToUI 从不回填它 → 重开 popup/sidepanel 后 UI 恒显示 HTML 默认 webm，
+  // 与 storage 里的实际值不符（issue #19 的 Expected 明确要求 audioType 保留）。
+  if (els.audioTypeSelect) els.audioTypeSelect.value = config.audioType || 'audio/webm';
   // If model is empty, fill with provider default
   if (!els.modelInput.value) {
     const provider = getCurrentProvider();
