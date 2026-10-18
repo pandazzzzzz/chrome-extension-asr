@@ -154,7 +154,11 @@
 
 ## 6. 失败时怎么取证
 
-诊断页（`node tests/serve-debug.js`）会实时显示扩展遥测事件。出问题时按事件名定位：
+诊断页（`node tests/serve-debug.js`）会实时显示扩展遥测事件，面板顶部可按事件名过滤
+（输入 `ws-` / `record-` / `tab-` 只看一条路径）。事件名来自 `popup/app.js` 的 `debugEvt()`
+与 provider 的 `track()`，共约 60 个；下表按**功能路径**分组列出排查时真正用得上的。
+
+**① Live Stream / WebSocket（流式主路径）**
 
 | 现象 | 关键事件 | 含义 |
 |---|---|---|
@@ -164,12 +168,53 @@
 | 卡在等待 | `ws-ready-fail` / `ready-timeout` | 10s 内未收到 `task-started` |
 | 模型被换 | `model-fallback` | 填了批量模型，已自动兜底 |
 | 采样率不符 | `run-task-sent` + `sampleRate` | 该值 = run-task 实际声明的 `sample_rate`（8k 电话模型应为 `8000`，其余 `16000`） |
+| 服务端拒绝任务 | `task-failed` | 报文里带 `error_message`，多为模型名/地域与 Key 不匹配 |
 | 停止异常 | `stop-ws-error` | 关闭时 WebSocket 报错（teardown 仍应完成） |
 | 结果丢失 | `ws-end-stale` | 旧会话残留的 `onEnd` 被正确忽略（**正常**） |
 | 提前结束 | `ws-ended-before-active` / `ws-ended-before-capture` | 启动期服务端就断开 |
-| 字幕没出现 | `subtitle-error` + `code` | 浮层消息转发失败（`NO_CONTENT`=页面无 content script，如 `chrome://`） |
+| 静音时断连 | `heartbeat`（有）/ 无该事件（无） | 持续静音应周期性出 `heartbeat`；完全没有 = 心跳包未生效 |
+| 收尾是否干净 | `teardown` + `hasCapture`/`hasWs`/`hasStream`/`hasContext` | 四项应全 `false`；某个 `true` = 该资源未释放（泄漏） |
 
-诊断页底部有**导出日志 (.txt)** 按钮，便于附到 issue。
+**② 麦克风录音 / 输入设备（清单 §2、§2b）**
+
+| 现象 | 关键事件 | 含义 |
+|---|---|---|
+| 开始录音失败 | `record-error` + `where: 'start'` | `getUserMedia` 被拒 / 设备不可用（看 `message`） |
+| 录音没声音/时长异常 | `record-stopped` + `size`/`mime` | `size` 为 0 = 采到空数据 |
+| 选的设备没生效 | `mic-open` + `deviceId` | `default` = 未指定设备；填了设备却显示 `default` = 该设备已拔出，走了回退 |
+| 设备消失 | `audio-input-fallback` + `reason` | `selected-device-gone`（枚举不到）/ `device-unavailable`（打开失败）——均为**预期回退**，非 bug |
+| 保存音频 | `audio-saved` + `size`/`mime` | 有该事件但用户没看到下载 = 浏览器下载被拦 |
+
+**③ 标签页录音（清单 §3）**
+
+| 现象 | 关键事件 | 含义 |
+|---|---|---|
+| 启动失败 | `tab-record-error` + `where: 'start'` | `tabCapture` 无授权 / offscreen 不可达 |
+| 重开 popup 后按钮态错 | `tab-record-restored` | popup 从 background 对齐到「正在录音」——有它说明状态同步生效 |
+| 停止后没拿到音频 | `tab-record-stopped` + `size`/`mime` | `size: 0` = offscreen 返回空 Blob |
+
+**④ 配置与存储（清单 §5）**
+
+| 现象 | 关键事件 | 含义 |
+|---|---|---|
+| 打开 popup 就异常 | `popup-ready` + `provider`/`model`/`hasKey`/`hasEndpoint` | 配置载入后的初始快照；`hasKey:false` = Key 没读回来 |
+| 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`subtitles`/`audioInput`/`hasKey` | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 记原值（看得出是不是 `https://` 批量残留） |
+| Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
+| 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
+| 历史没记上 | `history-saved` + `len` | 无该事件 = `saveToHistory` 未触发（清单 1.8 的失败含义） |
+
+**⑤ 结果动作与字幕（清单 §4、§4b）**
+
+| 现象 | 关键事件 | 含义 |
+|---|---|---|
+| 字幕没出现 | `subtitle-error` + `code` | 浮层消息转发失败（`NO_CONTENT`=页面无 content script，如 `chrome://`） |
+| 注入没生效 | `fill-ok` / `fill-error` + `code` | `fill-error` 带 `NO_FIELD` = 活动元素不是可编辑字段（看诊断面板「活动元素」） |
+| 复制失败 | `copy-ok` / `copy-error` | `copy-error` 多为页面未获焦（clipboard 需焦点） |
+
+> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app.js` 的 `debugEvt(...)` 调用点为准。
+
+诊断页底部有**导出日志 (.txt)** 按钮，导出含「扩展遥测」与「fill-text 注入」两段，便于附到 issue。
+长跑时事件列表有 **2000 条上限**（超出丢最早的，导出同样截断并在段头标注）——取证请尽早导出。
 
 ---
 

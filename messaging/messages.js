@@ -2,7 +2,7 @@
  * Messages — 跨上下文消息契约定义。
  *
  * 消息统一形如:
- *   { type: 'asr:transcribe', payload: { ... }, requestId: '...', target?: 'background' | 'offscreen' }
+ *   { type: 'asr:fill-text', payload: { ... }, requestId: '...', target?: 'background' | 'offscreen' }
  *
  * - type:      'asr:' 命名空间 + 动作名
  * - payload:   动作专属参数
