@@ -41,13 +41,16 @@
 </head>
 <body>
 <h1>ASR 扩展 — 流式诊断页</h1>
-<p class="muted">本页用于配合扩展进行 Live Stream / Record Tab / Fill into page 的端到端调试。
+<p class="muted">本页用于配合扩展做端到端调试：<b>Live Stream</b>（含字幕浮层）、<b>Record Tab</b>、
+<b>麦克风录音</b>、<b>Fill into page</b>、<b>配置保存</b> 都会把遥测事件转发到这里。
 内置样例视频供 Record Tab 采集；监听可编辑字段接收 fill-text 注入并记日志；
 实时诊断焦点与字段状态；可一键导出日志贴给开发。</p>
 
 <div class="hint">
   <b>用法</b>：① 打开扩展 popup，选好 Qwen + API Key ② 点这个页面里的输入框获得焦点 ③ 回 popup 点
-  <b>Live Stream</b> 或 <b>Record Tab</b> ④ 边说边看这里：fill-text 注入会即时显示在日志区，焦点/字段诊断面板能看出注入是否生效。
+  <b>Live Stream</b> / <b>Record Tab</b> / <b>Start Recording</b> ④ 边说边看这里：fill-text 注入会即时显示在日志区，焦点/字段诊断面板能看出注入是否生效，
+  上方的<b>实时事件</b>面板则显示扩展内部走到哪一步（`ws-connecting` → `task-started` → `result` …）。
+  <br>面板顶部可<b>按事件名过滤</b>（如输入 <code>ws-</code> 只看连接相关），长跑时旧事件会被滚动丢弃（上限 2000 条）。
 </div>
 
 <div class="row">
@@ -82,9 +85,12 @@
   <div class="row" style="margin-bottom:8px;">
     <button id="clearEvtBtn">清空事件</button>
     <label class="muted" style="margin-left:8px;align-self:center;"><input type="checkbox" id="evtAutoscroll" checked> 自动滚动</label>
+    <input id="evtFilter" type="text" placeholder="按事件名过滤（如 ws-、result、start-）" style="max-width:260px;">
     <span id="evtConn" class="muted" style="align-self:center;">未连接</span>
   </div>
   <div id="evtLog" class="log"></div>
+  <p class="muted" style="margin-top:8px;">事件总数 <span id="evtCount">0</span>（上限 2000 条，超出丢弃最早的 —— 长跑时 `pcm-stats` 等高频事件会占满列表）。
+  过滤只影响显示，导出仍包含全部已记录事件。</p>
   <p class="muted" style="margin-top:8px;">扩展 popup/sidepanel 的打点经 content script（debug/bridge.js）转发到这里。
   <b>必须用 http:// 打开本页</b>（content script 不注入 file://）。起服务：<code>node tests/serve-debug.js</code> 后访问
   <code>http://localhost:18923/tests/stream-debug.html</code>。</p>
@@ -115,7 +121,26 @@
   const evtLog = document.getElementById('evtLog');
   const evtAutoscroll = document.getElementById('evtAutoscroll');
   const evtConn = document.getElementById('evtConn');
-  const evtEntries = []; // {ts, phase, detail}
+  const evtFilter = document.getElementById('evtFilter');
+  const evtCount = document.getElementById('evtCount');
+  const evtEntries = []; // {ts, phase, detail, el}
+  let evtTotal = 0;       // 累计收到的事件数（不受上限影响，用于状态显示）
+
+  // 上限：长跑时 pcm-stats 每秒 1 条 + 每句 partial/final，几分钟就上千行。
+  // 超出后丢弃最早的一条（同时移除其 DOM 节点），避免列表无限膨胀拖慢页面。
+  const EVT_MAX = 2000;
+
+  function evtMatches(phase) {
+    const q = evtFilter.value.trim().toLowerCase();
+    return !q || String(phase).toLowerCase().includes(q);
+  }
+
+  // 过滤变化时按当前输入重放可见性（不做 DOM 重建：每个 entry 记住自己的节点）
+  function applyEvtFilter() {
+    for (const e of evtEntries) {
+      if (e.el) e.el.style.display = evtMatches(e.phase) ? '' : 'none';
+    }
+  }
 
   function renderEvt(phase, detail) {
     const d = new Date();
@@ -127,9 +152,17 @@
       ? ' ' + JSON.stringify(detail).slice(0, 120)
       : '';
     line.innerHTML = `<span class="ts">${ts}</span> <b>${escapeHtml(phase)}</b>${escapeHtml(detailStr)}`;
+    if (!evtMatches(phase)) line.style.display = 'none';
     evtLog.appendChild(line);
     if (evtAutoscroll.checked) evtLog.scrollTop = evtLog.scrollHeight;
-    evtEntries.push({ ts, phase, detail });
+    const entry = { ts, phase, detail, el: line };
+    evtEntries.push(entry);
+    evtTotal++;
+    while (evtEntries.length > EVT_MAX) {
+      const dropped = evtEntries.shift();
+      if (dropped.el && dropped.el.parentNode) dropped.el.parentNode.removeChild(dropped.el);
+    }
+    evtCount.textContent = String(evtEntries.length);
   }
 
   // 接收 bridge 转发的遥测：只认可信 origin（本页 http://localhost 或同源 file://）
@@ -156,7 +189,8 @@
       evtConn.textContent = '⚠ 订阅心跳超时（>75s 无 ack，background 可能不可达）';
       evtConn.style.color = 'var(--err)';
     } else {
-      evtConn.textContent = `已订阅（心跳 ${Math.round(age / 1000)}s 前 · 收到 ${evtEntries.length} 条）`;
+      // 用累计计数而非 evtEntries.length：后者受 EVT_MAX 上限封顶，长跑时会停在 2000 不再增长。
+      evtConn.textContent = `已订阅（心跳 ${Math.round(age / 1000)}s 前 · 累计 ${evtTotal} 条）`;
       evtConn.style.color = '';
     }
   }
@@ -177,8 +211,12 @@
   document.getElementById('clearEvtBtn').addEventListener('click', () => {
     evtLog.innerHTML = '';
     evtEntries.length = 0;
+    evtTotal = 0; // 清空 = 重新计数，避免状态栏显示"累计 N 条"却看不到任何行
+    evtCount.textContent = '0';
     connLabel();
   });
+
+  evtFilter.addEventListener('input', applyEvtFilter);
 
   // 检测当前协议，提示用户正确的打开方式
   if (location.protocol === 'file:') {
@@ -307,7 +345,7 @@
     const evtLines = evtEntries.map((e) => `${e.ts}  [${e.phase}]  ${redact(JSON.stringify(e.detail ?? {}))}`);
     const fillLines = entries.map((e) => `${e.ts}  [${e.type}]  ${redact(e.text)}${e.detail ? '  ' + redact(e.detail) : ''}`);
     const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n\n`
-      + `==== 扩展遥测（${evtLines.length} 条）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}\n\n`
+      + `==== 扩展遥测（${evtLines.length} 条${evtEntries.length >= EVT_MAX ? '，已达上限 2000，更早的已丢弃' : ''}）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}\n\n`
       + `==== fill-text 注入日志（${fillLines.length} 条）====\n${fillLines.join('\n') || '(无)'}`;
     const a = document.createElement('a');
     a.href = blobUrl(text);
