@@ -54,7 +54,10 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 `tests/config.test.js` (`ConfigStore.save` merge semantics and the apiKey
 encrypt/clear boundary, via in-memory `chrome.storage` mocks), and
 `tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and
-no dev-only/agent artifacts). No browser or network needed.
+no dev-only/agent artifacts), and `tests/serve-debug.test.js` (the diagnostics
+server serves only `tests/`+`samples/`, blocks path traversal, rejects a
+non-loopback `Host` header, and exits cleanly when its port is taken).
+No browser or network needed.
 
 For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
 the real modules and checks crypto, config, messaging and error helpers; the
@@ -63,7 +66,10 @@ the extension CSP).
 
 For streaming diagnostics, run `node tests/serve-debug.js` and open
 `http://localhost:18923/tests/stream-debug.html`. Pass a port to override the
-default: `node tests/serve-debug.js 19150`.
+default: `node tests/serve-debug.js 19150`. The server binds to loopback only,
+serves just `tests/` and `samples/` (so `.env.local`, `.git/`, `docs/` and
+`temp/` are never reachable over HTTP), and rejects any non-loopback `Host`
+header.
 
 ## License
 
