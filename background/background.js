@@ -317,10 +317,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const { type, payload, target } = request || {};
 
   // 诊断页订阅/退订：content 桥（debug/bridge.js）在诊断页装载时登记本 tab id，
-  // 离开/关闭时退订。订阅集合存内存，worker 重启会清空 —— 桥在 focus/pageshow 时重发自愈。
+  // 离开/关闭时退订。订阅集合存内存，worker 重启会清空 —— 桥靠 focus/pageshow +
+  // 15s 低频重发自愈（见 debug/bridge.js）。subscribe 回响应：桥据此把「订阅链路
+  // 是否活着」转给页面，面板显示真实状态而非陈旧计数（SW 冷启时第一条订阅会唤醒
+  // worker 并得到响应，即天然的心跳）。
   if (type === globalThis.MESSAGES.DEBUG_SUBSCRIBE && sender?.tab?.id != null) {
     debugSubscribers.add(sender.tab.id);
-    return false;
+    sendResponse({ ok: true });
+    return true; // 保留通道，页面才能观察到送达（fire-and-forget 会吞掉 lastError）
   }
   if (type === globalThis.MESSAGES.DEBUG_UNSUBSCRIBE && sender?.tab?.id != null) {
     debugSubscribers.delete(sender.tab.id);
