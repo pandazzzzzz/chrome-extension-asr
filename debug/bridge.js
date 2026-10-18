@@ -76,7 +76,14 @@
   function subscribe() {
     chrome.runtime.sendMessage(
       { type: subscribeType, target: bgTarget },
-      () => { void chrome.runtime.lastError; },
+      (response) => {
+        if (chrome.runtime.lastError) return; // background 暂不可达 —— 下个 tick 重试
+        // background 对订阅回 {ok:true}：把它转给页面做「订阅心跳」，面板据此显示
+        // 真实连接状态（而不是只在收到事件时才亮 —— 空闲 ≠ 断连，旧文案会误导）。
+        if (response && response.ok) {
+          window.postMessage({ type: 'asr:debug-sub-ack', at: Date.now() }, location.origin);
+        }
+      },
     );
   }
   function unsubscribe() {
@@ -89,4 +96,11 @@
   window.addEventListener('focus', subscribe);
   window.addEventListener('pageshow', subscribe);
   window.addEventListener('pagehide', unsubscribe);
+  // MV3 SW 空闲 ~30s 被回收，background 的 debugSubscribers 是 SW 内存 Set → 重启即清空。
+  // 光靠 focus/pageshow 自愈不够：典型手测流程是诊断页开在后台、焦点一直在 popup，
+  // 页面永不重获焦点，SW 一重启遥测就永久丢失（面板还显示着陈旧的「已连接」）。
+  // 低频重发订阅兜底：DEBUG_SUBSCRIBE 是 Set.add（幂等），订阅方是 localhost 诊断页
+  // （仅开发期打开），常驻一个 15s 定时器可接受；background 在 SW 冷启时会重新收到
+  // 订阅，丢事件窗口被压到一个 tick 内。
+  setInterval(subscribe, 15000);
 })();
