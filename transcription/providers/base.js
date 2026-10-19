@@ -12,6 +12,7 @@
  *   - hasEndpoint:   是否需要 endpoint URL
  *   - supportsStreaming: 是否支持真 WebSocket 流式
  *   - streamModels:  可用 run-task 的模型白名单（默认空 = 一个都不接受）
+ *   - modelOptions:  模型下拉的预置选项（白名单的子集；末项 `model:''` = Custom）
  *   - defaultStreamModel: 流式默认模型名
  *   - sampleRates:   采样率例外表（**只列**非 defaultSampleRate 的模型，如 8k 电话模型）
  *   - defaultSampleRate: 未列入 sampleRates 的模型所用的 PCM 采样率
@@ -54,6 +55,23 @@ class BaseProvider {
    * 匹配规则：与白名单项完全相等，或以 `<项>-` 开头（覆盖带日期/规格后缀的快照版本）。
    */
   static streamModels = [];
+
+  /**
+   * 模型下拉的**预置选项**（`{ model, label }`，最后一项 `model: ''` = Custom）。
+   *
+   * 与 `streamModels` 的关系：**这是白名单的子集，不是它的替代品**。
+   * - `streamModels` 是协议层的权威（`isStreamModel` 据此放行 run-task），必须保持完整；
+   * - `modelOptions` 只是 UI 便利：把用户最可能选的几个摆出来，其余模型仍可通过
+   *   Custom 手填（填了照样过白名单校验）。故**新增白名单模型不必同时加进这里**。
+   *
+   * label **只描述稳定属性**（采样率、场景），**不要写额度/价格** —— 免费额度按月重置、
+   * 会耗尽也会恢复（`bl usage free` 查），写进 label 必然过期并误导用户。
+   *
+   * 空 `model` 是 Custom 哨兵，与 `regions` 里 `custom` 项 `endpoint: ''` 同构：
+   * 具体值由 UI 的文本框收集。基类为空数组 —— 无预置选项的 provider 由 UI 退化成
+   * 纯文本框（见 popup/app.js 的 populateModelOptions）。
+   */
+  static modelOptions = [];
 
   /**
    * 采样率例外表：模型名前缀 → PCM 采样率（Hz）。
@@ -114,6 +132,39 @@ class BaseProvider {
   static isStreamModel(model) {
     if (!model) return false;
     return this.streamModels.some((m) => model === m || model.startsWith(`${m}-`));
+  }
+
+  /**
+   * 把「已保存的模型串」映射成模型下拉的选中项 —— popup/sidepanel 与 options 共用，
+   * 保证两个页面对同一个配置渲染出一致的下拉状态（否则会出现「popup 显示预置项、
+   * options 显示 Custom」这种对不上的情况）。
+   *
+   * 规则：
+   *   - 空值 → 用 `defaultStreamModel`（未声明默认则落到 Custom 且文本框留空）；
+   *   - 命中某个预置项（**完全相等**，不做前缀匹配）→ 选中该项，`customText` 为空；
+   *   - 未命中（如带日期后缀的快照 `fun-asr-realtime-2026-02-28`、或已不在预置里的
+   *     `fun-asr-realtime`）→ 选中 Custom，原文放进文本框。
+   *
+   * **刻意不校验 `isStreamModel`**：这里只负责"怎么显示用户存的东西"，静默改写会丢
+   * 用户数据（与 applyConfigToUI 里 `legacy-endpoint-kept` 的取舍一致）。填了非白名单
+   * 模型由 `startStreaming` 的 `model-fallback` 处理。
+   *
+   * @param {string} model 已保存的模型名（可为空）
+   * @returns {{value: string, customText: string}} value='' 表示选中 Custom 哨兵
+   */
+  static modelSelectionFor(model) {
+    const saved = String(model || '').trim();
+    const options = this.modelOptions || [];
+    if (!saved) {
+      const fallback = String(this.defaultStreamModel || '').trim();
+      if (!fallback) return { value: '', customText: '' };
+      return options.some((o) => o.model === fallback)
+        ? { value: fallback, customText: '' }
+        : { value: '', customText: fallback };
+    }
+    return options.some((o) => o.model === saved)
+      ? { value: saved, customText: '' }
+      : { value: '', customText: saved };
   }
 
   /**

@@ -73,12 +73,79 @@ const Q = globalThis.QwenProvider;
 t('Qwen: 流式能力元数据正确', () => {
   assert.strictEqual(Q.id, 'qwen');
   assert.strictEqual(Q.supportsStreaming, true);
-  assert.strictEqual(Q.defaultStreamModel, 'fun-asr-realtime');
+  // 默认模型改为 qwen-audio-3.1-asr-flash-streaming（fun-asr-realtime 免费额度已耗尽）。
+  // 这里只锁**结构性**约束（默认非空、在白名单内、16 kHz），不锁具体名字 —— 换默认属
+  // 产品决策（额度会变），锁死名字会让每次调整都得改测试。
+  assert.ok(Q.defaultStreamModel, 'defaultStreamModel 不得为空');
+  assert.ok(Q.isStreamModel(Q.defaultStreamModel), '默认模型必须在 streamModels 白名单内');
+  assert.strictEqual(Q.sampleRateFor(Q.defaultStreamModel), 16000,
+    '默认模型应为 16 kHz（与 AudioContext 默认率一致，走 identity 重采样零开销）');
   assert.ok(Array.isArray(Q.streamModels) && Q.streamModels.length > 0);
   assert.strictEqual(typeof Q.getDefaultStreamEndpoint(), 'string');
   assert.ok(Q.getDefaultStreamEndpoint().startsWith('wss://'));
   assert.ok(Q.getDefaultStreamEndpoint().endsWith('/api-ws/v1/inference'));
   assert.strictEqual(Q.defaultSampleRate, 16000);
+});
+
+// --- modelOptions（模型下拉预置项）与 modelSelectionFor（配置 → 下拉选中态）---
+t('Qwen.modelOptions: 形状正确 —— 每项有 label，末项是 Custom 哨兵', () => {
+  const opts = Q.modelOptions;
+  assert.ok(Array.isArray(opts) && opts.length >= 2, '至少要有一个预置项 + Custom');
+  for (const o of opts) {
+    assert.strictEqual(typeof o.model, 'string');
+    assert.ok(typeof o.label === 'string' && o.label.trim(), '每项都要有非空 label（下拉显示用）');
+  }
+  assert.strictEqual(opts[opts.length - 1].model, '',
+    '末项必须是 Custom（model 为空哨兵，与 regions 的 custom 项同构）');
+  // 预置项（除 Custom）必须都是真白名单模型 —— 否则下拉里摆一个选了就被回落的模型
+  for (const o of opts.slice(0, -1)) {
+    assert.ok(Q.isStreamModel(o.model), `modelOptions 里的 "${o.model}" 不在 streamModels 白名单内`);
+  }
+  // label 不得写额度/价格：免费额度按月重置、会耗尽也会恢复，写进 label 必然过期误导用户
+  for (const o of opts) {
+    assert.ok(!/免费|额度|价格|剩余|free|quota|pricing/i.test(o.label),
+      `label 含额度/价格字样（会过期）：${o.label}`);
+  }
+  // 默认模型必须能在下拉里直接选中，否则新用户的默认值会以 Custom 态呈现
+  assert.ok(opts.some((o) => o.model === Q.defaultStreamModel),
+    `defaultStreamModel "${Q.defaultStreamModel}" 不在 modelOptions 里，新用户默认会落到 Custom`);
+});
+
+t('modelSelectionFor: 预置项 → 直接选中，customText 为空', () => {
+  const preset = Q.modelOptions.find((o) => o.model).model;
+  assert.deepStrictEqual(Q.modelSelectionFor(preset), { value: preset, customText: '' });
+});
+
+t('modelSelectionFor: 空值 → 落到 defaultStreamModel（不是 Custom 空态）', () => {
+  const sel = Q.modelSelectionFor('');
+  assert.strictEqual(sel.value, Q.defaultStreamModel, '空配置应选中默认模型');
+  assert.strictEqual(sel.customText, '', '默认模型在预置里，不需要手填');
+  assert.deepStrictEqual(Q.modelSelectionFor(undefined), sel, 'undefined 同空值');
+  assert.deepStrictEqual(Q.modelSelectionFor('   '), sel, '空白串同空值');
+});
+
+t('modelSelectionFor: 白名单内但未预置的模型 → Custom + 原文保留（不改写用户数据）', () => {
+  // fun-asr-realtime 仍在 streamModels 白名单（Custom 手填照样可用），只是不再预置
+  assert.ok(Q.isStreamModel('fun-asr-realtime'), '前置：它确实还在白名单里');
+  assert.ok(!Q.modelOptions.some((o) => o.model === 'fun-asr-realtime'), '前置：它不在预置里');
+  assert.deepStrictEqual(Q.modelSelectionFor('fun-asr-realtime'),
+    { value: '', customText: 'fun-asr-realtime' });
+  // 带日期后缀的快照版本同样走 Custom（isStreamModel 前缀匹配放行，下拉不预置）
+  assert.deepStrictEqual(Q.modelSelectionFor('fun-asr-flash-8k-realtime-2026-01-28'),
+    { value: '', customText: 'fun-asr-flash-8k-realtime-2026-01-28' });
+  // 刻意不校验 isStreamModel：非白名单值也原样进文本框，由 startStreaming 的
+  // model-fallback 处理，而不是在渲染时静默改写
+  assert.deepStrictEqual(Q.modelSelectionFor('qwen3-asr-flash-realtime'),
+    { value: '', customText: 'qwen3-asr-flash-realtime' });
+});
+
+t('BaseProvider.modelOptions: 基类为空数组，无预置时退化为纯 Custom', () => {
+  const B = globalThis.BaseProvider;
+  assert.deepStrictEqual(B.modelOptions, [], '基类不应预置任何模型');
+  // 空 modelOptions + 空 defaultStreamModel → Custom 态且文本框留空
+  assert.deepStrictEqual(B.modelSelectionFor(''), { value: '', customText: '' });
+  // 保存过的值仍要原样回填到文本框（不能因为没预置就丢）
+  assert.deepStrictEqual(B.modelSelectionFor('some-model'), { value: '', customText: 'some-model' });
 });
 t('Qwen.isStreamModel: 只放行 run-task 白名单（含快照后缀）', () => {
   assert.strictEqual(Q.isStreamModel('fun-asr-realtime'), true);
@@ -295,6 +362,30 @@ t('注册表: 只含支持流式的 provider，且都实现了 createStreamSessi
     for (const key of Object.keys(p.sampleRates || {})) {
       assert.ok(p.isStreamModel(key), `${p.id}: sampleRates 的键 "${key}" 不在 streamModels 白名单内`);
     }
+    // modelOptions（模型下拉预置项）的不变量：
+    assert.ok(Array.isArray(p.modelOptions), p.id + ' 缺 modelOptions');
+    for (const o of p.modelOptions) {
+      // 非 Custom 项必须是真的白名单模型 —— 否则下拉里摆了个选了就被 model-fallback 换掉的模型
+      if (o.model) {
+        assert.ok(p.isStreamModel(o.model), `${p.id}: modelOptions 的 "${o.model}" 不在白名单内`);
+        assert.ok(p.sampleRateFor(o.model) > 0, `${p.id}: "${o.model}" 解析不到有效采样率`);
+      }
+      assert.ok(typeof o.label === 'string' && o.label.trim(), `${p.id}: modelOptions 项缺 label`);
+    }
+    // Custom 哨兵（空 model）最多一个，且必须在末位 —— UI 靠"下拉值为空"判定 Custom 态
+    const customs = p.modelOptions.filter((o) => !o.model);
+    assert.ok(customs.length <= 1, p.id + ': modelOptions 出现多个空 model（Custom 哨兵）');
+    if (customs.length) {
+      assert.strictEqual(p.modelOptions[p.modelOptions.length - 1].model, '',
+        p.id + ': Custom 项应在末位');
+    }
+    // 默认模型必须可直接选中，否则新用户打开就看到"Custom + 一个模型名"而非预置项
+    assert.ok(p.modelOptions.some((o) => o.model === p.defaultStreamModel),
+      `${p.id}: defaultStreamModel "${p.defaultStreamModel}" 不在 modelOptions 里`);
+    // modelSelectionFor 是 popup 与 options 共用的映射，两侧必须同构
+    assert.strictEqual(typeof p.modelSelectionFor, 'function', p.id + ' 缺 modelSelectionFor');
+    assert.deepStrictEqual(p.modelSelectionFor(p.defaultStreamModel),
+      { value: p.defaultStreamModel, customText: '' }, p.id + ': 默认模型应直接选中');
   });
   assert.ok(list.includes(Q), '注册表应含 QwenProvider');
 });

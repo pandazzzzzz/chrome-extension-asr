@@ -27,6 +27,8 @@ function gatherElements() {
   els.region = document.getElementById('region');
   els.audioType = document.getElementById('audioType');
   els.model = document.getElementById('model');
+  els.modelCustom = document.getElementById('modelCustom');
+  els.modelCustomRow = document.getElementById('modelCustomRow');
   els.saveBtn = document.getElementById('saveBtn');
   els.clearHistoryBtn = document.getElementById('clearHistoryBtn');
   els.exportHistoryBtn = document.getElementById('exportHistoryBtn');
@@ -57,7 +59,11 @@ function applyToUI(config) {
   els.apiKey.value = config.apiKey || '';
   els.endpoint.value = config.endpoint || '';
   els.audioType.value = config.audioType || 'audio/webm';
-  els.model.value = config.model || '';
+  // 模型下拉：选项来自当前 provider 的 modelOptions，再把保存的模型映射成
+  // 「预置项 / Custom+手填」。与 popup/app.js 的 applyConfigToUI 用同一个
+  // modelSelectionFor，保证两页对同一配置渲染一致。
+  const modelProvider = providers.find((p) => p.id === els.provider.value) || providers[0];
+  populateModels(modelProvider, config.model);
 
   // Region 下拉：选项来自当前 provider；老配置无 region 时，若存了 endpoint 则归 custom。
   populateRegions(els.provider.value, config.region, config.endpoint);
@@ -86,14 +92,52 @@ function setEndpointVisible(visible) {
   if (els.endpointRow) els.endpointRow.style.display = visible ? '' : 'none';
 }
 
+function setModelCustomVisible(visible) {
+  if (els.modelCustomRow) els.modelCustomRow.style.display = visible ? '' : 'none';
+}
+
+/**
+ * 用 provider 的 modelOptions 重建模型下拉并选中 savedModel。形状同 populateRegions：
+ * 选项来自 provider 元数据，末项 Custom（空值哨兵）配一个手填文本框。
+ * 映射规则委托给 provider.modelSelectionFor（与 popup 共用），保证两页一致。
+ */
+function populateModels(provider, savedModel) {
+  const options = provider?.modelOptions || [];
+  const list = options.length ? options : [{ model: '', label: 'Custom…' }];
+  els.model.innerHTML = '';
+  for (const o of list) {
+    const opt = document.createElement('option');
+    opt.value = o.model;
+    opt.textContent = o.label || o.model || 'Custom…';
+    els.model.appendChild(opt);
+  }
+  const sel = provider?.modelSelectionFor
+    ? provider.modelSelectionFor(savedModel)
+    : { value: '', customText: savedModel || '' };
+  els.model.value = sel.value;
+  if (els.modelCustom) els.modelCustom.value = sel.customText || '';
+  setModelCustomVisible(!els.model.value);
+}
+
+/** 当前生效的模型名：下拉选中 Custom（空哨兵）时取手填框。 */
+function resolveModel() {
+  return els.model.value ? els.model.value.trim() : (els.modelCustom?.value.trim() || '');
+}
+
 function bindEvents() {
-  // 切换 provider → 重建 region 选项（地域与 API Key 强绑定，不同 provider 地域不同）
+  // 切换 provider → 重建 region 与 model 选项（地域/模型都来自 provider 元数据）
   els.provider.addEventListener('change', () => {
     populateRegions(els.provider.value, '', els.endpoint.value.trim());
+    const provider = (globalThis.PROVIDERS || []).find((p) => p.id === els.provider.value);
+    populateModels(provider, resolveModel());
   });
   // 只有 custom 地域需要手填 endpoint
   els.region.addEventListener('change', () => {
     setEndpointVisible(els.region.value === 'custom');
+  });
+  // 模型下拉选中 Custom（空哨兵）才显示手填框
+  els.model.addEventListener('change', () => {
+    setModelCustomVisible(!els.model.value);
   });
   els.saveBtn.addEventListener('click', save);
   els.clearHistoryBtn.addEventListener('click', clearHistory);
@@ -126,7 +170,7 @@ async function save() {
       apiKey: els.apiKey.value.trim(),
       region,
       endpoint,
-      model: els.model.value.trim(),
+      model: resolveModel(),
       audioType: els.audioType.value,
     });
     show('Settings saved.', 'success');

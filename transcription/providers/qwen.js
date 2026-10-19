@@ -44,8 +44,30 @@ class QwenProvider extends BaseProvider {
     'paraformer-realtime-8k-v2',
   ];
 
-  /** 真流式默认模型。 */
-  static defaultStreamModel = 'fun-asr-realtime';
+  /** 真流式默认模型。
+   *
+   * 选 `qwen-audio-3.1-asr-flash-streaming` 而非 `fun-asr-realtime`：后者是较早的默认，
+   * 但其免费额度已耗尽（用完即计费），而本模型额度池最大、16 kHz（与 AudioContext
+   * 默认率一致，走 `resampleFloat32` 的 identity 快路径零开销）、且已实测识别准确。
+   * 额度会变，这里只是「当下对用户最省钱的默认」—— 用户永远可在下拉里改回别的。
+   */
+  static defaultStreamModel = 'qwen-audio-3.1-asr-flash-streaming';
+
+  /**
+   * 模型下拉预置项（白名单的子集，见 BaseProvider.modelOptions）。
+   *
+   * 只列**当前对多数用户有免费额度**的模型 + 末项 Custom；`fun-asr-realtime` /
+   * `fun-asr-flash-8k-realtime` 仍在 `streamModels` 白名单里（Custom 手填照样可用），
+   * 只是免费额度耗尽后不再预置，避免用户一选就计费。label 不写额度（会过期）。
+   */
+  static modelOptions = [
+    { model: 'qwen-audio-3.1-asr-flash-streaming', label: 'Qwen-Audio 3.1 Flash Streaming (16k)' },
+    { model: 'qwen-audio-3.1-asr-flash-message', label: 'Qwen-Audio 3.1 Flash Message (16k)' },
+    { model: 'qwen-audio-3.0-asr-flash-streaming', label: 'Qwen-Audio 3.0 Flash Streaming (16k)' },
+    { model: 'paraformer-realtime-v2', label: 'Paraformer Realtime v2 (16k)' },
+    { model: 'paraformer-realtime-8k-v2', label: 'Paraformer Realtime 8k v2 (8k 电话)' },
+    { model: '', label: 'Custom…' },
+  ];
 
   /**
    * 采样率例外表 —— **只有** 8k 电话场景模型需要偏离默认的 16000 Hz。
