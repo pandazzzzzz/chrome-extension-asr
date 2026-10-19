@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
   debugEvt('popup-ready', {
     provider: els.providerSelect.value,
-    model: els.modelInput.value,
+    model: resolveModel(), // Custom 态下下拉是空哨兵，必须取 resolveModel 才拿到真实模型名
     hasKey: !!els.apiKeyInput.value.trim(),
     hasEndpoint: !!els.endpointInput.value.trim(),
     providers: (globalThis.PROVIDERS || []).map((p) => p.id),
@@ -146,7 +146,9 @@ function gatherElements() {
   els.endpointInput = document.getElementById('endpoint');
   els.endpointRow = document.getElementById('endpointRow');
   els.regionSelect = document.getElementById('region'); // 可选：无 #region 的入口页跳过
-  els.modelInput = document.getElementById('model');
+  els.modelInput = document.getElementById('model'); // 下拉：选项来自 provider.modelOptions
+  els.modelCustomInput = document.getElementById('modelCustom'); // 仅下拉选中 Custom 时可见
+  els.modelCustomRow = document.getElementById('modelCustomRow');
   els.audioTypeSelect = document.getElementById('audioType');
   els.recordBtn = document.getElementById('recordBtn');
   els.tabRecordBtn = document.getElementById('tabRecordBtn');
@@ -254,23 +256,10 @@ function onProviderChange() {
   const provider = getCurrentProvider();
   if (!provider) return;
 
-  // Model 输入框为空时填入 provider 默认流式模型
-  if (!els.modelInput.value.trim()) {
-    els.modelInput.value = provider.defaultStreamModel || '';
-  }
-
-  // 支持流式的 provider：提示本 provider 实际接受的模型（白名单，非名字正则）。
-  // 别的模型名带 "realtime" 也可能走不同的 WebSocket 协议，故直接列出可用项。
-  if (provider.supportsStreaming) {
-    const models = provider.streamModels || [];
-    els.modelInput.placeholder = models[0] || 'e.g. fun-asr-realtime';
-    els.modelInput.title = models.length
-      ? `Live Stream 只接受本 provider 的 run-task 模型：${models.join(', ')}（可带日期后缀）`
-      : '';
-  } else {
-    els.modelInput.removeAttribute('placeholder');
-    els.modelInput.removeAttribute('title');
-  }
+  // 模型下拉：选项来自当前 provider 的 modelOptions（形状同 Region 下拉）。
+  // 切 provider 时若旧选中项在新预置里仍存在则保持，否则落到首项；Custom 态下
+  // 手填框的文本原样保留（那是用户的模型名，不能因为换了 provider 就丢）。
+  populateModelOptions(provider);
 
   // Region 下拉框：选项来自当前 provider 的 regions；无 #region 的入口页跳过。
   // 切换 provider 时重建选项并把 region 归到该 provider 的首个地域（地域与 API Key 强绑定）。
@@ -296,6 +285,59 @@ function onProviderChange() {
 /** endpoint 文本框显隐（自定义地域才需要手填）。 */
 function setEndpointRowVisible(visible) {
   if (els.endpointRow) els.endpointRow.style.display = visible ? '' : 'none';
+}
+
+/** model 名称文本框显隐（模型下拉选中 Custom 才需要手填）。 */
+function setModelCustomRowVisible(visible) {
+  if (els.modelCustomRow) els.modelCustomRow.style.display = visible ? '' : 'none';
+}
+
+/**
+ * 本次流式实际使用的模型名：下拉选中预置项就取该项，选中 Custom 就取手填值。
+ *
+ * 所有读「当前模型」的地方都必须走这里 —— 直接读 `els.modelInput.value` 会在
+ * Custom 状态下拿到空串（哨兵值），把用户的模型名丢掉。
+ */
+function resolveModel() {
+  const selected = els.modelInput ? els.modelInput.value : '';
+  if (selected) return selected.trim();
+  return els.modelCustomInput ? els.modelCustomInput.value.trim() : '';
+}
+
+/**
+ * 用当前 provider 的 `modelOptions` 重建模型下拉。
+ *
+ * 形状与 Region 下拉一致（选项来自 provider 元数据，末项 Custom 配一个文本框）。
+ * **无 `#model` 下拉或 provider 无预置选项时**退化为纯 Custom 态（文本框常显），
+ * 这样没声明 modelOptions 的 provider 仍能手填任意白名单模型。
+ *
+ * @param {object|null} provider
+ * @param {{value?: string, customText?: string}} [keep] 需要保持的选中态（见 modelSelectionFor）
+ */
+function populateModelOptions(provider, keep) {
+  if (!els.modelInput) return;
+  const options = provider?.modelOptions || [];
+  // 没有预置选项也保留一个 Custom 项，让下拉不至于空白（值走文本框）
+  const list = options.length ? options : [{ model: '', label: 'Custom…' }];
+  const prev = els.modelInput.value;
+  els.modelInput.innerHTML = '';
+  for (const o of list) {
+    const opt = document.createElement('option');
+    opt.value = o.model;
+    opt.textContent = o.label || o.model || 'Custom…';
+    els.modelInput.appendChild(opt);
+  }
+  if (keep) {
+    els.modelInput.value = keep.value;
+    if (els.modelCustomInput && keep.customText != null) els.modelCustomInput.value = keep.customText;
+  } else if (list.some((o) => o.model === prev)) {
+    els.modelInput.value = prev; // 切 provider 时尽量保持原选中项（同名模型跨 provider 有效）
+  }
+  // 下拉为空值 = Custom 哨兵（或退化态）→ 显示手填框
+  setModelCustomRowVisible(!els.modelInput.value);
+  els.modelInput.title = provider?.supportsStreaming
+    ? `Live Stream 只接受本 provider 的 run-task 模型（白名单：${(provider.streamModels || []).join(', ')}）；不在下拉里的模型选 Custom 手填`
+    : '';
 }
 
 /**
@@ -333,7 +375,12 @@ function bindEvents() {
     setEndpointRowVisible(els.regionSelect.value === 'custom');
     await persistConfig();
   });
-  els.modelInput.addEventListener('change', persistConfig);
+  els.modelInput.addEventListener('change', async () => {
+    // 选中 Custom（空值哨兵）才显示手填框；切回预置项则隐藏（手填值保留在框里）
+    setModelCustomRowVisible(!els.modelInput.value);
+    await persistConfig();
+  });
+  els.modelCustomInput?.addEventListener('change', persistConfig);
   els.audioTypeSelect.addEventListener('change', persistConfig);
   // 设备选择同样持久化（#audioInput 只在支持枚举的入口页存在）
   els.audioInputSelect?.addEventListener('change', async () => {
@@ -671,7 +718,7 @@ async function startStreaming() {
     streamSession.apiKey = apiKey;
     streamSession.finalText = '';
     streamSession.partialText = '';
-    streamSession.model = els.modelInput.value.trim() || provider.defaultStreamModel;
+    streamSession.model = resolveModel() || provider.defaultStreamModel;
     // endpoint 由地域决定（custom 才取手填值）；已在上面的守卫里算过一次，直接复用。
     // Custom 留空已被拦下，故这里的 '' 只可能来自无 #region 的入口页 —— 那种情况
     // 交给 provider 的默认端点兜底（undefined 才回落，'' 会被 provider 判为错误）。
@@ -681,12 +728,14 @@ async function startStreaming() {
 
     // 非 run-task 模型（批量模型、或走 /api-ws/v1/realtime 的会话制模型）不能用于本链路 ——
     // 回落 provider 默认流式模型。仅在确有默认值时回落，否则交给 createStreamSession 抛错。
+    // requestedModel 要在改写前留住：回落后的提示要说"你填的 X 不行，改用 Y"。
+    const requestedModel = streamSession.model;
     if (!provider.isStreamModel(streamSession.model)) {
       debugEvt('model-fallback', { requested: streamSession.model, using: provider.defaultStreamModel });
       if (provider.defaultStreamModel) {
         streamSession.model = provider.defaultStreamModel;
         showStatus(
-          `Using ${streamSession.model} — "${els.modelInput.value.trim()}" is not a run-task model.`,
+          `Using ${streamSession.model} — "${requestedModel}" is not a run-task model.`,
           'success',
         );
       }
@@ -1087,7 +1136,13 @@ function applyConfigToUI(config) {
   }
   els.endpointInput.value = config.endpoint || '';
   setEndpointRowVisible(!els.regionSelect || els.regionSelect.value === 'custom');
-  els.modelInput.value = config.model || '';
+  // 模型下拉回填：provider 变了要重建选项，再把保存的模型映射成「预置项 / Custom+手填」。
+  // 空配置 → modelSelectionFor 落到 provider.defaultStreamModel（与切 provider 的默认一致）。
+  const curProvider = getCurrentProvider();
+  const sel = curProvider?.modelSelectionFor
+    ? curProvider.modelSelectionFor(config.model)
+    : { value: '', customText: config.model || '' };
+  populateModelOptions(curProvider, sel);
 
   // 字幕开关：恢复上次选择并同步按钮文案/状态（无 #subtitleBtn 的入口页跳过）
   subtitlesEnabled = !!config.subtitles;
@@ -1105,11 +1160,7 @@ function applyConfigToUI(config) {
   // applyConfigToUI 从不回填它 → 重开 popup/sidepanel 后 UI 恒显示 HTML 默认 webm，
   // 与 storage 里的实际值不符（issue #19 的 Expected 明确要求 audioType 保留）。
   if (els.audioTypeSelect) els.audioTypeSelect.value = config.audioType || 'audio/webm';
-  // If model is empty, fill with provider default
-  if (!els.modelInput.value) {
-    const provider = getCurrentProvider();
-    if (provider) els.modelInput.value = provider.defaultStreamModel || '';
-  }
+  // 模型为空时已在上面 modelSelectionFor 里落到 provider.defaultStreamModel，无需再补。
 }
 
 async function persistConfig() {
@@ -1118,7 +1169,7 @@ async function persistConfig() {
     apiKey: els.apiKeyInput.value.trim(),
     region: els.regionSelect ? els.regionSelect.value : '',
     endpoint: els.endpointInput.value.trim(),
-    model: els.modelInput.value.trim(),
+    model: resolveModel(), // 下拉选中 Custom 时取手填框的值，不能读下拉本身（那是空哨兵）
     audioType: els.audioTypeSelect.value,
     subtitles: subtitlesEnabled,
     audioInput: selectedAudioInput,

@@ -14,7 +14,7 @@
 | 改动后 | 每次改代码须点扩展卡片的**刷新**按钮（MV3 不热重载） |
 | API Key | 百炼有效 Key。**Key 与地域必须匹配**（华北2 用北京 Key，新加坡用新加坡 Key，跨地域混用会握手 401） |
 | Provider | `Qwen (DashScope)` |
-| Model | `fun-asr-realtime`（默认）。**只接受 run-task 白名单模型**：`fun-asr-realtime`、`fun-asr-flash-8k-realtime`、`qwen-audio-3.{0,1}-asr-flash-streaming`、`qwen-audio-3.1-asr-flash-message`、`paraformer-realtime-{v2,8k-v2}`（可带日期后缀）。其余模型名——包括 `qwen3-asr-flash-realtime` 这类走 `/api-ws/v1/realtime` 会话制协议的——会被回落为默认模型。**采样率随模型走**：8k 电话模型（`fun-asr-flash-8k-realtime`、`paraformer-realtime-8k-v2`）以 8000 Hz 采集并在 run-task 声明 `sample_rate:8000`，其余为 16000 Hz |
+| Model | 下拉框，预置五个有免费额度的 run-task 模型（选项来自 provider 的 `modelOptions`）：`qwen-audio-3.1-asr-flash-streaming`（**默认**）、`qwen-audio-3.1-asr-flash-message`、`qwen-audio-3.0-asr-flash-streaming`、`paraformer-realtime-v2`、`paraformer-realtime-8k-v2`，末项 `Custom…` 会展开一个手填框（老配置里的非预置模型自动归到 Custom 并保留原文）。**下拉不是白名单本身**：白名单仍以 `streamModels` 为准（含 `fun-asr-realtime`、`fun-asr-flash-8k-realtime` 等未预置项，可带日期后缀，选 Custom 手填即可）。其余模型名——包括 `qwen3-asr-flash-realtime` 这类走 `/api-ws/v1/realtime` 会话制协议的——会被回落为默认模型。**采样率随模型走**：8k 电话模型（`fun-asr-flash-8k-realtime`、`paraformer-realtime-8k-v2`）以 8000 Hz 采集并在 run-task 声明 `sample_rate:8000`，其余为 16000 Hz |
 | Region | 默认 `Beijing (华北2)` → 自动用 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`。切到 `Singapore (新加坡)` → 自动用 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`。选 `Custom` 才出现 Endpoint 文本框（业务空间专属域名 `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/api-ws/v1/inference` 等）。**Custom 留空是硬错误**（点 Live Stream 直接报 `Custom region requires an endpoint URL.`，不开麦、不连接），**不再**静默回落北京。**Region 必须与 API Key 的地域一致**，否则握手 401 |
 | 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件。服务器**只托管 `tests/` 与 `samples/`**（`.env.local`、`.git/`、`docs/`、`temp/` 在 HTTP 上不可读），并**拒绝非回环 `Host` 头**——所以你放在仓库里的测试 Key 不会被这个页面或任何本机网页取走 |
 
@@ -39,7 +39,7 @@
 | 1.6 | 点 **Stop Stream** | 按钮回 `Live Stream`，状态 `Streaming stopped.`，**未定稿的 partial 被并入结果**（`flushPartial()` 兜底） | 最后半句丢失 = flushPartial 未执行 |
 | 1.7 | **重入测试**：快速双击 **Live Stream** | 只开一条流；日志无两条 `start-begin` | 两条流 = busy 护栏失效（§7 决策 #8） |
 | 1.8 | 停止后看 options 页 | 历史**新增一条**，内容与结果一致，provider/model 正确 | 无记录 = `saveToHistory` 未触发 |
-| 1.9 | Model 填 `paraformer-realtime-8k-v2`（或 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`ws-connecting` 的 `targetSampleRate` = **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |
+| 1.9 | 下拉选 `paraformer-realtime-8k-v2`（或 Custom 手填 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`ws-connecting` 的 `targetSampleRate` = **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |
 | 1.10 | 选 `Custom` → **清空** Endpoint → 点 **Live Stream** | 状态 `Custom region requires an endpoint URL.`，**麦克风不亮**、无 `ws-connecting` 事件、按钮仍是 `Live Stream` 可点 | 拨到 `dashscope.aliyuncs.com` = 守卫失效（静默回落北京，本 PR 修的就是它） |
 
 **已知失败模式（对照排查）**：
@@ -48,7 +48,7 @@
 - 状态显示 `No provider selected.` → provider 下拉框为空
 - 状态显示 `Custom region requires an endpoint URL.` → 选了 `Custom` 但端点框为空。守卫在**开麦之前**，因此麦克风红点不会出现、也不会建立 WebSocket；补一个 `wss://…` URL 再点即可
 - 10 秒后报 `Timed out waiting for task-started (check model / API key)` → Key 无效，或模型不在 run-task 白名单
-- 状态显示 `Using fun-asr-realtime — "<你填的模型名>" is not a run-task model.` → 你填了批量模型或会话制模型（如 `qwen3-asr-flash-realtime`），代码已自动兜底为默认流式模型（**这是正确行为**，非 bug）
+- 状态显示 `Using qwen-audio-3.1-asr-flash-streaming — "<你填的模型名>" is not a run-task model.` → 你填了批量模型或会话制模型（如 `qwen3-asr-flash-realtime`），代码已自动兜底为默认流式模型（**这是正确行为**，非 bug）
 - 选 8k 电话模型（`fun-asr-flash-8k-realtime` / `paraformer-realtime-8k-v2`）后服务端立刻回 `task-failed` → 检查 run-task 报文 `payload.parameters.sample_rate` 是否为 **8000**（诊断页 `run-task-sent` 事件的 `sampleRate` 字段直接给出该值；若为 16000 说明采样率元数据回退了）
 
 ---
