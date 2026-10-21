@@ -35,6 +35,10 @@ try {
 if (manifest.manifest_version !== 3) {
   problems.push(`manifest_version must be 3 (got ${manifest.manifest_version})`);
 }
+if (typeof manifest.minimum_chrome_version !== 'string'
+  || !/^\d+(\.\d+)*$/.test(manifest.minimum_chrome_version)) {
+  problems.push('minimum_chrome_version must be a version string like "116"');
+}
 
 // Collect every file path the manifest points at, keeping a label for reports.
 const refs = [];

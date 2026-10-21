@@ -82,6 +82,7 @@ function freshMocks() {
     assert.strictEqual(cfg.model, 'b');
     assert.strictEqual(cfg.provider, 'qwen'); // 未传保持
     assert.strictEqual(cfg.audioType, 'audio/webm');
+    assert.strictEqual(cfg.apiKey, 'sk-1', '未传 apiKey 时不得清空已存密钥');
   });
 
   // --- apiKey 边界：加密落盘 / 传空串视为清除 ---
@@ -130,6 +131,43 @@ function freshMocks() {
     const cfg2 = await CS.load();
     assert.strictEqual(cfg2.provider, 'legacy', 'merge 后 provider 丢失');
     assert.strictEqual(cfg2.model, 'new');
+  });
+
+  await t('load: 迁移只能执行一次 —— 后续 load 不得用旧 sync 数据覆盖 local', async () => {
+    const CS = globalThis.ConfigStore;
+    syncStore.asrConfig = { provider: 'legacy', apiKey: 'sk-legacy', model: 'old' };
+    await CS.load();
+    await CS.save({ model: 'new' });
+    syncStore.asrConfig = { provider: 'legacy', apiKey: 'sk-legacy', model: 'old' };
+    const cfg = await CS.load();
+    assert.strictEqual(cfg.model, 'new', '旧 sync 数据覆盖了 local 的新配置');
+  });
+
+  await t('save: 并发部分写入不会互相丢失（read-modify-write 必须串行）', async () => {
+    const CS = globalThis.ConfigStore;
+    await Promise.all([
+      CS.save({ model: 'm1' }),
+      CS.save({ audioInput: 'dev-1' }),
+      CS.save({ subtitles: true }),
+    ]);
+    const cfg = await CS.load();
+    assert.strictEqual(cfg.model, 'm1');
+    assert.strictEqual(cfg.audioInput, 'dev-1');
+    assert.strictEqual(cfg.subtitles, true);
+  });
+
+  await t('save: 加密失败时不得先清除已有密钥', async () => {
+    const CS = globalThis.ConfigStore;
+    await CS.save({ apiKey: 'sk-keep' });
+    const realEncrypt = globalThis.CryptoStore.encrypt;
+    globalThis.CryptoStore.encrypt = async () => { throw new Error('crypto unavailable'); };
+    try {
+      await assert.rejects(CS.save({ apiKey: 'sk-new' }), /crypto unavailable/);
+    } finally {
+      globalThis.CryptoStore.encrypt = realEncrypt;
+    }
+    const cfg = await CS.load();
+    assert.strictEqual(cfg.apiKey, 'sk-keep', '加密失败时旧密钥必须保持可解密');
   });
 
   console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);

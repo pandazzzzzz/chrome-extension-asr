@@ -59,7 +59,7 @@
 |---|---|---|
 | 2.1 | 点 **Start Recording** | 变 `Stop Recording`，状态 `Recording... speak now.`，**另两个录音按钮禁用** |
 | 2.2 | 说 3 秒 → 点 **Stop Recording** | 状态 `Recording complete.`，按钮复原，三路重新可用 |
-| 2.3 | 点 **Save audio** | 下载文件成功。**注意**：下拉框写 `mp4`，但落盘扩展名是 **`.m4a`**（`extensionForMime()` 把 `audio/mp4` 映射为 `m4a`）。选 `webm`/`wav` 则与下拉一致 |
+| 2.3 | 点 **Save audio** | 下载文件成功。**注意**：下拉框写 `mp4`，但落盘扩展名是 **`.m4a`**（`extensionForMime()` 把 `audio/mp4` 映射为 `m4a`）。`wav` 并非所有 Chrome 都支持：不支持时状态栏会提示实际回退格式，文件扩展名也跟随实际格式，而不是继续写 `.wav` |
 | 2.4 | **重入**：双击 **Start Recording** | 只开一条流；**关键**：结束后麦克风占用指示（标签页红点）必须消失 |
 | 2.5 | 验证音轨不泄漏 | 停止录音后，`chrome://settings/content/microphone` 或标签页图标应显示无占用 |
 
@@ -128,8 +128,8 @@
 | 4b.2 | 开着 Subtitles 跑一次 **Live Stream** | 说话时浮层文本**随 partial 实时刷新**，停顿定稿后仍在 | 只更新结果区不见浮层 = `renderStreamText` 未镜像 |
 | 4b.3 | 点击 **Stop Stream** | 浮层保留约 2s 后**自动淡出**（`done=true` 超时） | 不消失 = 自动超时未生效 |
 | 4b.4 | 拖动浮层 | 浮层跟随指针移动，松手后停在原处；位置限制在视口内 | 拖不动 = pointer 事件/host 定位问题 |
-| 4b.5 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（消息只在发送瞬间转发，不跟随切 tab） | — |
-| 4b.6 | 关闭 **Subtitles** 开关 | 当前活动页浮层立即隐藏；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
+| 4b.5 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（字幕绑定点击 Live Stream 时的 tab，不跟随切 tab，也不会在新页面再开一份） | 新页面出现浮层 = 字幕未绑定起始 tab |
+| 4b.6 | 关闭 **Subtitles** 开关 | 浮层立即隐藏；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
 | 4b.7 | 在 `chrome://` 页面开 Subtitles 跑流式 | 结果区照常工作，浮层不出现且**不报错**（旁路输出失败被静默） | 主流程被字幕失败打断 = pushSubtitle 未吞错 |
 ---
 
@@ -143,12 +143,14 @@
 | 5.4 | options 页看存储状态 | API Key 显示 `configured (encrypted at rest)` |
 | 5.5 | options 页看历史列表 | 列出最近 **20** 条流式结果，条目可读 |
 | 5.6 | options 页点清空历史 | 列表清空 |
+| 5.6a | 历史库异常时打开 options / 点 Clear history | 显示 `Cannot read history: …` / `Clear history failed: …`，**不**把读取失败说成 `No history yet.`，也不谎报清空成功 |
 | 5.6b | options 页点 **Export JSON**（历史非空时） | 下载 `asr-history-<时间戳>.json`；内容为 `{exportedAt, count, entries[]}`，`entries` 按时间降序、`text` 完整（含中文与长文本） |
 | 5.6c | 历史为空时点 **Export JSON** | 提示 `Nothing to export.`，**不产生文件** |
 | 5.7 | 在 `chrome.storage.local` 检查密钥 | **不应出现明文 Key**（DevTools → Application → Storage）；且 `asr-crypto` IndexedDB 中密钥 `extractable === false` |
 | 5.8 | 把系统/浏览器切到深色（`chrome://settings` → Appearance → Dark）后打开 popup / 侧栏 / options | 三处**全部**变深色：页面底、输入框、按钮、状态条；`<select>` 下拉菜单也是深色（靠 `color-scheme: dark`）。**无任何区域仍是白底** |
 | 5.9 | 深色下检查对比度 | 正文与按钮文字清晰可读（自动化实测：正文 15.4:1、主按钮白字 5.2:1） |
 | 5.10 | 设置页 Region 选 `Custom`、清空 Endpoint → 点 **Save** | 提示 `Custom region requires an endpoint URL.`，且 `chrome.storage.local` 里 `asrConfig.endpoint` **保持上一次的值**（被拒绝的 save 不落盘、不覆盖）。填一个 `wss://…` 后再 Save → `Settings saved.` |
+| 5.11 | 流式过程中直接关闭 popup（不点 Stop） | 重开 options：历史有本次结果；开着 Subtitles 时原页面浮层约 2s 后淡出。诊断页出现 `stream-pagehide` | 无历史/浮层不消失 = `pagehide` 收尾或 `asr:history-add` 未生效 |
 
 ---
 
@@ -201,7 +203,8 @@
 | 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`subtitles`/`audioInput`/`hasKey` | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 记原值（看得出是不是 `https://` 批量残留） |
 | Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
 | 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
-| 历史没记上 | `history-saved` + `len` | 无该事件 = `saveToHistory` 未触发（清单 1.8 的失败含义） |
+| 历史没记上 | `history-saved` + `len` / `history-error` | 无 `history-saved` 且有 `history-error` = background 写入 IndexedDB 失败；两者都无 = `saveToHistory` 未触发（清单 1.8 的失败含义） |
+| 关闭 popup 时是否收尾 | `stream-pagehide` + `len` | 流式期间关闭 popup 应出现该事件；历史与 `done=true` 字幕已交给 background |
 
 **⑤ 结果动作与字幕（清单 §4、§4b）**
 

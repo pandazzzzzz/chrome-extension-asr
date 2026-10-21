@@ -4,14 +4,14 @@
  * 职责：接收 background 转发的 asr:subtitle-show / asr:subtitle-hide 消息，
  * 在当前页面上渲染一个可拖动的半透明字幕浮层。popup/sidepanel 开启 Subtitles
  * 后，流式 partial/final 文本实时镜像到活动标签页；popup 关闭时页面与 popup
- * 之间没有任何中间层（消息只在发送瞬间转发，见 background 的 forwardToActiveTab）。
+ * 之间没有任何中间层（消息只在发送瞬间转发，见 background 的 forwardToTab）。
  *
  * 隔离：宿主为 closed Shadow DOM 的 <div>。页面 CSS / 页面脚本既改不到浮层，
  * 浮层样式也不会泄漏进页面（issue #7 的 HTML 注入教训 —— 文本只走 textContent）。
  *
  * 常驻性：content script 随页面常驻，但**浮层不常驻** —— hide 即拆掉宿主节点，
- * show 时惰性重建；跨导航/刷新自然消失（content script 世界随文档销毁），
- * popup 换活动 tab 后旧 tab 的浮层随之过期，也属预期（切换窗口演讲不现实）。
+ * show 时惰性重建；跨导航/刷新自然消失（content script 世界随文档销毁）。
+ * 流式会话把字幕固定到开始时的 tab，切 tab 不会在新页面再开一份。
  *
  * 自动淡出：show({ done:true })（流式会话结束）后 2s 无新消息自动隐藏。
  * 拖动后位置随会话保持（内存变量，不落盘 —— 刷新即回默认，属预期）。

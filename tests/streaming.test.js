@@ -332,6 +332,97 @@ t('Qwen run-task 报文: 显式空 endpoint 在建 socket 之前就被拦下', (
     assert.strictEqual(sockets.length, 0, '空 endpoint 不应创建任何 socket');
   });
 });
+t('Qwen: task-started 之后的网络错误不得误报为握手失败', () => {
+  withFakeSocket((sockets) => {
+    let reported = null;
+    const session = Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      onResult() {},
+      onError: (e) => { reported = e; },
+    });
+    sockets[0].onopen();
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    sockets[0].onerror();
+    assert.ok(reported, 'onError 应被调用');
+    assert.ok(!/handshake/i.test(reported.message), '已启动后不应再报握手失败: ' + reported.message);
+    session.close();
+  });
+});
+t('Qwen: task-started 之后连接关闭要上报 NETWORK，而不是静默结束', () => {
+  withFakeSocket((sockets) => {
+    let reported = null;
+    let ended = false;
+    const session = Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      onResult() {},
+      onError: (e) => { reported = e; },
+      onEnd: () => { ended = true; },
+    });
+    sockets[0].onopen();
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    sockets[0].onclose({ wasClean: false, code: 1006, reason: '' });
+    assert.ok(reported, 'onError 应被调用');
+    assert.strictEqual(reported.code, 'NETWORK');
+    assert.ok(ended, 'onEnd 仍应触发以让 UI 清理');
+  });
+});
+t('Qwen: 主动 close() 不得把已启动会话误报成 NETWORK', () => {
+  withFakeSocket((sockets) => {
+    let reported = null;
+    let ended = false;
+    const session = Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      onResult() {},
+      onError: (e) => { reported = e; },
+      onEnd: () => { ended = true; },
+    });
+    sockets[0].onopen();
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    session.close();
+    assert.strictEqual(reported, null, '用户主动停止不是网络故障，不应报错');
+    assert.ok(ended, '主动关闭仍应触发 onEnd，让 UI 完成清理');
+  });
+});
+t('Qwen: stop() 超时后主动 close() 不得补报 NETWORK', async () => {
+  // stop() 在服务端 5s 未确认时会超时返回；随后 teardown 调用 close()。
+  // 这个主动关闭若被当成网络断开，会把 UI 的 "Streaming stopped." 覆盖成错误。
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => (ms === 5000
+    ? realSetTimeout(fn, 0)
+    : realSetTimeout(fn, ms));
+  try {
+    await new Promise((resolve, reject) => {
+      withFakeSocket((sockets) => {
+        let reported = null;
+        let ended = 0;
+        const session = Q.createStreamSession({
+          apiKey: 'k',
+          model: 'fun-asr-realtime',
+          onResult() {},
+          onError: (e) => { reported = e; },
+          onEnd: () => { ended += 1; },
+        });
+        sockets[0].onopen();
+        sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+        session.stop().then(() => {
+          session.close();
+          try {
+            assert.strictEqual(reported, null, '超时后的主动 close 不应报 NETWORK');
+            assert.strictEqual(ended, 1, '主动 close 应只触发一次 onEnd');
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        }, reject);
+      });
+    });
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
 t('BaseProvider: 流式基类默认抛错（不实现就用不了）', () => {
   assert.throws(() => globalThis.BaseProvider.createStreamSession({}), /Streaming not supported/);
 });

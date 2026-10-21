@@ -6,7 +6,7 @@
  * 外置后同一份测试可在三种上下文运行：file:// / http:// / chrome-extension://。
  *
  * 依赖（由 HTML 以 <script src> 先加载）：shared/errors.js、shared/timeout.js、
- * messaging/messages.js、messaging/client.js、store/crypto.js、store/config.js、
+ * messaging/messages.js、messaging/client.js、store/crypto.js、store/config.js、store/history.js、
  * audio/convert.js、audio/recorder.js。
  */
 const results = document.getElementById('results');
@@ -71,6 +71,19 @@ async function runTests() {
     addResult('ConfigStore: module loaded', false, e.message);
   }
 
+  // --- 4b. HistoryStore: module loaded on globalThis ---
+  try {
+    const ok = typeof globalThis.HistoryStore === 'object'
+      && typeof globalThis.HistoryStore.add === 'function'
+      && typeof globalThis.HistoryStore.list === 'function'
+      && typeof globalThis.HistoryStore.clear === 'function'
+      && typeof globalThis.HistoryStore.count === 'function';
+    addResult('HistoryStore: module loaded on globalThis', ok,
+      ok ? 'HistoryStore.add/list/clear/count available' : 'missing');
+  } catch (e) {
+    addResult('HistoryStore: module loaded', false, e.message);
+  }
+
   // --- 5. Messages: constants defined and frozen ---
   try {
     const m = globalThis.MESSAGES;
@@ -79,10 +92,11 @@ async function runTests() {
       && m.SUBTITLE_HIDE === 'asr:subtitle-hide'
       && m.TAB_RECORD_START === 'asr:tab-record-start'
       && m.TAB_RECORD_STOP === 'asr:tab-record-stop'
+      && m.HISTORY_ADD === 'asr:history-add'
       && m.TRANSCRIBE === undefined
       && Object.isFrozen(m);
     addResult('MESSAGES: constants defined and frozen', ok,
-      `FILL_TEXT="${m.FILL_TEXT}", SUBTITLE_SHOW="${m.SUBTITLE_SHOW}", SUBTITLE_HIDE="${m.SUBTITLE_HIDE}", TAB_RECORD_START="${m.TAB_RECORD_START}", TAB_RECORD_STOP="${m.TAB_RECORD_STOP}", TRANSCRIBE removed=${m.TRANSCRIBE === undefined}`);
+      `FILL_TEXT="${m.FILL_TEXT}", SUBTITLE_SHOW="${m.SUBTITLE_SHOW}", SUBTITLE_HIDE="${m.SUBTITLE_HIDE}", TAB_RECORD_START="${m.TAB_RECORD_START}", TAB_RECORD_STOP="${m.TAB_RECORD_STOP}", HISTORY_ADD="${m.HISTORY_ADD}", TRANSCRIBE removed=${m.TRANSCRIBE === undefined}`);
   } catch (e) {
     addResult('MESSAGES: constants', false, e.message);
   }
@@ -100,7 +114,7 @@ async function runTests() {
   // --- 7. Errors: unified codes + normalizeError ---
   try {
     const e = globalThis.Errors;
-    const required = ['NO_API_KEY', 'API_ERROR', 'UNKNOWN_ACTION', 'UNKNOWN'];
+    const required = ['NO_API_KEY', 'API_ERROR', 'NETWORK', 'STORAGE_ERROR', 'UNKNOWN_ACTION', 'UNKNOWN'];
     const codesOk = required.every(k => e[k] && e[k].code === k && typeof e[k].message === 'string');
     const norm1 = globalThis.normalizeError({ code: 'NO_API_KEY', message: 'x' });
     const norm1Ok = norm1.code === 'NO_API_KEY';
@@ -117,11 +131,12 @@ async function runTests() {
   try {
     const ok = typeof globalThis.MessageClient === 'object'
       && typeof globalThis.ConfigStore === 'object'
+      && typeof globalThis.HistoryStore === 'object'
       && typeof globalThis.CryptoStore === 'object'
       && typeof globalThis.MESSAGES === 'object'
       && typeof globalThis.Errors === 'object';
     addResult('globalThis: shared modules on globalThis (SW-compatible)', ok,
-      'MessageClient/ConfigStore/CryptoStore/MESSAGES/Errors all on globalThis');
+      'MessageClient/ConfigStore/HistoryStore/CryptoStore/MESSAGES/Errors all on globalThis');
   } catch (e) {
     addResult('globalThis: compat', false, e.message);
   }

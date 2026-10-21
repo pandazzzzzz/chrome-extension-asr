@@ -10,11 +10,12 @@
  *
  * 说明：
  *   - start()/stop() 返回 Promise，stop() 在 onstop 触发后 resolve 最终 Blob
- *   - MediaRecorder 默认按 timeslice 分片，便于将来接流式（P3b）
+ *   - MediaRecorder 默认按 timeslice 分片；流式走独立的 PCM 采集链路
  */
 globalThis.AudioRecorder = class AudioRecorder {
   constructor({ mimeType = '', timeslice = 1000 } = {}) {
     this.mimeType = mimeType;
+    this.resolvedMimeType = '';
     this.timeslice = timeslice;
     this.stream = null;
     this.chunks = [];
@@ -38,6 +39,27 @@ globalThis.AudioRecorder = class AudioRecorder {
     return '';
   }
 
+  /** MIME 的格式族（去掉 `;codecs=...` 参数），用于判断是否真的发生了回退。 */
+  static baseMimeType(type) {
+    return String(type || '').split(';')[0].trim().toLowerCase();
+  }
+
+  /** 两个 MIME 是否属于同一格式族；空值不视为匹配。 */
+  static sameMimeType(left, right) {
+    const a = AudioRecorder.baseMimeType(left);
+    const b = AudioRecorder.baseMimeType(right);
+    return !!a && !!b && a === b;
+  }
+
+  /** 实际录制格式（优先 MediaRecorder 回报，其次启动时的协商结果）。 */
+  actualMimeType() {
+    return this.recorder?.mimeType
+      || this.resolvedMimeType
+      || AudioRecorder.pickMimeType(this.mimeType)
+      || this.mimeType
+      || 'audio/webm';
+  }
+
   /** 开始录制；若无 stream 抛错。 */
   start() {
     if (!this.stream) throw new Error('No media stream attached; call attach(stream) first');
@@ -45,6 +67,7 @@ globalThis.AudioRecorder = class AudioRecorder {
 
     this.chunks = [];
     const mimeType = AudioRecorder.pickMimeType(this.mimeType);
+    this.resolvedMimeType = mimeType;
     this.recorder = new MediaRecorder(
       this.stream,
       mimeType ? { mimeType } : {},
@@ -90,7 +113,7 @@ globalThis.AudioRecorder = class AudioRecorder {
 
   /** 合并当前分片为 Blob。 */
   getBlob() {
-    const type = this.recorder?.mimeType || this.mimeType || 'audio/webm';
+    const type = this.actualMimeType();
     return new Blob(this.chunks, { type });
   }
 

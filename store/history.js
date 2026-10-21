@@ -6,8 +6,8 @@
  *   - 文本可能很长，单独存取；provider/model 存作检索字段
  *   - 上限 maxEntries（超出按最旧丢弃），避免无限增长
  *
- * 失败策略：IndexedDB 打开失败时返回空结果并打日志，不阻塞主流程
- * （历史是增强功能，不应影响转录本身）。
+ * 失败策略：错误一律 reject，由调用方决定是否降级展示。历史是增强功能，
+ * 但"读失败"不能伪装成"空历史"，"写失败"也不能被当成保存成功。
  */
 globalThis.HistoryStore = (() => {
   const DB_NAME = 'asr-history';
@@ -29,84 +29,84 @@ globalThis.HistoryStore = (() => {
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error('IndexedDB upgrade blocked by another connection'));
     }).catch((err) => {
       dbPromise = null; // 允许下次重试
       throw err;
     });
+    const current = dbPromise;
+    current.then((db) => {
+      // 版本升级/浏览器关闭可能让缓存句柄失效；清空后下次操作会重新打开。
+      db.onclose = () => { if (dbPromise === current) dbPromise = null; };
+      db.onversionchange = () => {
+        db.close();
+        if (dbPromise === current) dbPromise = null;
+      };
+    }).catch(() => {});
     return dbPromise;
   }
 
   /** 追加一条记录；超出上限时丢弃最旧的。 */
   async function add({ text, provider = '', model = '' }) {
     if (!text) return;
+    const db = await openDb();
+    const record = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      provider,
+      model,
+      createdAt: Date.now(),
+    };
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).add(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('History transaction aborted'));
+    });
+    // 记录已经提交成功；trim 是维护动作，失败不应把这次保存报成失败，否则
+    // background 会返回 ok:false，而用户的历史其实已经落库。
     try {
-      const db = await openDb();
-      const record = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        text,
-        provider,
-        model,
-        createdAt: Date.now(),
-      };
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).add(record);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
       await trim(db);
-    } catch (e) {
-      console.warn('HistoryStore.add failed:', e);
+    } catch (error) {
+      console.warn('HistoryStore.trim failed:', error);
     }
   }
 
   /** 读取历史（createdAt 降序，最多 limit 条）。 */
   async function list(limit = maxEntries) {
-    try {
-      const db = await openDb();
-      const items = await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const index = tx.objectStore(STORE).index('createdAt');
-        const req = index.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      });
-      return items.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
-    } catch (e) {
-      console.warn('HistoryStore.list failed:', e);
-      return [];
-    }
+    const db = await openDb();
+    const items = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const index = tx.objectStore(STORE).index('createdAt');
+      const req = index.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    return items.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
 
   /** 记录条数（只计数，不取文本）。供 options 页存储状态显示，避免
    *  list() 拉全部含长文本的记录只为读 length。 */
   async function count() {
-    try {
-      const db = await openDb();
-      return await new Promise((resolve, reject) => {
-        const req = db.transaction(STORE, 'readonly').objectStore(STORE).count();
-        req.onsuccess = () => resolve(req.result || 0);
-        req.onerror = () => reject(req.error);
-      });
-    } catch (e) {
-      console.warn('HistoryStore.count failed:', e);
-      return 0;
-    }
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).count();
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => reject(req.error);
+    });
   }
 
   /** 清空历史。 */
   async function clear() {
-    try {
-      const db = await openDb();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).clear();
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('HistoryStore.clear failed:', e);
-    }
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('History transaction aborted'));
+    });
   }
 
   /** 超出上限时删除最旧记录。 */
@@ -127,6 +127,7 @@ globalThis.HistoryStore = (() => {
       for (const key of excess) store.delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('History transaction aborted'));
     });
   }
 

@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "116",
   "name": "ASR Demo",
   "version": "1.0.0",
   "description": "Realtime ASR Chrome extension (Manifest V3)",
@@ -65,8 +66,5 @@
     "sidePanel",
     "offscreen"
   ],
-  "host_permissions": [
-    "https://dashscope.aliyuncs.com/*",
-    "https://dashscope-intl.aliyuncs.com/*"
-  ]
+  "host_permissions": []
 }
