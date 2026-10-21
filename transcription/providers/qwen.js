@@ -201,6 +201,7 @@ class QwenProvider extends BaseProvider {
     let started = false;
     let readySettled = false;
     let finishedSettled = false;
+    let closeRequested = false;
     let resolveReady;
     let rejectReady;
     let resolveFinished;
@@ -242,6 +243,22 @@ class QwenProvider extends BaseProvider {
       resolveFinished();
       track('session-end', { started, message: error ? error.message : null });
       if (error) onError?.(error);
+      onEnd?.();
+    }
+
+    // 调用方主动 close（用户 Stop、启动失败回滚、stop 超时后的 teardown）不是
+    // 网络故障。这里仍要解锁 ready/finished 并触发一次 onEnd，但不得调用 onError，
+    // 否则 stopStreaming 刚显示的 "Streaming stopped." 会被迟到的 onclose 覆盖。
+    function finishRequestedClose() {
+      if (finishedSettled) return;
+      finishedSettled = true;
+      clearTimeout(readyTimer);
+      if (!readySettled) {
+        readySettled = true;
+        rejectReady(new Error('Stream session closed before task-started'));
+      }
+      resolveFinished();
+      track('session-end', { started, message: null, closeRequested: true });
       onEnd?.();
     }
 
@@ -342,18 +359,38 @@ class QwenProvider extends BaseProvider {
 
     socket.onerror = () => {
       // 具体原因由 onclose 兜底（浏览器不暴露 WS 错误细节）
-      track('ws-error', { finishedSettled, started });
-      if (!finishedSettled) fail(handshakeError());
+      track('ws-error', { finishedSettled, started, closeRequested });
+      if (closeRequested) return;
+      // task-started 之后的 error 是运行期网络故障，不是鉴权/握手失败；误报会让
+      // 用户去查 API Key/地域，掩盖真正的断网。握手阶段的判断仍保留。
+      if (!finishedSettled) {
+        fail(started
+          ? globalThis.createError(
+            globalThis.Errors.NETWORK,
+            'WebSocket connection lost after task-started. Check your network and retry.',
+          )
+          : handshakeError());
+      }
     };
 
     socket.onclose = (event) => {
       // 网络断/服务端主动关闭：未正常结束也按终态处理，避免 stop() 永久挂起
+      if (closeRequested) {
+        finishRequestedClose();
+        return;
+      }
       if (!finishedSettled) {
         const reason = event?.reason || '';
         track('ws-close', { wasClean: !!event?.wasClean, code: event?.code, reason, started });
         // started=false：连接在任务启动前就断了 —— 握手鉴权失败或地址/地域错误。
-        // started=true：任务正常跑过，中途断开才是真正的网络问题。
-        fail(started ? null : handshakeError());
+        // started=true：任务正常跑过，中途断开是真正的网络问题。不能只触发 onEnd，
+        // 否则用户只会看到 UI 静默回到 idle，不知道连接为何中断。
+        fail(started
+          ? globalThis.createError(
+            globalThis.Errors.NETWORK,
+            'WebSocket connection closed after task-started. Check your network and retry.',
+          )
+          : handshakeError());
       }
     };
 
@@ -392,6 +429,7 @@ class QwenProvider extends BaseProvider {
       },
       close() {
         track('ws-close-requested', { finishedSettled });
+        closeRequested = true;
         socket.close();
       },
     };

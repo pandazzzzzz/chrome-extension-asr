@@ -18,6 +18,7 @@ let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await）�
 let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await），防重入
 let isStreaming = false;      // 真流式转录中（麦克风 PCM → WebSocket）
 let isStreamingBusy = false;  // start/stop 进行中（含异步 setup/teardown），防重入
+let closingPage = false;      // pagehide 收尾已接管，避免与 stopStreaming 重复写历史
 
 // 流式会话（Live Stream 模式）
 const streamSession = {
@@ -36,6 +37,9 @@ const streamSession = {
   // 否则声明与实际不符。onStreamFrame 拿不到 provider，只能经 streamSession 传递。
   targetSampleRate: 0,
   sessionId: 0,      // 每次 startStreaming 自增，用于跨会话 onEnd 竞态防护
+  targetTabId: null, // 本次字幕绑定的 tab（点击 Live Stream 时捕获，切 tab 后不跟随）
+  everStarted: false, // 本次启动是否真正走到采集开始（区分启动中与停止中）
+  finalSaved: false, // 最终文本已交给 background（pagehide 与正常 stop 只能写一次）
 };
 let streamSessionSeq = 0; // streamSession.sessionId 的自增源
 
@@ -59,7 +63,7 @@ const STREAM = {
 };
 
 // ---------- 字幕镜像（浮动字幕，可选按钮 #subtitleBtn） ----------
-// Live Stream 的 partial/final 实时镜像到当前活动标签页的浮动字幕浮层
+// Live Stream 的 partial/final 实时镜像到**开始流式时**所在标签页的浮动字幕浮层
 // （content/subtitle.js）。转发失败只打点不打断 —— 字幕是旁路输出，主流程
 // （结果区回显 / 历史落盘）不能因为它挂掉。popup 关闭后无人发送，浮层随
 // 页面刷新自然消失；无 #subtitleBtn 的入口页（options）该按钮功能静默缺失。
@@ -116,26 +120,32 @@ const els = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   gatherElements();
-  populateProviderSelect();
-  // 必须先把 region <option> 建出来，applyConfigToUI 才能把保存的地域选回去
-  // （空 <select> 上赋 value 会静默失败 → 保存的地域丢失）。
-  onProviderChange();
+  try {
+    populateProviderSelect();
+    // 必须先把 region <option> 建出来，applyConfigToUI 才能把保存的地域选回去
+    // （空 <select> 上赋 value 会静默失败 → 保存的地域丢失）。
+    onProviderChange();
 
-  const config = await loadConfig();
-  applyConfigToUI(config);
+    const config = await loadConfig();
+    applyConfigToUI(config);
 
-  bindEvents();
-  void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
-  void syncTabRecordingState(); // 录音活在 offscreen 里，popup 重开必须与真实状态对齐
-  // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
-  debugEvt('popup-ready', {
-    provider: els.providerSelect.value,
-    model: resolveModel(), // Custom 态下下拉是空哨兵，必须取 resolveModel 才拿到真实模型名
-    hasKey: !!els.apiKeyInput.value.trim(),
-    hasEndpoint: !!els.endpointInput.value.trim(),
-    providers: (globalThis.PROVIDERS || []).map((p) => p.id),
-    audioInput: selectedAudioInput || 'default',
-  });
+    bindEvents();
+    void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
+    void syncTabRecordingState(); // 录音活在 offscreen 里，popup 重开必须与真实状态对齐
+    // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
+    debugEvt('popup-ready', {
+      provider: els.providerSelect.value,
+      model: resolveModel(), // Custom 态下下拉是空哨兵，必须取 resolveModel 才拿到真实模型名
+      hasKey: !!els.apiKeyInput.value.trim(),
+      hasEndpoint: !!els.endpointInput.value.trim(),
+      providers: (globalThis.PROVIDERS || []).map((p) => p.id),
+      audioInput: selectedAudioInput || 'default',
+    });
+  } catch (error) {
+    console.error('Popup initialization failed:', error);
+    debugEvt('popup-init-error', { message: error?.message || String(error) });
+    if (els.statusDiv) showStatus(`Cannot load settings: ${error.message}`, 'error');
+  }
 });
 
 // ---------- UI setup ----------
@@ -230,7 +240,14 @@ async function refreshAudioInputs() {
     toggleAudioInputRow(false);
     return;
   }
-  const devices = await globalThis.listAudioInputs();
+  let devices;
+  try {
+    devices = await globalThis.listAudioInputs();
+  } catch (error) {
+    debugEvt('audio-input-error', { message: error?.message || String(error) });
+    toggleAudioInputRow(false);
+    return;
+  }
   toggleAudioInputRow(devices.length > 0);
   syncAudioInputOptions(devices);
 }
@@ -364,29 +381,29 @@ function syncResultButtons() {
 }
 
 function bindEvents() {
-  els.providerSelect.addEventListener('change', async () => {
+  els.providerSelect.addEventListener('change', () => {
     onProviderChange();
-    await persistConfig();
+    void persistConfig();
   });
   els.apiKeyInput.addEventListener('change', persistConfig);
   els.endpointInput.addEventListener('change', persistConfig);
   // 地域切换：custom 才显示 endpoint 文本框，并持久化选择
-  els.regionSelect?.addEventListener('change', async () => {
+  els.regionSelect?.addEventListener('change', () => {
     setEndpointRowVisible(els.regionSelect.value === 'custom');
-    await persistConfig();
+    void persistConfig();
   });
-  els.modelInput.addEventListener('change', async () => {
+  els.modelInput.addEventListener('change', () => {
     // 选中 Custom（空值哨兵）才显示手填框；切回预置项则隐藏（手填值保留在框里）
     setModelCustomRowVisible(!els.modelInput.value);
-    await persistConfig();
+    void persistConfig();
   });
   els.modelCustomInput?.addEventListener('change', persistConfig);
   els.audioTypeSelect.addEventListener('change', persistConfig);
   // 设备选择同样持久化（#audioInput 只在支持枚举的入口页存在）
-  els.audioInputSelect?.addEventListener('change', async () => {
+  els.audioInputSelect?.addEventListener('change', () => {
     selectedAudioInput = els.audioInputSelect.value;
     debugEvt('audio-input-changed', { deviceId: selectedAudioInput || 'default' });
-    await persistConfig();
+    void persistConfig();
   });
 
   els.recordBtn.addEventListener('click', toggleRecording);
@@ -400,6 +417,25 @@ function bindEvents() {
   els.panelBtn?.addEventListener('click', handleOpenPanel);
   els.subtitleBtn?.addEventListener('click', toggleSubtitles);
 }
+
+// popup 可能在流式过程中被关闭（点页面、切窗口、Esc）。DOM 卸载时 WebSocket /
+// AudioContext / 麦克风会随页面销毁，但 IndexedDB 写入与字幕收尾必须在此之前
+// 交给常驻上下文：background 写历史，字幕消息带 done=true。这里不 await（pagehide
+// 不保证等待异步工作），消息一旦发出由 background 继续完成。
+globalThis.addEventListener('pagehide', () => {
+  // stopStreaming 会在等待 finish-task 前先把 isStreaming 置 false；若这时关闭
+  // popup，只检查 isStreaming 会丢掉最后的 partial。但启动阶段同样 busy，此时
+  // 结果区可能还是上一轮文本，不能收尾（否则会重复写历史）。
+  const shouldFinalize = globalThis.StreamLifecycle.shouldFinalizeOnPageHide({
+    streaming: isStreaming,
+    busy: isStreamingBusy,
+    everStarted: streamSession.everStarted,
+    closing: closingPage,
+  });
+  if (!shouldFinalize) return;
+  closingPage = true;
+  void finalizeStreamingText(false, 'pagehide');
+});
 
 // 三路录音互斥：开启任一路时禁用其它两路按钮（active 路保留自身）
 function disableOtherRecordButtons(active) {
@@ -443,12 +479,26 @@ async function startRecording() {
     recorder = new AudioRecorder({ mimeType: els.audioTypeSelect.value });
     recorder.attach(stream);
     recorder.start();
+    const requestedMime = els.audioTypeSelect.value;
+    const actualMime = recorder.actualMimeType();
+    const formatChanged = !!requestedMime && !!actualMime
+      && !AudioRecorder.sameMimeType(requestedMime, actualMime);
+    if (formatChanged) {
+      debugEvt('audio-format-fallback', { requested: requestedMime, actual: actualMime });
+      showStatus(
+        `This browser cannot record ${AudioRecorder.baseMimeType(requestedMime)}; `
+        + `using ${AudioRecorder.baseMimeType(actualMime)}.`,
+        'error',
+      );
+    }
 
     isRecording = true;
     els.recordBtn.textContent = 'Stop Recording';
     disableOtherRecordButtons(els.recordBtn);
-    showStatus('Recording... speak now.', 'success');
-    debugEvt('record-started', { mimeType: els.audioTypeSelect.value });
+    if (!formatChanged) {
+      showStatus('Recording... speak now.', 'success');
+    }
+    debugEvt('record-started', { requestedMime, mimeType: actualMime });
   } catch (error) {
     debugEvt('record-error', { where: 'start', message: error?.message || String(error) });
     showStatus(`Cannot start recording: ${error.message}`, 'error');
@@ -656,6 +706,8 @@ async function startStreaming() {
     return;
   }
   isStreamingBusy = true;
+  closingPage = false;
+  streamSession.everStarted = false;
 
   const provider = getCurrentProvider();
   if (!provider) {
@@ -695,6 +747,16 @@ async function startStreaming() {
   els.streamBtn.disabled = true;
   debugEvt('start-begin', { provider: provider.id });
 
+  // 字幕绑定"点击 Live Stream 时"的活动 tab。必须在开麦前取：权限弹窗期间
+  // 用户可能切 tab，开麦后再查会把字幕绑到错误的页面。查询失败不阻塞主流程。
+  streamSession.targetTabId = null;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    streamSession.targetTabId = tab?.id ?? null;
+  } catch {
+    streamSession.targetTabId = null;
+  }
+
   try {
     const stream = await acquireMicrophone();
     debugEvt('mic-acquired', {
@@ -725,7 +787,7 @@ async function startStreaming() {
     streamSession.endpoint = endpoint || undefined;
     streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
     streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
-
+    streamSession.finalSaved = false;
     // 非 run-task 模型（批量模型、或走 /api-ws/v1/realtime 的会话制模型）不能用于本链路 ——
     // 回落 provider 默认流式模型。仅在确有默认值时回落，否则交给 createStreamSession 抛错。
     // requestedModel 要在改写前留住：回落后的提示要说"你填的 X 不行，改用 Y"。
@@ -851,6 +913,7 @@ async function startStreaming() {
     els.resultText.value = '';
     syncResultButtons(); // 清空后同步禁用 Copy/Fill
 
+    streamSession.everStarted = true;
     isStreaming = true;
     els.streamBtn.textContent = 'Stop Stream';
     disableOtherRecordButtons(els.streamBtn);
@@ -879,6 +942,7 @@ async function stopStreaming() {
   }
   isStreamingBusy = true;
   isStreaming = false;
+  closingPage = false;
   els.streamBtn.disabled = true;
   debugEvt('stop-begin', {});
 
@@ -901,17 +965,31 @@ async function stopStreaming() {
   }
 
   // 把最后的进行中句子并入定稿
-  flushPartial();
   showStatus('Streaming stopped.', 'success');
   debugEvt('stream-stopped', { provider: streamSession.providerId, model: streamSession.model });
 
-  // 流式结束：最终文本 —— 一条历史记录 + 字幕镜像（done=true 让浮层自动淡出）
-  const finalText = els.resultText.value.trim();
-  if (finalText) {
-    void pushSubtitle(finalText, true);
-    saveToHistory(finalText, streamSession.providerId, streamSession.model);
-    debugEvt('history-saved', { len: finalText.length });
-  }
+  // 流式结束：最终文本 —— 一条历史记录 + 字幕镜像（done=true 让浮层自动淡出）。
+  // flushPartial(false) 避免先发一条 done=false、随后 done=true 造成消息竞态。
+  await finalizeStreamingText(true);
+}
+
+// 最终文本只交付一次：正常 Stop 与 popup 关闭（pagehide）可能同时发生。
+// `finalSaved` 在第一个 await 之前同步置位，二者不会各写一条历史。
+async function finalizeStreamingText(awaitDelivery, trigger = 'stop') {
+  if (streamSession.finalSaved) return;
+  streamSession.finalSaved = true;
+  flushPartial(false);
+  const finalText = els.resultText?.value.trim() || '';
+  const phase = trigger === 'pagehide' ? 'stream-pagehide' : 'stream-finalized';
+  debugEvt(phase, { len: finalText.length, awaitDelivery });
+  if (!finalText) return;
+
+  const tabId = streamSession.targetTabId;
+  const tasks = [];
+  if (subtitlesEnabled) tasks.push(pushSubtitle(finalText, true, tabId));
+  tasks.push(saveToHistory(finalText, streamSession.providerId, streamSession.model));
+  if (awaitDelivery) await Promise.all(tasks);
+  else void Promise.all(tasks);
 }
 
 async function teardownStreaming() {
@@ -968,24 +1046,24 @@ function onStreamResult({ text, sentenceEnd, sentenceId }) {
   renderStreamText();
 }
 
-function renderStreamText() {
+function renderStreamText(mirror = true) {
   const parts = [streamSession.finalText, streamSession.partialText]
     .filter(Boolean)
     .join(' ');
   els.resultText.value = parts.trim();
   syncResultButtons(); // 程序化赋值不触发 input，须显式同步按钮
-  // 字幕镜像：partial/final 每次刷新都同步到活动页浮层（done=false，不自动淡出）
-  if (subtitlesEnabled && parts.trim()) {
+  // 字幕镜像：partial/final 每次刷新都同步到起始页浮层（done=false，不自动淡出）
+  if (mirror && subtitlesEnabled && parts.trim()) {
     void pushSubtitle(parts.trim(), false);
   }
 }
 
 // 停止时把未定稿的进行中句子并入定稿（服务端最后一句可能没有 sentence_end 标记）
-function flushPartial() {
+function flushPartial(mirror = true) {
   if (streamSession.partialText) {
     streamSession.finalText = (streamSession.finalText + ' ' + streamSession.partialText).trim();
     streamSession.partialText = '';
-    renderStreamText();
+    renderStreamText(mirror);
   }
 }
 // ---------- Subtitle mirror（浮动字幕） ----------
@@ -996,29 +1074,35 @@ async function toggleSubtitles() {
   subtitlesEnabled = !subtitlesEnabled;
   els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
   els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
-  await persistConfig();
+  await persistConfig(); // 配置写失败会自行显示状态，浮层仍按用户点击立即切换
   if (subtitlesEnabled && els.resultText.value.trim()) {
-    // 已有结果时立即镜像到浮层（done=true：无新文本 2s 后自动淡出）
-    await pushSubtitle(els.resultText.value.trim(), true);
+    // 已有结果时立即镜像到当前活动页（不沿用上一次会话的 tab）
+    await pushSubtitle(els.resultText.value.trim(), true, null);
   } else if (!subtitlesEnabled) {
-    await hideSubtitle();
+    await hideSubtitle(null);
   }
 }
 
-// 把文本推给当前活动页的字幕浮层。fire-and-forget：失败只打点 —— 字幕是旁路
+// 把文本推给字幕浮层（缺省用本次会话的起始 tab）。失败只打点 —— 字幕是旁路
 // 输出（chrome:// 页、无 content script 的页面都会失败），不该打断流式主流程。
-async function pushSubtitle(text, done = false) {
+async function pushSubtitle(text, done = false, tabId = streamSession.targetTabId) {
   if (!subtitlesEnabled || !text) return;
   try {
-    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_SHOW, { text, done });
+    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_SHOW, {
+      text,
+      done,
+      tabId,
+    });
   } catch (error) {
     debugEvt('subtitle-error', { code: error?.code || '', message: error?.message || String(error) });
   }
 }
 
-async function hideSubtitle() {
+async function hideSubtitle(tabId = streamSession.targetTabId) {
   try {
-    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_HIDE, {});
+    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_HIDE, {
+      tabId,
+    });
   } catch {
     /* 浮层本就不存在（页面刷新走）时的 hide 失败无关紧要 */
   }
@@ -1030,14 +1114,13 @@ function handleOpenOptions() {
   chrome.runtime.openOptionsPage();
 }
 
-// chrome.sidePanel.open 需要用户手势；popup 内点击即满足
+// chrome.sidePanel.open 需要用户手势；popup 内点击即满足。手势只在这个同步
+// 调用栈里有效 —— 前面不能 await（包括 chrome.tabs.query）。让 Chrome 自己
+// 解析 WINDOW_ID_CURRENT，和 background 的快捷键处理保持一致。
 async function handleOpenPanel() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.windowId != null) {
-      await chrome.sidePanel.open({ windowId: tab.windowId });
-      window.close(); // 侧栏已打开，收起 popup
-    }
+    await chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+    window.close(); // 侧栏已打开，收起 popup
   } catch (error) {
     showStatus(`Cannot open side panel: ${error.message}`, 'error');
   }
@@ -1087,12 +1170,25 @@ async function handleCopy() {
 
 // ---------- Config ----------
 
-// 写入转录历史（失败不影响主流程；HistoryStore 自身也会吞掉存储错误）
-function saveToHistory(text, provider, model) {
-  if (!text || !globalThis.HistoryStore) return;
-  globalThis.HistoryStore.add({ text, provider, model });
+// 写入转录历史。交给常驻的 background，而不是在 popup 里直接开 IndexedDB：
+// popup 可能在历史事务完成前被关闭，导致最终文本丢失。失败不影响主流程，但必须
+// 打点而不是假装成功。
+async function saveToHistory(text, provider, model) {
+  if (!text) return false;
+  try {
+    await globalThis.MessageClient.send(
+      globalThis.MESSAGES.HISTORY_ADD,
+      { text, provider, model },
+      globalThis.TARGETS.BACKGROUND,
+      15000,
+    );
+    debugEvt('history-saved', { len: text.length });
+    return true;
+  } catch (error) {
+    debugEvt('history-error', { message: error?.message || String(error) });
+    return false;
+  }
 }
-// （history-saved 打点在 stopStreaming 内部 —— saveToHistory 被多处复用，日志留在调用点）
 
 function getDefaultConfig() {
   const firstProvider = globalThis.PROVIDERS?.[0];
@@ -1150,7 +1246,6 @@ function applyConfigToUI(config) {
     els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
     els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
   }
-
   // 音频输入设备：仅当该入口页有下拉框时回填；设备已不在列表时由
   // syncAudioInputOptions 在下次枚举时回退到默认。
   selectedAudioInput = config.audioInput || '';
@@ -1174,16 +1269,21 @@ async function persistConfig() {
     subtitles: subtitlesEnabled,
     audioInput: selectedAudioInput,
   };
-  await globalThis.ConfigStore.save(config);
-  debugEvt('config-saved', {
-    provider: config.provider,
-    model: config.model,
-    endpoint: config.endpoint, // 原值（诊断页可直接看出是不是 https 批量残留）
-    audioType: config.audioType,
-    subtitles: config.subtitles,
-    audioInput: config.audioInput || 'default',
-    hasKey: !!config.apiKey,
-  });
+  try {
+    await globalThis.ConfigStore.save(config);
+    debugEvt('config-saved', {
+      provider: config.provider,
+      model: config.model,
+      endpoint: config.endpoint, // 原值（诊断页可直接看出是不是 https 批量残留）
+      audioType: config.audioType,
+      subtitles: config.subtitles,
+      audioInput: config.audioInput || 'default',
+      hasKey: !!config.apiKey,
+    });
+  } catch (error) {
+    debugEvt('config-save-error', { message: error?.message || String(error) });
+    showStatus(`Cannot save settings: ${error.message}`, 'error');
+  }
 }
 
 // ---------- Helpers ----------

@@ -6,11 +6,13 @@
 //   - asr:fill-text：转发给当前活动 tab 的 content script
 
 // MV3 service worker 为经典脚本，用 importScripts 同步加载依赖。
-// 顺序：共享错误 → 消息契约（配置/加密由 popup 侧读取，此处不涉密钥）
+// 顺序：共享错误 → 消息契约 → 历史存储（IndexedDB 在 SW 可用；配置/加密仍由
+// 扩展页面读取，background 不接触 API Key）。
 importScripts(
   '../shared/errors.js',
   '../shared/timeout.js',
   '../messaging/messages.js',
+  '../store/history.js',
 );
 
 console.log('Background service worker started');
@@ -87,14 +89,18 @@ chrome.commands.onCommand.addListener((command) => {
 // 查询当前活动 tab 并把消息转发给它的 content script。
 // content 的响应必须原样透传（如 fill-text 无聚焦字段时回 { ok:false, NO_FIELD }，
 // 丢掉它会让 popup 永远显示成功）；message 未定义时（异常路径）按失败处理。
-async function forwardToActiveTab(type, payload) {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.id) {
+async function forwardToTab(type, payload, tabId) {
+  let resolvedTabId = tabId;
+  if (resolvedTabId == null) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    resolvedTabId = tab?.id;
+  }
+  if (resolvedTabId == null) {
     return { ok: false, error: globalThis.Errors.NO_TAB };
   }
 
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, {
+    const response = await chrome.tabs.sendMessage(resolvedTabId, {
       type,
       payload,
       target: globalThis.TARGETS.CONTENT,
@@ -116,21 +122,39 @@ async function forwardToActiveTab(type, payload) {
 async function handleFillText(payload) {
   const { text } = payload || {};
   if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
-  return forwardToActiveTab(globalThis.MESSAGES.FILL_TEXT, { text });
+  return forwardToTab(globalThis.MESSAGES.FILL_TEXT, { text });
 }
 
 // 转发字幕浮层消息（asr:subtitle-show / asr:subtitle-hide，见 content/subtitle.js）
 async function handleSubtitleShow(payload) {
   const text = payload?.text || '';
   if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
-  return forwardToActiveTab(globalThis.MESSAGES.SUBTITLE_SHOW, {
+  return forwardToTab(globalThis.MESSAGES.SUBTITLE_SHOW, {
     text,
     done: !!payload?.done,
-  });
+  }, payload?.tabId);
 }
 
-async function handleSubtitleHide() {
-  return forwardToActiveTab(globalThis.MESSAGES.SUBTITLE_HIDE, {});
+async function handleSubtitleHide(payload) {
+  return forwardToTab(globalThis.MESSAGES.SUBTITLE_HIDE, {}, payload?.tabId);
+}
+
+async function handleHistoryAdd(payload) {
+  const text = payload?.text || '';
+  if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
+  try {
+    await globalThis.HistoryStore.add({
+      text,
+      provider: payload?.provider || '',
+      model: payload?.model || '',
+    });
+    return { ok: true, data: { saved: true } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: globalThis.normalizeError(error, globalThis.Errors.STORAGE_ERROR),
+    };
+  }
 }
 
 // ---------- Offscreen 协调（标签页录音） ----------
@@ -350,7 +374,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case globalThis.MESSAGES.SUBTITLE_SHOW:
           return await handleSubtitleShow(payload);
         case globalThis.MESSAGES.SUBTITLE_HIDE:
-          return await handleSubtitleHide();
+          return await handleSubtitleHide(payload);
         case globalThis.MESSAGES.FILL_TEXT:
           return await handleFillText(payload);
         case globalThis.MESSAGES.TAB_RECORD_START:
@@ -359,6 +383,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return await handleTabRecordStop();
         case globalThis.MESSAGES.TAB_RECORD_STATE:
           return { ok: true, data: { recording: await isTabRecording() } };
+        case globalThis.MESSAGES.HISTORY_ADD:
+          return await handleHistoryAdd(payload);
         default:
           return { ok: false, error: globalThis.Errors.UNKNOWN_ACTION };
       }

@@ -16,12 +16,12 @@
  *   { ok: false, error: { code, message } }     失败
  *
  *   asr:subtitle-show    popup/sidepanel → background → content
- *                        payload: { text, done }（done=true 表示会话已结束，
+ *                        payload: { text, done, tabId? }（done=true 表示会话已结束，
  *                        浮层再亮 2s 后自动淡出）
  *                        data:    true
  *
  *   asr:subtitle-hide    popup/sidepanel → background → content
- *                        payload: {}
+ *                        payload: { tabId? }
  *                        data:    true
  *
  *   asr:fill-text        popup → background → content
@@ -33,6 +33,24 @@
  *                        data:    { recording: boolean }
  *                        标签页录音的状态活在 background/offscreen 里，popup 只是镜像；
  *                        popup 每次装载都要对齐一次（它随时可能被关闭而丢内存状态）。
+ *
+ *   asr:history-add      popup/sidepanel → background
+ *                        payload: { text, provider, model }
+ *                        data:    { saved: true }
+ *                        历史写入放在常驻 service worker，popup 关闭时已发出的最终文本
+ *                        仍能落库；options 页仍直接读/清/导出同一个 IndexedDB。
+ *
+ *   asr:debug            popup/sidepanel/offscreen → background → content bridge
+ *                        payload: diagnostic event object（不含 API Key / 完整 URL）
+ *                        data:    none（fire-and-forget）
+ *
+ *   asr:debug-subscribe  diagnostic page content bridge → background
+ *                        payload: {}
+ *                        data:    { ok: true }（订阅心跳）
+ *
+ *   asr:debug-unsubscribe diagnostic page content bridge → background
+ *                         payload: {}
+ *                         data:    none（fire-and-forget）
  *
  * 音频为什么编码传输：runtime 消息通道是 JSON 序列化（不是 structured clone），
  * Blob / ArrayBuffer / Uint8Array 都会丢失（Blob 变成 {}），所以音频统一走
@@ -46,6 +64,7 @@ globalThis.MESSAGES = Object.freeze({
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',
   TAB_RECORD_STATE: 'asr:tab-record-state', // 查询标签页录音是否在进行（popup 装载时对齐）
+  HISTORY_ADD: 'asr:history-add', // 由 background 写入历史，跨 popup 生命周期
   DEBUG_EVT: 'asr:debug',
   DEBUG_SUBSCRIBE: 'asr:debug-subscribe',     // 诊断页 content 桥 → background 登记本 tab
   DEBUG_UNSUBSCRIBE: 'asr:debug-unsubscribe', // 诊断页离开/关闭 → 退订

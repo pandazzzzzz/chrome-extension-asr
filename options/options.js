@@ -9,14 +9,19 @@ const els = {};
 let statusTimer = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  gatherElements();
+  try {
+    gatherElements();
 
-  const config = await globalThis.ConfigStore.load();
-  applyToUI(config);
+    const config = await globalThis.ConfigStore.load();
+    applyToUI(config);
 
-  bindEvents();
-  await refreshHistory();
-  await refreshStorageStatus();
+    bindEvents();
+    await refreshHistory();
+    await refreshStorageStatus();
+  } catch (error) {
+    console.error('Options initialization failed:', error);
+    if (els.status) show(`Cannot load settings: ${error.message}`, 'error');
+  }
 });
 
 function gatherElements() {
@@ -181,12 +186,26 @@ async function save() {
 }
 
 async function refreshHistory() {
-  const items = await globalThis.HistoryStore.list(20);
-  els.historyList.innerHTML = '';
+  let items;
+  try {
+    items = await globalThis.HistoryStore.list(20);
+  } catch (error) {
+    els.historyList.textContent = '';
+    const failed = document.createElement('div');
+    failed.className = 'empty';
+    failed.textContent = `Cannot read history: ${error.message}`;
+    els.historyList.appendChild(failed);
+    show(`Cannot read history: ${error.message}`, 'error');
+    return false;
+  }
+  els.historyList.textContent = '';
 
   if (!items.length) {
-    els.historyList.innerHTML = '<div class="empty">No history yet.</div>';
-    return;
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No history yet.';
+    els.historyList.appendChild(empty);
+    return true;
   }
 
   for (const item of items) {
@@ -201,12 +220,17 @@ async function refreshHistory() {
     div.append(meta, text);
     els.historyList.appendChild(div);
   }
+  return true;
 }
 
 async function clearHistory() {
-  await globalThis.HistoryStore.clear();
-  await refreshHistory();
-  show('History cleared.', 'success');
+  try {
+    await globalThis.HistoryStore.clear();
+  } catch (error) {
+    show(`Clear history failed: ${error.message}`, 'error');
+    return;
+  }
+  if (await refreshHistory()) show('History cleared.', 'success');
 }
 
 /**
@@ -254,7 +278,15 @@ async function exportHistory() {
 }
 
 async function refreshStorageStatus() {
-  const config = await globalThis.ConfigStore.load();
+  let config;
+  try {
+    config = await globalThis.ConfigStore.load();
+  } catch (error) {
+    els.keyStatus.textContent = 'unavailable';
+    els.historyCount.textContent = 'unavailable';
+    show(`Cannot read storage status: ${error.message}`, 'error');
+    return;
+  }
   els.keyStatus.textContent = config.apiKey ? `configured (encrypted at rest)` : 'not set';
 
   // 密钥存在性检查必须走 CryptoStore.hasKey()——不能直接 indexedDB.open('asr-crypto')：
@@ -269,8 +301,12 @@ async function refreshStorageStatus() {
     els.cryptoKeyStatus.textContent = 'unavailable';
   }
 
-  const history = await globalThis.HistoryStore.count();
-  els.historyCount.textContent = `${history}`;
+  try {
+    const history = await globalThis.HistoryStore.count();
+    els.historyCount.textContent = `${history}`;
+  } catch {
+    els.historyCount.textContent = 'unavailable';
+  }
 }
 
 function show(message, type) {

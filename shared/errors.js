@@ -14,6 +14,10 @@ globalThis.Errors = Object.freeze(
 
       // API 类
       API_ERROR: { code: 'API_ERROR', message: 'Provider API error' },
+      NETWORK: { code: 'NETWORK', message: 'Network error' },
+
+      // 存储类
+      STORAGE_ERROR: { code: 'STORAGE_ERROR', message: 'Storage operation failed' },
 
       // 消息 / 协议类
       UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION', message: 'Unknown message type' },

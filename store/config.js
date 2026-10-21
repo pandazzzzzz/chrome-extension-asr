@@ -9,11 +9,29 @@
 globalThis.ConfigStore = (() => {
   const CONFIG_KEY = 'asrConfig'; // 本地配置键
   const LEGACY_SYNC_KEY = 'asrConfig'; // 旧版 storage.sync 同名键（需迁移清除）
+  // 同一扩展上下文内的 load/save 串行化：save 是 read-modify-write，两个并发调用若
+  // 都先读到同一旧对象，后写者会覆盖先写者的字段；load 的迁移也可能与 save 交错。
+  // 跨上下文并发无法靠内存队列消除，但这里先保证每个页面内不会自相覆盖。
+  let operationQueue = Promise.resolve();
+
+  function enqueue(task) {
+    const run = operationQueue.then(task);
+    operationQueue = run.catch(() => {}); // 失败不阻塞后续操作
+    return run;
+  }
 
   // 从旧版 storage.sync 迁移：明文 apiKey 加密后搬到 local，清除云端旧键
   async function migrateLegacy() {
     const { [LEGACY_SYNC_KEY]: legacy } = await chrome.storage.sync.get(LEGACY_SYNC_KEY);
     if (!legacy) return;
+    // 迁移只应发生在 local 尚无配置时。sync 的 remove 可能因离线/配额失败而
+    // 留下旧副本；若每次 load 都无脑覆盖 local，用户后来保存的新配置会被旧数据
+    // 回滚。local 已有配置即视为已迁移，只清理云端副本。
+    const { [CONFIG_KEY]: existing } = await chrome.storage.local.get(CONFIG_KEY);
+    if (existing) {
+      await chrome.storage.sync.remove(LEGACY_SYNC_KEY);
+      return;
+    }
     if (legacy.apiKey) {
       legacy.apiKey = await globalThis.CryptoStore.encrypt(legacy.apiKey);
     }
@@ -23,18 +41,20 @@ globalThis.ConfigStore = (() => {
 
   /** 读取配置；apiKey 解密为明文返回；缺失字段为 undefined，由调用方补默认值。 */
   async function load() {
-    await migrateLegacy();
-    const { [CONFIG_KEY]: config } = await chrome.storage.local.get(CONFIG_KEY);
-    if (!config) return {};
-    const result = { ...config };
-    if (result.apiKey) {
-      try {
-        result.apiKey = await globalThis.CryptoStore.decrypt(result.apiKey);
-      } catch {
-        result.apiKey = ''; // 解密失败置空，避免把密文当明文用
+    return enqueue(async () => {
+      await migrateLegacy();
+      const { [CONFIG_KEY]: config } = await chrome.storage.local.get(CONFIG_KEY);
+      if (!config) return {};
+      const result = { ...config };
+      if (result.apiKey) {
+        try {
+          result.apiKey = await globalThis.CryptoStore.decrypt(result.apiKey);
+        } catch {
+          result.apiKey = ''; // 解密失败置空，避免把密文当明文用
+        }
       }
-    }
-    return result;
+      return result;
+    });
   }
 
   /**
@@ -50,10 +70,15 @@ globalThis.ConfigStore = (() => {
    * @param {{provider?:string, region?:string, endpoint?:string, model?:string, audioType?:string, subtitles?:boolean, audioInput?:string, apiKey?:string}} config
    */
   async function save(config) {
-    const { apiKey = '', ...prefs } = config;
-    const encKey = apiKey ? await globalThis.CryptoStore.encrypt(apiKey) : '';
-    const { [CONFIG_KEY]: existing = {} } = await chrome.storage.local.get(CONFIG_KEY);
-    await chrome.storage.local.set({ [CONFIG_KEY]: { ...existing, ...prefs, apiKey: encKey } });
+    return enqueue(async () => {
+      const { apiKey, ...prefs } = config;
+      const hasApiKey = Object.hasOwn(config, 'apiKey');
+      const encKey = hasApiKey && apiKey ? await globalThis.CryptoStore.encrypt(apiKey) : null;
+      const { [CONFIG_KEY]: existing = {} } = await chrome.storage.local.get(CONFIG_KEY);
+      const merged = { ...existing, ...prefs };
+      if (hasApiKey) merged.apiKey = encKey || '';
+      await chrome.storage.local.set({ [CONFIG_KEY]: merged });
+    });
   }
 
   return { load, save };

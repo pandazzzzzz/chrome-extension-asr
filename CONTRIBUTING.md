@@ -86,14 +86,14 @@ CI 另会校验 PR 内的提交与 PR 标题。规则见 `commitlint.config.mjs`
 4. 测试所有功能
 5. 提交 Pull Request
 
-> 可选：`npm ci` 会从 `package-lock.json` 安装唯一 devDependency（`puppeteer-core`）。
+> 可选：`npm ci` 会从 `package-lock.json` 安装开发依赖（`puppeteer-core`、commitlint、husky）。
 > 只有 gitignored 的 `temp/` 本地测试脚本需要它——扩展运行时**不依赖任何 npm 包**，
 > 不装也不影响开发与加载。
 
 提交前建议本地跑一遍 CI 会跑的检查：
 
 ```
-npm test                        # 单元测试（streaming 29 + config 6 + serve-debug 7 + pack 6 用例，纯 Node）
+npm test                        # 单元测试（streaming 33 + config 9 + history 5 + content-fill 5 + stream-lifecycle 5 + recorder 6 + serve-debug 7 + pack 6，纯 Node）
 node scripts/check-manifest.js  # manifest.json 与所引路径校验
 npm run pack                    # 打包 extension.zip
 ```
