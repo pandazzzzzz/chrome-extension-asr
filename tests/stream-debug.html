@@ -93,7 +93,8 @@
   过滤只影响显示，导出仍包含全部已记录事件。</p>
   <p class="muted" style="margin-top:8px;">扩展 popup/sidepanel 的打点经 content script（debug/bridge.js）转发到这里。
   <b>必须用 http:// 打开本页</b>（content script 不注入 file://）。起服务：<code>node tests/serve-debug.js</code> 后访问
-  <code>http://localhost:18923/tests/stream-debug.html</code>。</p>
+  <code>http://localhost:18923/tests/stream-debug.html</code>。服务器只托管本页、
+  <code>debug-redact.js</code> 与样例视频，不会暴露 <code>tests/</code> 下的手测计划或导出日志。</p>
 </div>
 
 <div class="card">
@@ -108,6 +109,7 @@
   本页监听 input 事件捕获注入内容并记日志。若 Fill 按钮灰，看上方诊断面板的「可编辑字段数」与「活动元素」。</p>
 </div>
 
+<script src="debug-redact.js"></script>
 <script>
 (function () {
   'use strict';
@@ -149,7 +151,7 @@
     const line = document.createElement('div');
     line.className = 'logline';
     const detailStr = detail && Object.keys(detail).length
-      ? ' ' + JSON.stringify(detail).slice(0, 120)
+      ? ' ' + redactDebugText(JSON.stringify(detail)).slice(0, 120)
       : '';
     line.innerHTML = `<span class="ts">${ts}</span> <b>${escapeHtml(phase)}</b>${escapeHtml(detailStr)}`;
     if (!evtMatches(phase)) line.style.display = 'none';
@@ -334,16 +336,13 @@
   // 纵深防御：打点侧（popup/app.js 注释约定）从不把 apiKey 放进 detail，provider 也
   // 只在 WS URL 的 query 里带 Key。但 config-saved 会原样带用户填的 endpoint —— 若用户
   // 把 Key 拼进了自己填的 URL，或未来某个打点新加字段带上了含 query 的完整 URL，
-  // 导出文件就会泄 Key。**导出前对 api_key= 一律脱敏**，这是最后一道闸。
-  function redact(s) {
-    return String(s).replace(/api_key=[^&\s"]+/gi, 'api_key=<redacted>');
-  }
+  // 屏幕和导出文件都会泄 Key。`redactDebugText` 同时覆盖 query、JSON 和 Bearer。
   document.getElementById('exportBtn').addEventListener('click', () => {
     // 两段都要导出：遥测面板（evtEntries，含 run-task-sent/ws-connecting/start-fail
     // 这些分诊表依赖的事件）与 fill 注入日志（entries）。此前只导 entries，
     // 导致「屏幕上有遥测、导出文件是空的」。
-    const evtLines = evtEntries.map((e) => `${e.ts}  [${e.phase}]  ${redact(JSON.stringify(e.detail ?? {}))}`);
-    const fillLines = entries.map((e) => `${e.ts}  [${e.type}]  ${redact(e.text)}${e.detail ? '  ' + redact(e.detail) : ''}`);
+    const evtLines = evtEntries.map((e) => `${e.ts}  [${e.phase}]  ${redactDebugText(JSON.stringify(e.detail ?? {}))}`);
+    const fillLines = entries.map((e) => `${e.ts}  [${e.type}]  ${redactDebugText(e.text)}${e.detail ? '  ' + redactDebugText(e.detail) : ''}`);
     const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n\n`
       + `==== 扩展遥测（${evtLines.length} 条${evtEntries.length >= EVT_MAX ? '，已达上限 2000，更早的已丢弃' : ''}）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}\n\n`
       + `==== fill-text 注入日志（${fillLines.length} 条）====\n${fillLines.join('\n') || '(无)'}`;
