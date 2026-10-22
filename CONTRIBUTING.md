@@ -93,7 +93,7 @@ CI 另会校验 PR 内的提交与 PR 标题。规则见 `commitlint.config.mjs`
 提交前建议本地跑一遍 CI 会跑的检查：
 
 ```
-npm test                        # 单元测试（streaming 33 + config 9 + history 5 + content-fill 5 + stream-lifecycle 5 + recorder 6 + debug-redact 5 + serve-debug 8 + pack 6，纯 Node）
+npm test                        # 单元测试（streaming 33 + config 9 + history 6 + content-fill 5 + stream-lifecycle 5 + recorder 6 + pcm-capture 3 + debug-redact 5 + serve-debug 8 + pack 6，纯 Node）
 node scripts/check-manifest.js  # manifest.json 与所引路径校验
 npm run pack                    # 打包 extension.zip
 ```

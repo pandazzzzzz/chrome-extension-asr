@@ -53,11 +53,13 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 provider contract, model metadata, active-close handling and post-handshake
 network errors), `tests/config.test.js` (merge semantics, apiKey boundaries,
 one-shot migration and write serialization), `tests/history.test.js` (IndexedDB
-errors are not reported as empty/success, and trim failures do not hide a
-successful write), `tests/content-fill.test.js` (fill-text cannot report false
-success; open Shadow DOM is supported), `tests/stream-lifecycle.test.js`
+errors are not reported as empty/success, trim failures do not hide a
+successful write, and trimming follows createdAt), `tests/content-fill.test.js`
+(fill-text cannot report false success; open Shadow DOM is supported),
+`tests/stream-lifecycle.test.js`
 (pagehide only finalizes a session that actually started), `tests/recorder.test.js`
-(MediaRecorder format fallback),
+(MediaRecorder format fallback), `tests/pcm-capture.test.js` (the ScriptProcessor
+fallback carries partial frames across callbacks),
 `tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and
 no dev-only/agent artifacts), `tests/debug-redact.test.js` (diagnostic logs
 redact query/JSON/Bearer credentials), and `tests/serve-debug.test.js` (the

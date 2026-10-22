@@ -113,13 +113,15 @@ globalThis.HistoryStore = (() => {
   async function trim(db) {
     const all = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).getAllKeys();
+      // 主键是 `${Date.now()}-${random}`，字符串顺序不能代表创建时间。
+      // createdAt 索引的 getAllKeys() 返回按创建时间升序排列的主键。
+      const req = tx.objectStore(STORE).index('createdAt').getAllKeys();
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
     if (all.length <= maxEntries) return;
 
-    // getAllKeys 升序 → 最旧的在前
+    // createdAt 升序 → 最旧的在前
     const excess = all.slice(0, all.length - maxEntries);
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite');
