@@ -35,9 +35,9 @@ require(path.join(root, 'transcription/providers/qwen.js'));
 require(path.join(root, 'transcription/providers/index.js'));
 
 let pass = 0, fail = 0;
+const tests = [];
 const t = (name, fn) => {
-  try { fn(); pass++; console.log('PASS | ' + name); }
-  catch (e) { fail++; console.log('FAIL | ' + name + ' | ' + e.message); }
+  tests.push({ name, fn });
 };
 
 // --- floatToInt16 ---
@@ -481,5 +481,17 @@ t('注册表: 只含支持流式的 provider，且都实现了 createStreamSessi
   assert.ok(list.includes(Q), '注册表应含 QwenProvider');
 });
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed (' + (pass + fail) + ' total)');
-process.exit(fail ? 1 : 0);
+(async () => {
+  for (const { name, fn } of tests) {
+    try {
+      await fn();
+      pass++;
+      console.log('PASS | ' + name);
+    } catch (e) {
+      fail++;
+      console.log('FAIL | ' + name + ' | ' + (e && e.message));
+    }
+  }
+  console.log('\n' + pass + ' passed, ' + fail + ' failed (' + (pass + fail) + ' total)');
+  process.exit(fail ? 1 : 0);
+})();

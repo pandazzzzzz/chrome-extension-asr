@@ -202,6 +202,7 @@ class QwenProvider extends BaseProvider {
     let readySettled = false;
     let finishedSettled = false;
     let closeRequested = false;
+    let stopRequested = false;
     let resolveReady;
     let rejectReady;
     let resolveFinished;
@@ -375,7 +376,7 @@ class QwenProvider extends BaseProvider {
 
     socket.onclose = (event) => {
       // 网络断/服务端主动关闭：未正常结束也按终态处理，避免 stop() 永久挂起
-      if (closeRequested) {
+      if (closeRequested || stopRequested) {
         finishRequestedClose();
         return;
       }
@@ -404,6 +405,8 @@ class QwenProvider extends BaseProvider {
       },
       async stop() {
         if (finishedSettled) return;
+        // stop() 属于主动终止；等待确认期间 socket 关闭不应误报为网络断开。
+        stopRequested = true;
         if (started && socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({
             header: { action: 'finish-task', task_id: taskId, streaming: 'duplex' },
