@@ -59,9 +59,11 @@ success; open Shadow DOM is supported), `tests/stream-lifecycle.test.js`
 (pagehide only finalizes a session that actually started), `tests/recorder.test.js`
 (MediaRecorder format fallback),
 `tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and
-no dev-only/agent artifacts), and `tests/serve-debug.test.js` (the diagnostics
-server serves only `tests/`+`samples/`, blocks path traversal, rejects a
-non-loopback `Host` header, and exits cleanly when its port is taken).
+no dev-only/agent artifacts), `tests/debug-redact.test.js` (diagnostic logs
+redact query/JSON/Bearer credentials), and `tests/serve-debug.test.js` (the
+diagnostics server serves only its exact page assets and sample video, blocks
+path traversal, rejects a non-loopback `Host` header, and exits cleanly when
+its port is taken).
 No browser or network needed.
 
 For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
@@ -72,9 +74,10 @@ the extension CSP).
 For streaming diagnostics, run `node tests/serve-debug.js` and open
 `http://localhost:18923/tests/stream-debug.html`. Pass a port to override the
 default: `node tests/serve-debug.js 19150`. The server binds to loopback only,
-serves just `tests/` and `samples/` (so `.env.local`, `.git/`, `docs/` and
-`temp/` are never reachable over HTTP), and rejects any non-loopback `Host`
-header.
+serves only the diagnostic page, its redaction helper, and
+`samples/media/sample.mp4` (so `.env.local`, `.git/`, `docs/`, `temp/`, local
+manual plans and exported logs are never reachable over HTTP), and rejects any
+non-loopback `Host` header.
 
 ## License
 

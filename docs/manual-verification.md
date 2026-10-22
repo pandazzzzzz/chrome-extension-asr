@@ -16,7 +16,7 @@
 | Provider | `Qwen (DashScope)` |
 | Model | 下拉框，预置五个有免费额度的 run-task 模型（选项来自 provider 的 `modelOptions`）：`qwen-audio-3.1-asr-flash-streaming`（**默认**）、`qwen-audio-3.1-asr-flash-message`、`qwen-audio-3.0-asr-flash-streaming`、`paraformer-realtime-v2`、`paraformer-realtime-8k-v2`，末项 `Custom…` 会展开一个手填框（老配置里的非预置模型自动归到 Custom 并保留原文）。**下拉不是白名单本身**：白名单仍以 `streamModels` 为准（含 `fun-asr-realtime`、`fun-asr-flash-8k-realtime` 等未预置项，可带日期后缀，选 Custom 手填即可）。其余模型名——包括 `qwen3-asr-flash-realtime` 这类走 `/api-ws/v1/realtime` 会话制协议的——会被回落为默认模型。**采样率随模型走**：8k 电话模型（`fun-asr-flash-8k-realtime`、`paraformer-realtime-8k-v2`）以 8000 Hz 采集并在 run-task 声明 `sample_rate:8000`，其余为 16000 Hz |
 | Region | 默认 `Beijing (华北2)` → 自动用 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`。切到 `Singapore (新加坡)` → 自动用 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`。选 `Custom` 才出现 Endpoint 文本框（业务空间专属域名 `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/api-ws/v1/inference` 等）。**Custom 留空是硬错误**（点 Live Stream 直接报 `Custom region requires an endpoint URL.`，不开麦、不连接），**不再**静默回落北京。**Region 必须与 API Key 的地域一致**，否则握手 401 |
-| 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件。服务器**只托管 `tests/` 与 `samples/`**（`.env.local`、`.git/`、`docs/`、`temp/` 在 HTTP 上不可读），并**拒绝非回环 `Host` 头**——所以你放在仓库里的测试 Key 不会被这个页面或任何本机网页取走 |
+| 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件。服务器**只托管诊断页、脱敏脚本与样例视频**（`.env.local`、`.git/`、`docs/`、`temp/`，以及 `tests/` 下的手测计划/导出日志在 HTTP 上不可读），并**拒绝非回环 `Host` 头**——所以你放在仓库里的测试 Key 不会被这个页面或任何本机网页取走 |
 
 **开始前记录基线**：popup 初始文案应为 `Start Recording` / `Record Tab` / `Save audio` /
 `Live Stream` / `Copy text` / `Fill into page` / `Subtitles` / `Options` / `Side panel`，

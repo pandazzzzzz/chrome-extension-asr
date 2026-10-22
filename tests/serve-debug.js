@@ -13,10 +13,11 @@
  *   然后浏览器打开 http://localhost:18923/tests/stream-debug.html
  *
  * 安全边界 —— 这是本仓库唯一对外开 socket 的开发组件，下面两条都不能松：
- *   1. **只托管 `tests/` 与 `samples/`**（`SERVE_PREFIXES`）。绝不要退回成
+ *   1. **只托管诊断页所需的精确文件**（`SERVE_FILES`）。绝不要退回成
  *      "托管仓库根目录"：根下有 `.env.local`（真实 API Key）、`.git/`、
  *      `docs/HANDOFF.md`、`temp/` 等，那等于把 Key 与全部本地草稿暴露给
- *      任何能访问 localhost 的进程或网页。
+ *      任何能访问 localhost 的进程或网页。也不要改回 `tests/` 目录前缀：
+ *      手测计划和导出的诊断日志也放在那里，它们可能含凭据或用户数据。
  *   2. **校验 Host 头只认回环名**（`ALLOWED_HOSTNAMES`）。不校验的话，恶意页
  *      把某个域名解析到 127.0.0.1（DNS rebinding）就能以"同源"身份读走这些
  *      文件 —— 浏览器不会拦，且**不需要任何 CORS 头**。
@@ -29,9 +30,13 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.argv[2] || process.env.PORT || 18923);
 
-// 白名单按**路径前缀**判定（相对 ROOT）。未命中一律 404 —— 不区分"不存在"与
-// "不许访问"，避免用状态码差异探测仓库里有哪些文件。
-const SERVE_PREFIXES = ['tests/', 'samples/'];
+// 精确文件白名单（相对 ROOT）。未命中一律 404 —— 不区分"不存在"与"不许访问"，
+// 避免用状态码差异探测仓库里有哪些文件。诊断页的脚本必须列在这里。
+const SERVE_FILES = new Set([
+  'tests/stream-debug.html',
+  'tests/debug-redact.js',
+  'samples/media/sample.mp4',
+]);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -95,7 +100,7 @@ const handleRequest = (req, res) => {
   // 2) 白名单判定必须用**解析后的相对路径**，不能用原始串 —— 否则
   //    `tests/../.env.local` 会因以 "tests/" 开头而放行，实际却读到根下的密钥文件。
   const rel = path.relative(ROOT, filePath).replace(/\\/g, '/');
-  if (!SERVE_PREFIXES.some((prefix) => rel.startsWith(prefix))) {
+  if (!SERVE_FILES.has(rel)) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found: ' + url.pathname);
     return;
@@ -148,7 +153,7 @@ LOOPBACKS.forEach((host) => {
   server.listen(PORT, host, () => {
     const shown = host.includes(':') ? `[${host}]` : host;
     console.log(`诊断页静态服务器已启动： http://${shown}:${PORT}/tests/stream-debug.html`);
-    console.log(`  只托管 tests/ 与 samples/；其余路径（含 .env.local、.git/、docs/、temp/）一律 404。`);
+    console.log(`  只托管诊断页、debug-redact.js 与 samples/media/sample.mp4；其余路径（含 tests/ 下的本地计划/日志、.env.local、.git/、docs/、temp/）一律 404。`);
   });
 });
 console.log(`（按 Ctrl+C 停止）`);

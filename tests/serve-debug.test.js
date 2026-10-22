@@ -1,8 +1,8 @@
 // 诊断页静态服务器单元测试 —— 纯 Node，无浏览器依赖。
 //
 // 覆盖 `tests/serve-debug.js` 的**安全边界与分发契约**（消费方可见的行为）：
-//   1. 只托管 `tests/` 与 `samples/` —— `.env.local`（真实 API Key）、`.git/`、
-//      `docs/`、`temp/`、`package.json` 等一律不可达；
+//   1. 只托管诊断页所需文件与样例视频 —— `.env.local`（真实 API Key）、`.git/`、
+//      `docs/`、`temp/`、`package.json`，以及 `tests/` 下的手测计划/导出日志一律不可达；
 //   2. 路径穿越（`tests/../.env.local`、`%2e%2e`、`..%2f`）读不到仓库根文件；
 //   3. Host 头校验 —— 非回环 Host（DNS rebinding）返回 403；
 //   4. 端口被占用时**明确报错并以退出码 1 结束**，不再崩栈。
@@ -96,8 +96,8 @@ function req(port, urlPath, headers = {}) {
   const port = await findFreePort();
   const srv = await startServer(port);
   try {
-    // --- 1. 白名单内的文件可访问 ---
-    await t('tests/ 与 samples/ 下的文件可访问，且带 nosniff', async () => {
+    // --- 1. 诊断页所需文件可访问 ---
+    await t('诊断页、脱敏脚本与样例视频可访问，且带 nosniff', async () => {
       const page = await req(port, '/tests/stream-debug.html');
       assert.strictEqual(page.status, 200, '诊断页应可访问');
       assert.match(page.headers['content-type'], /text\/html/, 'Content-Type 应为 html');
@@ -107,12 +107,15 @@ function req(port, urlPath, headers = {}) {
       const mp4 = await req(port, '/samples/media/sample.mp4');
       assert.strictEqual(mp4.status, 200, '样例视频应可访问（Record Tab 源）');
       assert.match(mp4.headers['content-type'], /video\/mp4/);
+
+      const redact = await req(port, '/tests/debug-redact.js');
+      assert.strictEqual(redact.status, 200, '脱敏脚本应可访问');
+      assert.match(redact.headers['content-type'], /javascript/);
     });
 
     // --- 2. 白名单**之外**的仓库根文件一律不可达 ---
-    // 注意边界：白名单是**目录前缀** tests/ 与 samples/，所以 tests/ 下的任何文件
-    // （含测试源码、用户放在那里的手测草稿）都会被托管 —— 这是刻意的，诊断页本身
-    // 就在 tests/ 下。红线是**仓库根**的敏感文件（密钥、git 元数据、本地草稿）。
+    // 注意边界：白名单是**精确文件**，不是目录前缀。`tests/` 下的手测计划、
+    // 导出日志和测试源码都不应被 HTTP 托管。
     await t('白名单外的敏感路径不可达：.env.local / .git / docs / temp / package.json', async () => {
       const sensitive = [
         '/.env.local',
@@ -124,11 +127,29 @@ function req(port, urlPath, headers = {}) {
         '/package-lock.json',
         '/extension.zip',
         '/manifest.json',
+        '/tests/manual-test-plan.md',
+        '/tests/asr-debug-log-test.txt',
+        '/tests/serve-debug.js',
+        '/tests/serve-debug.test.js',
+        '/samples/README.md',
       ];
       for (const p of sensitive) {
         const res = await req(port, p);
         assert.notStrictEqual(res.status, 200, `${p} 不应可读（实际 ${res.status}）`);
         assert.ok(!res.body.includes('ASR_TEST_API_KEY'), `${p} 泄漏了 Key 变量名`);
+      }
+    });
+
+    // --- 2a. tests/ 不是整目录托管：手测计划与导出日志不可读 ---
+    await t('tests/ 下的非诊断页文件不可读（手测计划 / 导出日志 / 测试源码）', async () => {
+      for (const p of [
+        '/tests/manual-test-plan.md',
+        '/tests/asr-debug-log-test.txt',
+        '/tests/p1-smoke-test.html',
+        '/tests/../tests/manual-test-plan.md',
+      ]) {
+        const res = await req(port, p);
+        assert.strictEqual(res.status, 404, `${p} 不应可读（实际 ${res.status}）`);
       }
     });
 
