@@ -27,6 +27,8 @@ globalThis.createPcmCapture = function createPcmCapture({
   let node = null;
   let silentGain = null;
   let mode = null;
+  let fallbackOffset = 0;
+  const fallbackBuffer = new Float32Array(frameSize);
 
   async function start() {
     if (node) return;
@@ -54,13 +56,24 @@ globalThis.createPcmCapture = function createPcmCapture({
       }
     }
 
-    // 回退：ScriptProcessorNode（废弃但可用；帧在 onaudioprocess 内切分）
+    fallbackOffset = 0;
+
+    // 回退：ScriptProcessorNode（废弃但可用）。4096 样本的缓冲区通常不是
+    // frameSize 的整数倍，必须像 AudioWorklet 一样把余数留到下一次回调，
+    // 否则会发出短帧，且每次回调边界都会丢失固定采样对齐。
     const sp = context.createScriptProcessor(4096, 1, 1);
     sp.onaudioprocess = (e) => {
       const input = e.inputBuffer.getChannelData(0);
-      for (let i = 0; i < input.length; i += frameSize) {
-        const end = Math.min(i + frameSize, input.length);
-        if (end > i) onFrame(new Float32Array(input.slice(i, end)));
+      let i = 0;
+      while (i < input.length) {
+        const n = Math.min(input.length - i, frameSize - fallbackOffset);
+        fallbackBuffer.set(input.subarray(i, i + n), fallbackOffset);
+        fallbackOffset += n;
+        i += n;
+        if (fallbackOffset === frameSize) {
+          onFrame(fallbackBuffer.slice());
+          fallbackOffset = 0;
+        }
       }
     };
     source.connect(sp);
@@ -82,6 +95,7 @@ globalThis.createPcmCapture = function createPcmCapture({
     source = null;
     silentGain = null;
     mode = null;
+    fallbackOffset = 0;
   }
 
   return { start, stop, mode: () => mode };
