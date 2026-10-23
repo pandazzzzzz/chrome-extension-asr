@@ -190,14 +190,8 @@ function freshMocks() {
       require(path.join(root, 'store/config.js'));
       return globalThis.ConfigStore;
     };
-    let ctxA, ctxB;
-    try {
-      ctxA = mkStore();
-      ctxB = mkStore();
-    } finally {
-      if (origNavDesc) Object.defineProperty(globalThis, 'navigator', origNavDesc);
-      else delete globalThis.navigator;
-    }
+    const ctxA = mkStore();
+    const ctxB = mkStore();
 
     // 交错窗口：第一个 read 挂起后稍等再放行。无跨上下文互斥时，两个上下文都会
     // 基于同一份旧快照做 merge（丢失写必现）；有 navigator.locks 时，第二个上下文
@@ -219,6 +213,9 @@ function freshMocks() {
       ]);
     } finally {
       globalThis.chrome.storage.local.get = origGet;
+      // navigator 在 save 执行时才被读取（不是模块加载时），须保持到用例结束再还原
+      if (origNavDesc) Object.defineProperty(globalThis, 'navigator', origNavDesc);
+      else delete globalThis.navigator;
     }
     const cfg = await globalThis.ConfigStore.load();
     assert.strictEqual(cfg.model, 'm-popup', 'popup 的 model 被 options 覆盖丢失');
