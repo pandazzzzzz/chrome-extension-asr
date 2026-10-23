@@ -5,7 +5,7 @@
 // （能力元数据、isStreamModel / sampleRateFor 判定、createStreamSession 前置校验、
 // run-task 报文的 sample_rate、注册表不变量）。
 // **不联网**：WebSocket 用本文件内的假件（withFakeSocket）驱动，只断言发出去的报文；
-// 真实网络链路属真机端到端验证（见 docs/HANDOFF.md §3）。
+// 真实网络链路属真机端到端验证（见 docs/manual-verification.md）。
 //
 // 运行：npm test（或 node tests/streaming.test.js）
 //

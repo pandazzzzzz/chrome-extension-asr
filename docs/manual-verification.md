@@ -1,7 +1,7 @@
 # 真机端到端验证清单 — Live Stream 与录音壳
 
 > 目标：补上项目**唯一未被任何自动化覆盖**的链路 —— Live Stream 的真实 WebSocket 流式
-> （`docs/HANDOFF.md` §3 记为「从未在浏览器跑通过」）。同时回归录音壳三路。
+> （真 API Key + 真浏览器，自动化无法模拟工具栏手势与音频）。同时回归录音壳三路。
 >
 > 全部步骤为**人工操作**：需要真 API Key、麦克风权限、以及一次工具栏图标点击
 > （`tabCapture` 要求「用户调用扩展」标记，自动化无法模拟）。
@@ -230,7 +230,7 @@
 | # | 操作 | 预期 |
 |---|---|---|
 | 6b.1 | 按 `Ctrl+Shift+Y`（mac `Cmd+Shift+Y`） | popup 打开（与点工具栏图标等价） |
-| 6b.2 | 按 `Ctrl+Shift+U`（mac `Cmd+Shift+U`） | **side panel 打开**。若报 `` `sidePanel.open()` may only be called in response to a user gesture `` → handler 里在 `open()` 前多了一个 `await`（见 `HANDOFF.md` §5.5） |
+| 6b.2 | 按 `Ctrl+Shift+U`（mac `Cmd+Shift+U`） | **side panel 打开**。若报 `` `sidePanel.open()` may only be called in response to a user gesture `` → handler 里在 `open()` 前多了一个 `await`（`background.js` 的 onCommand 注释有此约束） |
 | 6b.3 | `chrome://extensions/shortcuts` 里给 **Open the ASR options page** 设一个键，再按 | options 页打开 |
 | 6b.4 | 6b.1 之后立刻点 **Record Tab** | 正常开始录音（快捷键算一次「扩展调用」，tab 级授权成立） |
 | 6b.5 | 在 `chrome://extensions/shortcuts` 查看三条命令 | 前两条有默认键，第三条（options）为空 —— 属预期，用户自设 |
@@ -272,9 +272,9 @@ cd temp/perf && node run.js all      # A 首字延迟 / B 30s 内存 / C offscre
 
 ## 8. 完成后
 
-1. 更新 `docs/HANDOFF.md` §3：把「Live Stream 真机端到端」从未验证移到已验证，附**日期 + Chrome 版本 + 模型名**
+1. 在本文档顶部记录本轮验证结论：附**日期 + Chrome 版本 + 模型名**
 2. 更新 GitHub Issue #1：`Performance optimization` 之外，若 Live Stream 通过则说明核心链路已闭环
-3. 若发现新 bug：按 `docs/HANDOFF.md` §6 的格式记录（现象 / 根因 / 修复），并考虑补一条自动化测试
+3. 若发现新 bug：按（现象 / 根因 / 修复）格式记录到新 issue，并考虑补一条自动化测试
 
 ---
 
