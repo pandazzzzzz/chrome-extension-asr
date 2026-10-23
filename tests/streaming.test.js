@@ -272,6 +272,8 @@ t('BaseProvider.sampleRateFor: 例外表为空 → 一律 defaultSampleRate', ()
 function withFakeSocket(fn) {
   const sockets = [];
   class FakeSocket {
+    static OPEN = 1;   // 真实 WebSocket 有静态 readyState 常量；stop() 依赖它选分支
+    static CLOSED = 3;
     constructor(url) {
       this.url = url;
       this.readyState = 1; // OPEN
@@ -422,6 +424,34 @@ t('Qwen: stop() 超时后主动 close() 不得补报 NETWORK', async () => {
   } finally {
     globalThis.setTimeout = realSetTimeout;
   }
+});
+t('Qwen: stop() 等待期间的 onerror 不得报 NETWORK', async () => {
+  await new Promise((resolve, reject) => {
+    withFakeSocket((sockets) => {
+      let reported = null;
+      let ended = 0;
+      const session = Q.createStreamSession({
+        apiKey: 'k',
+        model: 'fun-asr-realtime',
+        onError: (e) => { reported = e; },
+        onEnd: () => { ended += 1; },
+      });
+      sockets[0].onopen();
+      sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+      const stopping = session.stop();
+      sockets[0].onerror();
+      sockets[0].close();
+      stopping.then(() => {
+        try {
+          assert.strictEqual(reported, null, 'stop() 期间的 onerror 不应报 NETWORK');
+          assert.strictEqual(ended, 1, '主动 stop 应只触发一次 onEnd');
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      }, reject);
+    });
+  });
 });
 t('BaseProvider: 流式基类默认抛错（不实现就用不了）', () => {
   assert.throws(() => globalThis.BaseProvider.createStreamSession({}), /Streaming not supported/);
