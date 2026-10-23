@@ -68,7 +68,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 // 查 —— 这也是快捷键**不**用于启动标签页录音的原因：`tabCapture` 要的 tab 级授权
 // 虽然同样由「键盘快捷键」这类手势授予（Chrome 文档《The activeTab permission》
 // 明确列出 "Executing a keyboard shortcut"），但录音状态机活在 popup 的模块作用域里，
-// 从 SW 启动需要把整条录音链路搬出 popup，属于独立改动（见 HANDOFF §5.5）。
+// 从 SW 启动需要把整条录音链路搬出 popup，属于独立改动，不在快捷键处理范围内。
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'open-side-panel') {
     // 同步调用，不 await 任何东西在前（见上）。

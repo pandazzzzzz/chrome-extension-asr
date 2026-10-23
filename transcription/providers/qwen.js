@@ -131,7 +131,7 @@ class QwenProvider extends BaseProvider {
    * 鉴权：浏览器 WebSocket 无法自定义 header，apiKey 走 URL query 参数。
    * ⚠️ `?api_key=` **未见于官方文档**（文档只写握手请求头 `Authorization: Bearer <key>`）；
    * 实测服务端接受该 query 参数（无参 → "No API-key provided."，带无效值 → "Invalid API-key
-   * provided."），属未公开的兼容行为，可能随时失效 —— 见 docs/HANDOFF.md 的取舍记录。
+   * provided."），属未公开的兼容行为，可能随时失效 —— 失效时只能改走后台代理等替代鉴权路线。
    * 安全边界：本方法在 popup/sidepanel 调用，apiKey 进入页面 JS —— MV3 service
    * worker 无法持长连接，这是浏览器扩展的固有取舍（密钥仍只来自本地加密存储）。
    *
