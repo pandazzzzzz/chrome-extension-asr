@@ -11,11 +11,18 @@ globalThis.ConfigStore = (() => {
   const LEGACY_SYNC_KEY = 'asrConfig'; // 旧版 storage.sync 同名键（需迁移清除）
   // 同一扩展上下文内的 load/save 串行化：save 是 read-modify-write，两个并发调用若
   // 都先读到同一旧对象，后写者会覆盖先写者的字段；load 的迁移也可能与 save 交错。
-  // 跨上下文并发无法靠内存队列消除，但这里先保证每个页面内不会自相覆盖。
+  // 跨上下文（popup/options/sidepanel 同时保存）由 navigator.locks 互斥：Web Locks
+  // 按同源共享锁空间，扩展页面同属 chrome-extension://<id>，能真正串行化各自页面内
+  // 的队列；API 不可用（极老环境/测试桩未提供）时退化为仅内存队列。
   let operationQueue = Promise.resolve();
+  const CONFIG_LOCK = 'asr-config-lock';
 
   function enqueue(task) {
-    const run = operationQueue.then(task);
+    const run = operationQueue.then(() => {
+      const locks = globalThis.navigator?.locks;
+      if (!locks?.request) return task();
+      return locks.request(CONFIG_LOCK, { mode: 'exclusive' }, task);
+    });
     operationQueue = run.catch(() => {}); // 失败不阻塞后续操作
     return run;
   }

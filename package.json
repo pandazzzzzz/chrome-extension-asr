@@ -10,7 +10,7 @@
     "build": "echo 'No build step required for basic extension'",
     "pack": "node scripts/pack.js",
     "test": "node tests/streaming.test.js && node tests/config.test.js && node tests/history.test.js && node tests/content-fill.test.js && node tests/stream-lifecycle.test.js && node tests/recorder.test.js && node tests/pcm-capture.test.js && node tests/debug-redact.test.js && node tests/serve-debug.test.js && node tests/pack.test.js",
-    "lint": "echo 'Add your linting tool here'",
+    "lint": "node scripts/lint.js",
     "prepare": "husky",
     "lint:commit": "commitlint --from origin/main --to HEAD"
   },
