@@ -360,8 +360,8 @@ class QwenProvider extends BaseProvider {
 
     socket.onerror = () => {
       // 具体原因由 onclose 兜底（浏览器不暴露 WS 错误细节）
-      track('ws-error', { finishedSettled, started, closeRequested });
-      if (closeRequested) return;
+      track('ws-error', { finishedSettled, started, closeRequested, stopRequested });
+      if (closeRequested || stopRequested) return;
       // task-started 之后的 error 是运行期网络故障，不是鉴权/握手失败；误报会让
       // 用户去查 API Key/地域，掩盖真正的断网。握手阶段的判断仍保留。
       if (!finishedSettled) {
