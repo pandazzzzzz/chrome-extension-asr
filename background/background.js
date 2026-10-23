@@ -15,8 +15,6 @@ importScripts(
   '../store/history.js',
 );
 
-console.log('Background service worker started');
-
 const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 
 // 诊断页订阅者集合：诊断页 content 桥（debug/bridge.js）在装载时发 DEBUG_SUBSCRIBE

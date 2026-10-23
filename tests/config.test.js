@@ -156,6 +156,72 @@ function freshMocks() {
     assert.strictEqual(cfg.subtitles, true);
   });
 
+  await t('save: 跨上下文并发部分写入不互相覆盖', async () => {
+    // 模拟 popup 与 options：两个扩展页面各有独立的 JS 上下文，内存队列互不可见，
+    // 但共享同一份 chrome.storage.local。用「读后延迟写」制造交错窗口 —— 若没有
+    // 存储层互斥，后写者会基于过期快照覆盖先写者的字段。
+    // Node 22（CI）没有 navigator.locks（Node 24 才加入）；浏览器扩展页面上它总在。
+    // 这里装一个确定性的互斥 mock，模拟扩展页面的真实锁语义，与 Node 版本解耦。
+    const origNavDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const lockQueues = new Map();
+    function lockRequest(name, options, task) {
+      const cb = typeof options === 'function' ? options : task;
+      const q = lockQueues.get(name) || [];
+      lockQueues.set(name, q);
+      return new Promise((resolve, reject) => {
+        q.push(async () => {
+          try { resolve(await cb()); } catch (e) { reject(e); }
+        });
+        if (q.length === 1) drain(name);
+      });
+    }
+    function drain(name) {
+      const q = lockQueues.get(name);
+      if (!q || !q.length) return;
+      q[0]().finally(() => { q.shift(); drain(name); });
+    }
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { locks: { request: lockRequest } },
+    });
+
+    const mkStore = () => {
+      delete require.cache[require.resolve(path.join(root, 'store/config.js'))];
+      require(path.join(root, 'store/config.js'));
+      return globalThis.ConfigStore;
+    };
+    const ctxA = mkStore();
+    const ctxB = mkStore();
+
+    // 交错窗口：第一个 read 挂起后稍等再放行。无跨上下文互斥时，两个上下文都会
+    // 基于同一份旧快照做 merge（丢失写必现）；有 navigator.locks 时，第二个上下文
+    // 的 read 被锁挡到第一个事务完成后才发生 —— 它的 read 根本不会进屏障。
+    const origGet = globalThis.chrome.storage.local.get;
+    let releaseReads = null;
+    const barrier = new Promise((r) => { releaseReads = r; });
+    globalThis.chrome.storage.local.get = async (key) => {
+      const release = releaseReads;
+      releaseReads = null; // 只有第一个 read 挂起；锁串行后到来的直接放行
+      if (release) await release;
+      return origGet(key);
+    };
+    setTimeout(() => { releaseReads?.(); }, 10);
+    try {
+      await Promise.all([
+        ctxA.save({ model: 'm-popup' }),
+        ctxB.save({ audioInput: 'dev-options' }),
+      ]);
+    } finally {
+      globalThis.chrome.storage.local.get = origGet;
+      // navigator 在 save 执行时才被读取（不是模块加载时），须保持到用例结束再还原
+      if (origNavDesc) Object.defineProperty(globalThis, 'navigator', origNavDesc);
+      else delete globalThis.navigator;
+    }
+    const cfg = await globalThis.ConfigStore.load();
+    assert.strictEqual(cfg.model, 'm-popup', 'popup 的 model 被 options 覆盖丢失');
+    assert.strictEqual(cfg.audioInput, 'dev-options', 'options 的 audioInput 被 popup 覆盖丢失');
+  });
+
   await t('save: 加密失败时不得先清除已有密钥', async () => {
     const CS = globalThis.ConfigStore;
     await CS.save({ apiKey: 'sk-keep' });

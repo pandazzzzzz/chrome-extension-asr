@@ -24,7 +24,7 @@
 | `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式；帧长是调优常量，见 `popup/app.js` 的 `STREAM.frameSize` 与 HANDOFF §5.6） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
-| 构建 / 质量 | 无构建/无 TS；lint 占位；`npm test` = `tests/streaming.test.js`（33）+ `tests/config.test.js`（9）+ `tests/history.test.js`（6）+ `tests/content-fill.test.js`（5）+ `tests/stream-lifecycle.test.js`（5）+ `tests/recorder.test.js`（6）+ `tests/pcm-capture.test.js`（3）+ `tests/debug-redact.test.js`（5）+ `tests/serve-debug.test.js`（8，诊断服务器安全边界）+ `tests/pack.test.js`（6）；冒烟测试 `tests/p1-smoke-test.js`（20，需真 Chrome，未入 CI） | 依赖脚本加载顺序；无类型契约 |
+| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` = `tests/streaming.test.js`（33）+ `tests/config.test.js`（10）+ `tests/history.test.js`（6）+ `tests/content-fill.test.js`（5）+ `tests/stream-lifecycle.test.js`（5）+ `tests/recorder.test.js`（6）+ `tests/pcm-capture.test.js`（3）+ `tests/debug-redact.test.js`（5）+ `tests/serve-debug.test.js`（8，诊断服务器安全边界）+ `tests/pack.test.js`（6）；冒烟测试 `tests/p1-smoke-test.js`（20，需真 Chrome，未入 CI） | 依赖脚本加载顺序；无类型契约 |
 | `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen` + **`commands` 3 条**（popup / side panel / options）+ `minimum_chrome_version: 116`（`getContexts` / SW 中的 `getMediaStreamId`）。**无 `activeTab`**（2026-10-11 移除，实测不承载功能：content 的 host 访问来自 `content_scripts` 的 `<all_urls>`，tabCapture 授权只看 `tabCapture`）；**host_permissions 为空**（WebSocket 不受其约束，扩展也无 `fetch()`） | content 的 `<all_urls>` 注入面仍然偏宽（功能需要） |
 
 ### 1.2 目标能力

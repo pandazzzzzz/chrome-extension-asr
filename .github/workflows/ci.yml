@@ -36,8 +36,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Syntax check all JavaScript
-        run: git ls-files -z '*.js' | xargs -0 -n1 node --check
+      - name: Lint all JavaScript
+        run: npm run lint
 
       - name: Validate manifest.json and referenced paths
         run: node scripts/check-manifest.js
