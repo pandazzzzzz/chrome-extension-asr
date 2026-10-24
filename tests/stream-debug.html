@@ -153,7 +153,12 @@
     const detailStr = detail && Object.keys(detail).length
       ? ' ' + redactDebugText(JSON.stringify(detail)).slice(0, 120)
       : '';
-    line.innerHTML = `<span class="ts">${ts}</span> <b>${escapeHtml(phase)}</b>${escapeHtml(detailStr)}`;
+    const tsEl = document.createElement('span');
+    tsEl.className = 'ts';
+    tsEl.textContent = ts;
+    const phaseEl = document.createElement('b');
+    phaseEl.textContent = phase;
+    line.append(tsEl, ' ', phaseEl, detailStr);
     if (!evtMatches(phase)) line.style.display = 'none';
     evtLog.appendChild(line);
     if (evtAutoscroll.checked) evtLog.scrollTop = evtLog.scrollHeight;
@@ -240,7 +245,18 @@
     entries.push(e);
     const line = document.createElement('div');
     line.className = 'logline';
-    line.innerHTML = `<span class="ts">${e.ts}</span> <b>${e.type}</b> ${escapeHtml(e.text)}${e.detail ? ' <span class="muted">' + escapeHtml(e.detail) + '</span>' : ''}`;
+    const tsEl = document.createElement('span');
+    tsEl.className = 'ts';
+    tsEl.textContent = e.ts;
+    const typeEl = document.createElement('b');
+    typeEl.textContent = e.type;
+    line.append(tsEl, ' ', typeEl, ' ', e.text);
+    if (e.detail) {
+      const detailEl = document.createElement('span');
+      detailEl.className = 'muted';
+      detailEl.textContent = ` ${e.detail}`;
+      line.append(detailEl);
+    }
     logEl.appendChild(line);
     if (autoscroll.checked) logEl.scrollTop = logEl.scrollHeight;
   }

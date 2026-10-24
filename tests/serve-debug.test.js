@@ -39,9 +39,10 @@ function findFreePort() {
 }
 
 /** 拉起服务器子进程，**等到就绪行再返回**（返回的即已可用的句柄）。 */
-async function startServer(port) {
+async function startServer(port, env = {}) {
   const child = spawn(process.execPath, [SERVER, String(port)], {
     cwd: ROOT,
+    env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -200,6 +201,20 @@ function req(port, urlPath, headers = {}) {
     });
   } finally {
     await srv.stop();
+  }
+
+  // --- SERVE_EXTRA_FILES：只追加精确文件，不开放目录 ---
+  const extraPort = await findFreePort();
+  const extraSrv = await startServer(extraPort, { SERVE_EXTRA_FILES: 'tests/p1-smoke-test.html' });
+  try {
+    await t('SERVE_EXTRA_FILES 只追加精确文件，同目录其他文件仍不可访问', async () => {
+      const html = await req(extraPort, '/tests/p1-smoke-test.html');
+      assert.strictEqual(html.status, 200, '追加的精确文件应可访问');
+      const neighbor = await req(extraPort, '/tests/serve-debug.test.js');
+      assert.strictEqual(neighbor.status, 404, '同目录其他文件仍不可访问');
+    });
+  } finally {
+    await extraSrv.stop();
   }
 
   // --- 6. 端口占用：明确报错 + 退出码 1（不再崩栈）---

@@ -37,6 +37,15 @@ const SERVE_FILES = new Set([
   'tests/debug-redact.js',
   'samples/media/sample.mp4',
 ]);
+// 本地工具（如 smoke-run.js）可用 SERVE_EXTRA_FILES 追加精确文件列表（逗号分隔、
+// 相对 ROOT）；仍是精确白名单，不开放目录，也不影响默认行为。
+if (process.env.SERVE_EXTRA_FILES) {
+  for (const p of process.env.SERVE_EXTRA_FILES.split(',')) {
+    if (!p) continue;
+    const rel = path.relative(ROOT, path.resolve(ROOT, p)).replace(/\\/g, '/');
+    SERVE_FILES.add(rel);
+  }
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
