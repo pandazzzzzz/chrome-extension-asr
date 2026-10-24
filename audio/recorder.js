@@ -117,8 +117,15 @@ globalThis.AudioRecorder = class AudioRecorder {
     return new Blob(this.chunks, { type });
   }
 
-  /** 停止音轨并清空状态。 */
-  release() {
+  /**
+   * 停止音轨并重置状态。
+   *
+   * @param {{ keepChunks?: boolean }} [opts]
+   *   keepChunks: 失败恢复路径用 —— 保留已录分片，让 getBlob() 仍能取回部分音频
+   *   （MediaRecorder onstop 不触发时 stop() 超时，这是用户唯一能救回的数据）。
+   *   默认丢弃（成功路径语义不变，attach() 复用同实例也依赖清空）。
+   */
+  release({ keepChunks = false } = {}) {
     if (this.recorder && this.isRecording) {
       try {
         this.recorder.stop();
@@ -132,6 +139,6 @@ globalThis.AudioRecorder = class AudioRecorder {
       this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
     }
-    this.chunks = [];
+    if (!keepChunks) this.chunks = [];
   }
 };

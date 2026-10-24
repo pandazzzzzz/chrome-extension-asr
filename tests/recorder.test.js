@@ -29,6 +29,43 @@ function withSupport(supported, fn) {
   }
 }
 
+// --- 最小 MediaRecorder + 媒体流桩：驱动 stop()/release() 生命周期 ---
+let recorderStubs = [];
+function withFakeRecorder({ onstopDelay = 0 } = {}, fn) {
+  recorderStubs = [];
+  const prevRecorder = globalThis.MediaRecorder;
+  const prevBlob = globalThis.Blob;
+  globalThis.MediaRecorder = class FakeMediaRecorder {
+    static isTypeSupported = () => true;
+    constructor() {
+      this.mimeType = '';
+      recorderStubs.push(this);
+    }
+    start() {}
+    stop() {}
+  };
+  // Blob 桩只算字节数；size 累加语义与真 Blob 一致。
+  globalThis.Blob = class FakeBlob {
+    constructor(parts) { this.size = (parts || []).reduce((n, p) => n + (p.size || 0), 0); }
+  };
+  const timer = onstopDelay === Infinity ? null
+    : setTimeout(() => stub.onstop?.(), onstopDelay);
+  const stub = recorderStubs[0];
+  try { fn(); } finally {
+    if (timer) clearTimeout(timer);
+    if (prevRecorder === undefined) delete globalThis.MediaRecorder;
+    else globalThis.MediaRecorder = prevRecorder;
+    if (prevBlob === undefined) delete globalThis.Blob;
+    else globalThis.Blob = prevBlob;
+  }
+}
+function makeStream() {
+  return { getTracks: () => [{ stop() {} }] };
+}
+function makeBlobPart(size) {
+  return { size };
+}
+
 t('pickMimeType: 首选受支持时原样返回', () => {
   withSupport(['audio/mp4', 'audio/webm'], () => {
     assert.strictEqual(globalThis.AudioRecorder.pickMimeType('audio/mp4'), 'audio/mp4');
@@ -59,6 +96,59 @@ t('actualMimeType: MediaRecorder 回报的 codec 参数优先于协商结果', (
     const rec = new globalThis.AudioRecorder({ mimeType: 'audio/webm' });
     rec.recorder = { mimeType: 'audio/webm;codecs=opus' };
     assert.strictEqual(rec.actualMimeType(), 'audio/webm;codecs=opus');
+  });
+});
+
+t('stop: onstop 不触发时超时 reject，已录分片仍可从 getBlob 恢复', () => {
+  withFakeRecorder({ onstopDelay: Infinity }, async () => {
+    const rec = new globalThis.AudioRecorder({ mimeType: 'audio/webm' });
+    rec.attach(makeStream());
+    rec.start();
+    recorderStubs[0].ondataavailable({ data: makeBlobPart(1024) });
+    recorderStubs[0].ondataavailable({ data: makeBlobPart(2048) });
+
+    // withTimeout 内部用全局 setTimeout；短超时等待下加速测试。
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn, ms) => realSetTimeout(fn, Math.min(ms, 20));
+    let timeoutError = null;
+    try {
+      await rec.stop();
+    } catch (err) {
+      timeoutError = err;
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    assert.ok(timeoutError, 'stop() 应因 onstop 缺失而超时 reject');
+    assert.match(timeoutError.message, /MediaRecorder\.stop/);
+
+    const blob = rec.getBlob();
+    assert.strictEqual(blob.size, 3072, '已录分片必须可恢复');
+    assert.strictEqual(blob.type, 'audio/webm');
+  });
+});
+
+t('release: 默认丢弃分片（成功路径语义不变）', () => {
+  withFakeRecorder({}, () => {
+    const rec = new globalThis.AudioRecorder({ mimeType: 'audio/webm' });
+    rec.attach(makeStream());
+    rec.start();
+    recorderStubs[0].ondataavailable({ data: makeBlobPart(512) });
+    rec.release();
+    assert.strictEqual(rec.getBlob().size, 0, 'release 后分片应清空');
+  });
+});
+
+t('release({ keepChunks }): 保留分片且停止音轨（失败恢复路径）', () => {
+  withFakeRecorder({}, () => {
+    const rec = new globalThis.AudioRecorder({ mimeType: 'audio/webm' });
+    rec.attach(makeStream());
+    rec.start();
+    recorderStubs[0].ondataavailable({ data: makeBlobPart(1024) });
+    rec.release({ keepChunks: true });
+    assert.strictEqual(rec.getBlob().size, 1024, 'keepChunks 时分片保留');
+    assert.strictEqual(rec.recorder, null, 'recorder 已释放');
+    assert.strictEqual(rec.stream, null, '音轨已停止');
+    assert.strictEqual(rec.isRecording, false);
   });
 });
 

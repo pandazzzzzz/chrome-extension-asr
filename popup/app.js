@@ -532,10 +532,17 @@ async function stopRecording() {
     showStatus('Recording complete.', 'success');
   } catch (error) {
     debugEvt('record-error', { where: 'stop', message: error?.message || String(error) });
-    showStatus(`Recording failed: ${error.message}`, 'error');
-    // 失败路径同样要停轨 + 释放，否则音轨常驻、下次 start 又 new 一个实例
-    recorder.release();
+    // 超时/异常时已录分片是用户唯一能救回的数据：release({keepChunks}) 停轨但
+    // 保留 chunks，getBlob() 仍可拼出部分音频供 Save。
+    const partial = recorder.getBlob();
+    recorder.release({ keepChunks: true });
     recorder = null;
+    if (partial && partial.size > 0) {
+      audioBlob = partial;
+      showStatus(`Recording failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
+    } else {
+      showStatus(`Recording failed: ${error.message}`, 'error');
+    }
   } finally {
     isRecordingBusy = false;
     enableAllRecordButtons();
@@ -639,6 +646,16 @@ async function stopTabRecording() {
     enableAllRecordButtons();
   } catch (error) {
     debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
+    // offscreen 失败响应可携带部分已录音频（recorder 超时路径）；对账说已不在录时
+    // 才能确定录音确实停了，此时恢复部分音频供 Save，避免用户几分钟音频全丢。
+    const partialEnc = error.partialData;
+    if (partialEnc?.b64 && !(await syncTabRecordingState())) {
+      audioBlob = globalThis.decodeAudio(partialEnc);
+      debugEvt('tab-record-partial', { size: audioBlob.size, mime: audioBlob.type });
+      showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
+      enableAllRecordButtons();
+      return;
+    }
     // 停止失败（超时/offscreen 失联）时录音**可能还在跑** —— 乐观复位成空闲会再次
     // 制造"停不掉的录音"。与 start 同样处理：以 background 为准重新对齐。
     if (await syncTabRecordingState()) {
