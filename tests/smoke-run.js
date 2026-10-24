@@ -64,7 +64,7 @@ function waitReady(server) {
   // serve-debug 的白名单不含 smoke 页与其依赖脚本；runner 枚举 <script src> 后
   // 用环境开关请它临时追加（仅本进程、仍是精确文件列表）。
   const smokeHtml = fs.readFileSync(path.join(ROOT, 'tests/p1-smoke-test.html'), 'utf8');
-  const deps = [...smokeHtml.matchAll(/<script\s+src="([^"]+)"\s*>\s*<\/script>/g)]
+  const deps = [...smokeHtml.matchAll(/<script\s+src="([^"]+)"\s*>\s*<\/script\s*>/g)]
     .map((m) => path.relative(ROOT, path.resolve(ROOT, 'tests', m[1])).replace(/\\/g, '/'));
   const extra = ['tests/p1-smoke-test.html', 'tests/p1-smoke-test.js', ...deps].join(',');
   const server = spawn(process.execPath, [path.join(ROOT, 'tests/serve-debug.js'), String(PORT)], {
