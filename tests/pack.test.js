@@ -80,6 +80,22 @@ t('zip 不含 dev-only 文件（package*.json / samples / scripts / .github / �
   assert.deepStrictEqual(bad, [], 'zip 混入 dev-only 文件');
 });
 
+t('manifest: bridge 只注入回环主机，不随功能 content script 注入所有页面', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+  const allUrls = manifest.content_scripts.filter((cs) => cs.matches.includes('<all_urls>'));
+  assert.ok(allUrls.length >= 1, '功能 content script 仍应全站注入');
+  for (const cs of allUrls) {
+    assert.ok(!cs.js.some((p) => p.includes('debug/bridge.js')),
+      'bridge 不得出现在 <all_urls> 注入块（issue #32 注入面收窄）');
+  }
+  const bridgeBlocks = manifest.content_scripts.filter((cs) => cs.js.some((p) => p.includes('debug/bridge.js')));
+  assert.strictEqual(bridgeBlocks.length, 1, 'bridge 应恰好有独立注入块');
+  for (const host of bridgeBlocks[0].matches) {
+    assert.match(host, /^http:\/\/(localhost|127\.0\.0\.1)\//,
+      'bridge 注入面只能是回环主机: ' + host);
+  }
+});
+
 t('zip 不含 commit 工具链（.husky/ 与 commitlint 配置）', () => {
   const bad = entries.filter((e) => /^\.husky\//.test(e) || /^commitlint\.config\./.test(e));
   assert.deepStrictEqual(bad, [], 'zip 混入 commit 工具链');

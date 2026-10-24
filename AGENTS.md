@@ -66,7 +66,7 @@ Automated checks (Node):
 - Unit tests: `npm test` (see above). `audio/convert.js` and the streaming providers are pure `globalThis` scripts with no browser APIs, so they run directly under Node; `store/history.js` still needs small mocks if you add cases for it.
 - Browser smoke test: open `tests/p1-smoke-test.html` in Chrome (loads real modules, verifies crypto / config / messaging / error helpers). Runs in all three contexts — `file://`, `http://`, and `chrome-extension://` (the cases live in `tests/p1-smoke-test.js` so the page is not blocked by the extension CSP).
 
-CI (`.github/workflows/`): `ci.yml` runs the syntax check, manifest check, `npm test` and `npm run pack` on push/PR to `main` (Node 22.x); `codeql.yml` runs CodeQL static analysis (push/PR/weekly); `dependency-review.yml` checks new dependencies on PRs. The browser smoke test is **not** wired into CI yet.
+CI (`.github/workflows/`): `ci.yml` runs the syntax check, manifest check, `npm test` and `npm run pack` on push/PR to `main` (Node 22.x), plus a `smoke` job that runs the browser smoke page in real Chrome via `tests/smoke-run.js` (puppeteer-core + the preinstalled google-chrome; loopback `serve-debug.js` with an exact-file allowlist extension); `codeql.yml` runs CodeQL static analysis (push/PR/weekly); `dependency-review.yml` checks new dependencies on PRs.
 
 ## Coding Style & Naming Conventions
 - JavaScript/CSS/HTML use 2-space indentation and semicolons, matching current files.

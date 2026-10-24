@@ -101,10 +101,34 @@ jobs:
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
         run: npx commitlint --from ${{ github.event.before }} --to ${{ github.sha }} --verbose
 
+  # Real-browser smoke: the page exercises WebCrypto + IndexedDB through the
+  # actual script tags, so it needs a Chrome binary. ubuntu-latest preinstalls
+  # google-chrome; tests/smoke-run.js serves the page over loopback
+  # (serve-debug.js with an exact-file allowlist extension) and maps the DOM
+  # summary to this step's exit code.
+  smoke:
+    name: Browser smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run browser smoke tests
+        run: node tests/smoke-run.js
+        env:
+          SMOKE_CHROME_PATH: /usr/bin/google-chrome
+
 # Not covered here (deliberately):
-#   - Browser smoke tests — they load real modules under file:// and need a
-#     Chrome binary. ubuntu-latest ships google-chrome, so this is feasible via
-#     puppeteer-core with an explicit executablePath, but it is not wired up yet.
 #   - Live Stream / Record Tab end-to-end — needs a real DashScope API key and a
 #     Chrome-for-Testing binary. Record Tab itself IS automatable
 #     (page.triggerExtensionAction()); the blocker is the key, not the gesture.

@@ -8,10 +8,11 @@
  *    target:'debug' 的 runtime 消息。故意不用 MessageClient.send —— 那是
  *    request/response 语义，诊断页桥不会回 {ok}，会让每次打点都 reject。
  *
- * 2. content script（普通页面，http/https/file: 协议）
+ * 2. content script（回环诊断页，http://localhost / http://127.0.0.1）
  *    监听 target:'debug' 的 runtime 消息，window.postMessage 转给页面。
- *    仅当 URL 命中诊断页（stream-debug.html 或 ?debug 参数）才装监听，
- *    避免在所有普通页面留一个永无事件的空监听。
+ *    manifest 里本脚本只匹配回环主机（issue #32 注入面收窄），脚本内的
+ *    主机 + 路径双判定是第二道闸。[::1] 无法用 match pattern 表达 ——
+ *    IPv6 回环上的诊断页不再被注入，属已知取舍（主入口是 localhost）。
  *
  * 参与方：
  *   - background / offscreen 的 target 过滤忽略 target:'debug'（无需改它们）
