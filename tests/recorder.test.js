@@ -13,9 +13,9 @@ const root = path.resolve(__dirname, '..');
 require(path.join(root, 'audio/recorder.js'));
 
 let pass = 0, fail = 0;
+const tests = [];
 const t = (name, fn) => {
-  try { fn(); pass++; console.log('PASS | ' + name); }
-  catch (e) { fail++; console.log('FAIL | ' + name + ' | ' + e.message); }
+  tests.push({ name, fn });
 };
 
 function withSupport(supported, fn) {
@@ -48,10 +48,13 @@ function withFakeRecorder({ onstopDelay = 0 } = {}, fn) {
   globalThis.Blob = class FakeBlob {
     constructor(parts) { this.size = (parts || []).reduce((n, p) => n + (p.size || 0), 0); }
   };
+  // stub 在 fn() 内才被 new 出来；延迟 onstop 的定时器须在拿到 stub 后再挂。
+  let stub = null;
   const timer = onstopDelay === Infinity ? null
-    : setTimeout(() => stub.onstop?.(), onstopDelay);
-  const stub = recorderStubs[0];
+    : setTimeout(() => stub?.onstop?.(), onstopDelay);
   try { fn(); } finally {
+    // fn 同步执行完毕时 stub 已就位（AudioRecorder.start 是同步 new）
+    stub = recorderStubs[0];
     if (timer) clearTimeout(timer);
     if (prevRecorder === undefined) delete globalThis.MediaRecorder;
     else globalThis.MediaRecorder = prevRecorder;
@@ -160,5 +163,18 @@ t('sameMimeType: codec 参数差异不算格式回退', () => {
   assert.strictEqual(R.sameMimeType('', ''), false);
 });
 
-console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);
-process.exit(fail === 0 ? 0 : 1);
+
+(async () => {
+  for (const { name, fn } of tests) {
+    try {
+      await fn();
+      pass++;
+      console.log('PASS | ' + name);
+    } catch (e) {
+      fail++;
+      console.log('FAIL | ' + name + ' | ' + (e && e.message));
+    }
+  }
+  console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);
+  process.exit(fail === 0 ? 0 : 1);
+})();

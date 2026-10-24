@@ -650,7 +650,9 @@ async function stopTabRecording() {
     // 才能确定录音确实停了，此时恢复部分音频供 Save，避免用户几分钟音频全丢。
     const partialEnc = error.partialData;
     if (partialEnc?.b64 && !(await syncTabRecordingState())) {
-      audioBlob = globalThis.decodeAudio(partialEnc);
+      const partialBlob = globalThis.decodeAudio(partialEnc);
+      if (!partialBlob) return; // 形状不合法：走下面的常规失败处理
+      audioBlob = partialBlob;
       debugEvt('tab-record-partial', { size: audioBlob.size, mime: audioBlob.type });
       showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
       enableAllRecordButtons();

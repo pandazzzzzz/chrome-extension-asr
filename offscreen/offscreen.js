@@ -93,14 +93,14 @@
       blob = await recorder.stop();
       return { ok: true, data: await globalThis.encodeAudio(blob) };
     } catch (e) {
-    // 超时/异常时已录分片是用户唯一能救回的数据：stop() 超时 reject 后
-    // getBlob() 仍可拼出已收分片；随错误一起回传（可能为空，调用方判断）。
-    const partial = recorder.getBlob();
-    return {
-      ok: false,
-      error: globalThis.createError(Errors.RECORD_ERROR, e.message || ''),
-      data: partial && partial.size > 0 ? await globalThis.encodeAudio(partial) : undefined,
-    };
+      // 超时/异常时已录分片是用户唯一能救回的数据：stop() 超时 reject 后
+      // getBlob() 仍可拼出已收分片；随错误一起回传（可能为空，调用方判断）。
+      const partial = recorder.getBlob();
+      return {
+        ok: false,
+        error: globalThis.createError(Errors.RECORD_ERROR, e.message || ''),
+        data: partial && partial.size > 0 ? await globalThis.encodeAudio(partial) : undefined,
+      };
     } finally {
       await teardownCapture();
     }
