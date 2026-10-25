@@ -283,19 +283,12 @@ function onProviderChange() {
   // Region 下拉框：选项来自当前 provider 的 regions；无 #region 的入口页跳过。
   // 切换 provider 时重建选项并把 region 归到该 provider 的首个地域（地域与 API Key 强绑定）。
   if (els.regionSelect) {
-    const regions = provider.regions || [];
     const prev = els.regionSelect.value;
-    els.regionSelect.innerHTML = '';
-    for (const r of regions) {
-      const opt = document.createElement('option');
-      opt.value = r.id;
-      opt.textContent = r.label;
-      els.regionSelect.appendChild(opt);
-    }
-    const known = regions.some((r) => r.id === prev);
-    els.regionSelect.value = known ? prev : (regions[0]?.id || 'custom');
+    // 决策规则在 shared/config-ui.js（与 options 页共用同一实现）。
+    const resolved = globalThis.ConfigUI.resolveRegionSelection(provider.regions, prev, '');
+    globalThis.ConfigUI.populateRegionOptions(els.regionSelect, provider.regions, resolved.value);
     // 非 custom 时 endpoint 由 region 决定，文本框隐藏；custom 才显示给用户手填
-    setEndpointRowVisible(!provider.hasEndpoint || els.regionSelect.value === 'custom');
+    setEndpointRowVisible(!provider.hasEndpoint || resolved.value === 'custom');
   } else if (els.endpointRow) {
     setEndpointRowVisible(provider.hasEndpoint);
   }
@@ -335,17 +328,10 @@ function resolveModel() {
  */
 function populateModelOptions(provider, keep) {
   if (!els.modelInput) return;
-  const options = provider?.modelOptions || [];
-  // 没有预置选项也保留一个 Custom 项，让下拉不至于空白（值走文本框）
-  const list = options.length ? options : [{ model: '', label: 'Custom…' }];
   const prev = els.modelInput.value;
-  els.modelInput.innerHTML = '';
-  for (const o of list) {
-    const opt = document.createElement('option');
-    opt.value = o.model;
-    opt.textContent = o.label || o.model || 'Custom…';
-    els.modelInput.appendChild(opt);
-  }
+  // 选项重建在 shared/config-ui.js（与 options 页共用同一实现）。
+  globalThis.ConfigUI.populateModelOptions(els.modelInput, provider);
+  const list = provider?.modelOptions || [];
   if (keep) {
     els.modelInput.value = keep.value;
     if (els.modelCustomInput && keep.customText != null) els.modelCustomInput.value = keep.customText;
@@ -1252,22 +1238,22 @@ function applyConfigToUI(config) {
   els.apiKeyInput.value = config.apiKey || '';
   // region：老配置没有该字段。若存了显式 endpoint（可能是 wss URL，也可能是批量时代
   // 残留的 https REST URL），一律归为 custom 保留原值 —— 不猜地域、不静默改写用户数据。
-  // 两者都空时才落到 provider 首个地域。
-  const regionIds = (getCurrentProvider()?.regions || []).map((r) => r.id);
-  const hasRegion = !!config.region && regionIds.includes(config.region);
-  const legacyCustom = !config.region && !!config.endpoint;
+  // 两者都空时才落到 provider 首个地域。决策规则在 shared/config-ui.js（与 options 页共用）。
   if (els.regionSelect) {
-    els.regionSelect.value = hasRegion ? config.region : (legacyCustom ? 'custom' : regionIds[0] || 'custom');
-    if (legacyCustom) debugEvt('legacy-endpoint-kept', { endpoint: config.endpoint });
+    const resolved = globalThis.ConfigUI.resolveRegionSelection(
+      getCurrentProvider()?.regions,
+      config.region,
+      config.endpoint,
+    );
+    els.regionSelect.value = resolved.value;
+    if (resolved.legacyCustom) debugEvt('legacy-endpoint-kept', { endpoint: config.endpoint });
   }
   els.endpointInput.value = config.endpoint || '';
   setEndpointRowVisible(!els.regionSelect || els.regionSelect.value === 'custom');
   // 模型下拉回填：provider 变了要重建选项，再把保存的模型映射成「预置项 / Custom+手填」。
   // 空配置 → modelSelectionFor 落到 provider.defaultStreamModel（与切 provider 的默认一致）。
   const curProvider = getCurrentProvider();
-  const sel = curProvider?.modelSelectionFor
-    ? curProvider.modelSelectionFor(config.model)
-    : { value: '', customText: config.model || '' };
+  const sel = globalThis.ConfigUI.resolveModelSelection(curProvider, config.model);
   populateModelOptions(curProvider, sel);
 
   // 字幕开关：恢复上次选择并同步按钮文案/状态（无 #subtitleBtn 的入口页跳过）

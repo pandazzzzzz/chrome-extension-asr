@@ -81,16 +81,9 @@ function applyToUI(config) {
  */
 function populateRegions(providerId, savedRegion, savedEndpoint) {
   const provider = (globalThis.PROVIDERS || []).find((p) => p.id === providerId);
-  const regions = provider?.regions || [];
-  els.region.innerHTML = '';
-  for (const r of regions) {
-    const opt = document.createElement('option');
-    opt.value = r.id;
-    opt.textContent = r.label;
-    els.region.appendChild(opt);
-  }
-  const known = regions.some((r) => r.id === savedRegion);
-  els.region.value = known ? savedRegion : (savedEndpoint ? 'custom' : (regions[0]?.id || 'custom'));
+  // 决策规则与选项重建都在 shared/config-ui.js（与 popup/sidepanel 共用同一实现）。
+  const resolved = globalThis.ConfigUI.resolveRegionSelection(provider?.regions, savedRegion, savedEndpoint);
+  globalThis.ConfigUI.populateRegionOptions(els.region, provider?.regions, resolved.value);
   setEndpointVisible(els.region.value === 'custom');
 }
 
@@ -108,18 +101,9 @@ function setModelCustomVisible(visible) {
  * 映射规则委托给 provider.modelSelectionFor（与 popup 共用），保证两页一致。
  */
 function populateModels(provider, savedModel) {
-  const options = provider?.modelOptions || [];
-  const list = options.length ? options : [{ model: '', label: 'Custom…' }];
-  els.model.innerHTML = '';
-  for (const o of list) {
-    const opt = document.createElement('option');
-    opt.value = o.model;
-    opt.textContent = o.label || o.model || 'Custom…';
-    els.model.appendChild(opt);
-  }
-  const sel = provider?.modelSelectionFor
-    ? provider.modelSelectionFor(savedModel)
-    : { value: '', customText: savedModel || '' };
+  // 选项重建与选中态映射都在 shared/config-ui.js（与 popup/sidepanel 共用同一实现）。
+  globalThis.ConfigUI.populateModelOptions(els.model, provider);
+  const sel = globalThis.ConfigUI.resolveModelSelection(provider, savedModel);
   els.model.value = sel.value;
   if (els.modelCustom) els.modelCustom.value = sel.customText || '';
   setModelCustomVisible(!els.model.value);
