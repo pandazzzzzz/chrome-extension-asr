@@ -6,6 +6,11 @@
 // 这一层 —— 手测中表现为：正在输入的 custom model 名被清空、下拉被切回预置项、
 // Custom 行被隐藏，随后本页把 model:"" 写进存储。
 //
+// 回归面（issue #59）：storage 里 apiKey 是 AES-GCM 密文，onChanged 的
+// newValue 是原始存储对象 —— 直接套进 UI 会把密文写进输入框，本页下一次保存
+// 会把密文再加密一次，密钥被静默永久损坏。同步路径必须经 ConfigStore.load()
+// 解密后再应用。
+//
 // popup/app.js 不是模块（挂 globalThis），这里用 vm 加载它的源码并注入最小
 // DOM/storage mock，只驱动监听器与快照相关的纯函数行为。
 const path = require('node:path');
@@ -14,6 +19,13 @@ const fs = require('node:fs');
 const assert = require('node:assert');
 
 const root = path.resolve(__dirname, '..');
+
+// app.js 的初始化链有多个 async 层级（DOMContentLoaded → loadConfig →
+// ConfigStore.load → applyConfigToUI），手动触发后需排空整条 microtask 链
+// 再断言，否则监听器可能尚未注册 / 快照尚未建立。
+async function flushAsync() {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+}
 
 let pass = 0, fail = 0;
 const t = (name, fn) => Promise.resolve()
@@ -29,7 +41,7 @@ function makeField(value, extra = {}) {
   return {
     value,
     style: {},
-    addEventListener() {},
+    addEventListener() {}, // bindEvents 会对全部控件绑定事件，mock 统一提供
     appendChild() {},
     classList: { toggle() {} },
     matches: () => false, // 非 :focus
@@ -77,6 +89,16 @@ async function makePage() {
   Object.assign(els, aliases);
 
   const listeners = { changed: [], domready: [] };
+  const page = {
+    // onChanged 同步路径必须走 ConfigStore.load()（解密），不能直接套 storage 密文。
+    configStoreLoads: 0,
+    // 初始 load 返回与 els 初始值一致的配置，建立"UI=基线快照"的干净起点
+    //（否则首个 onChanged 会被当成回声/未保存编辑跳过）。
+    configStoreLoadResult: {
+      provider: 'qwen', apiKey: 'sk-test', region: 'cn-beijing', endpoint: '',
+      model: 'qwen-audio-3.1-asr-flash-streaming', audioType: 'audio/webm',
+    },
+  };
   const sandbox = {
     console,
     document: {
@@ -102,15 +124,34 @@ async function makePage() {
     URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
     setTimeout,
     clearTimeout,
-    navigator: { clipboard: { writeText: async () => {} }, mediaDevices: { enumerateDevices: async () => [] } },
+    navigator: { clipboard: { writeText: async () => {} }, mediaDevices: { enumerateDevices: async () => [], addEventListener() {} } },
     MessageClient: { send: async () => ({}) },
     MESSAGES: {},
     TARGETS: { BACKGROUND: 'background', OFFSCREEN: 'offscreen', UI: 'ui' },
     Errors: { TIMEOUT: { code: 'TIMEOUT' } },
-    ConfigStore: { load: async () => ({}), save: async () => {} },
+    ConfigStore: {
+      load: async () => { page.configStoreLoads += 1; return page.configStoreLoadResult; },
+      save: async () => {},
+    },
     Format: { timestampForFile: () => 'x' },
-    PROVIDERS: [],
-    ConfigUI: { resolveRegionSelection: () => ({ value: 'cn-beijing' }), populateRegionOptions() {}, resolveModelSelection: () => ({ value: '', customText: '' }), populateModelOptions() {} },
+    PROVIDERS: [{
+      id: 'qwen',
+      name: 'Qwen (DashScope)',
+      // 与真实 provider 一致：把存储模型映射成「预置项 / Custom+手填」，
+      // 让初始化路径 applyConfigToUI 建立真实的基线快照。
+      modelSelectionFor: (m) => (m === 'qwen-audio-3.1-asr-flash-streaming'
+        ? { value: m, customText: '' }
+        : { value: '', customText: m || '' }),
+    }],
+    ConfigUI: {
+      resolveRegionSelection: () => ({ value: 'cn-beijing' }),
+      populateRegionOptions() {},
+      // 透传 provider.modelSelectionFor —— 与 shared/config-ui.js 的真实行为一致。
+      resolveModelSelection: (provider, model) => provider?.modelSelectionFor
+        ? provider.modelSelectionFor(model)
+        : { value: '', customText: model || '' },
+      populateModelOptions() {},
+    },
     emitDebug() {},
     encodeAudio: (x) => x,
     decodeAudio: (x) => x,
@@ -126,8 +167,9 @@ async function makePage() {
 
   // app.js 的初始化挂在 DOMContentLoaded 上 —— mock 里手动触发并等待完成。
   await listeners.domready[0]();
+  await flushAsync();
 
-  return { sandbox, els, listeners };
+  return { sandbox, els, listeners, page };
 }
 
 (async () => {
@@ -178,9 +220,34 @@ async function makePage() {
       } } },
       'local',
     );
-    // applyConfigToUI 经 ConfigUI mock 恒返回 Custom 态 —— 这里断言监听器确实执行了
-    // 应用路径（而不是被跳过）。mock 不改字段，故只验证未抛错且 custom 输入未被置回空。
+    // 监听器内部 await ConfigStore.load() —— 排空后再断言（也避免泄漏到后续用例）。
+    await flushAsync();
+    await new Promise((r) => setTimeout(r, 10));
+    // 用例 3 已断言应用路径（load 解密回填）；此处保留原弱断言 —— mock 的 load
+    // 返回初始配置（model 仍为预置项），modelCustom 不变是正确结果。
     assert.strictEqual(els.modelCustomInput.value, '');
+  });
+
+  await t('onChanged: 同步走 ConfigStore.load 解密，apiKey 输入框不得出现密文（issue #59）', async () => {
+    const { els, listeners, page } = await makePage();
+    // 外部页保存了新配置（model 换成非预置项 → 本页基线必不同，不会误判回声）。
+    // storage 里落的是密文；同步路径必须解密后回填，不得把密文写进输入框。
+    page.configStoreLoadResult = {
+      provider: 'qwen', apiKey: 'sk-plaintext-again', region: 'cn-beijing',
+      endpoint: '', model: 'fun-asr-realtime', audioType: 'audio/webm',
+    };
+    listeners.changed[0](
+      { asrConfig: { newValue: {
+        provider: 'qwen', apiKey: 'enc:BASE64-CIPHERTEXT', region: 'cn-beijing',
+        endpoint: '', model: 'fun-asr-realtime', audioType: 'audio/webm',
+        subtitles: true, audioInput: '',
+      } } },
+      'local',
+    );
+    // 监听器内部 await load() —— 让 microtask 队列排空后再断言。
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(page.configStoreLoads >= 2, '同步路径没有走 ConfigStore.load()（issue #59：会把密文写进 UI），实际 load 次数: ' + page.configStoreLoads);
+    assert.strictEqual(els.apiKeyInput.value, 'sk-plaintext-again');
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);
