@@ -65,7 +65,8 @@
         "debug/bridge.js"
       ]
     }
-  ],  "permissions": [
+  ],
+  "permissions": [
     "storage",
     "tabCapture",
     "sidePanel",

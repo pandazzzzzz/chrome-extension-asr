@@ -20,7 +20,7 @@
  *
  * 另外：`defaultIgnores` 保持开启（commitlint 默认）—— 它自动跳过 git 生成的消息
  * （`Merge …` / `Revert …` / `fixup!` / `squash!` / 版本号），这正是本地全局钩子
- * 缺失的能力（见 HANDOFF §5.7）。
+ * 缺失的能力（此能力来自 commitlint 自身的 defaultIgnores 行为，非本文件配置）。
  */
 export default {
   extends: ['@commitlint/config-conventional'],
