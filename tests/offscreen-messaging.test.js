@@ -6,6 +6,12 @@
 //   2. STREAM_SET_SUBTITLES 关闭时必须发 SUBTITLE_HIDE（#57 item 1）——该修复
 //      落地后此文件继续为它守住回归面。
 //
+// 覆盖 #58 的回归面：offscreen 文档加载两个 onMessage 监听器（offscreen.js 先
+// 注册、offscreen-streaming.js 后注册）。Chrome 只取第一个实际调用 sendResponse
+// 的监听器，先注册者若对不属于自己的消息家族抢答，后注册者的真实结果会被丢弃。
+// 用例按消息家族断言：STREAM_* 的真实结果必须由流式监听器回包，tab-record-* 由
+// 录音监听器回包，谁都不能替对方家族抢答 UNKNOWN_ACTION。
+//
 // offscreen-streaming.js 不是模块（IIFE 挂闭包），这里用 vm 加载源码并注入
 // 最小 chrome/DOM mock，与 tests/config-ui-sync.test.js 同一手法。
 const path = require('node:path');
@@ -61,6 +67,23 @@ function makeSandbox() {
   return { sandbox, sent, listeners };
 }
 
+// 同文档共存场景（#58 的真实故障形态）：offscreen.js 先注册（HTML 中先加载），
+// offscreen-streaming.js 后注册。tab-record 侧只需最小 mock —— 本套件只验消息
+// 家族路由，不驱动录音逻辑。
+function makeCoexistenceSandbox() {
+  const base = makeSandbox();
+  vm.runInContext(fs.readFileSync(path.join(root, 'offscreen/offscreen.js'), 'utf8'), base.sandbox, { filename: 'offscreen/offscreen.js' });
+  return base;
+}
+
+// 模拟 Chrome 的广播语义：所有监听器都收到消息，只有实际调用 sendResponse
+// 的结果会到达发送方（这里用 resolve 收第一个，与 Chrome 的取首个语义一致）。
+function dispatch(listeners, type, payload) {
+  return new Promise((resolve) => {
+    listeners.forEach((l) => l({ target: 'offscreen', type, payload }, {}, resolve));
+  });
+}
+
 async function startSession(sandbox, listeners, overrides = {}) {
   // 最小 provider：非法模型 → 回落 defaultStreamModel
   sandbox.PROVIDERS.push({
@@ -70,14 +93,14 @@ async function startSession(sandbox, listeners, overrides = {}) {
     createStreamSession: async (opts) => ({ ready: Promise.resolve(), sendAudio() {}, stop: async () => {}, close() {} }),
     ...overrides,
   });
-  const handler = listeners.find((l) => true);
-  const p = new Promise((resolve) => {
-    listeners[0]({ target: 'offscreen', type: 'asr:stream-start', payload: {
+  return withTimeout(dispatch(listeners, 'asr:stream-start', {
       providerId: 'qwen', apiKey: 'sk-x', model: 'my-bad-model', endpoint: undefined,
       subtitles: false, targetTabId: 42, audioInput: '',
-    } }, {}, resolve);
-  });
-  return withTimeout(p);
+  }));
+}
+
+async function startSessionRaw(sandbox, listeners) {
+  return startSession(sandbox, listeners);
 }
 
 // #58：offscreen 监听器不回包时 sendResponse 永不触发 —— 用超时把挂死变成
@@ -114,19 +137,45 @@ async function run() {
     assert.ok(!sent.some((m) => m.payload?.ev === 'model-fallback'));
   });
 
-  // STREAM_STATE 响应被 #58（offscreen 监听器不回包）拦截 —— 该用例在 #58 修复后启用。
-  const stateCase = async () => {
-    const { sandbox, sent, listeners } = makeSandbox();
+  await t('STREAM_STATE: responds even with the tab-record listener registered first (#58)', async () => {
+    const { sandbox, listeners } = makeCoexistenceSandbox();
     await startSession(sandbox, listeners);
     const state = await withTimeout(new Promise((resolve) => {
-      listeners[0]({ target: 'offscreen', type: 'asr:stream-state', payload: {} }, {}, resolve);
+      listeners.forEach((l) => l({ target: 'offscreen', type: 'asr:stream-state', payload: {} }, {}, resolve));
     }));
     assert.ok(state, 'STREAM_STATE got no response (offscreen listener never calls sendResponse — issue #58)');
     assert.strictEqual(state.ok, true);
     assert.strictEqual(state.data.model, 'fallback-model');
     assert.strictEqual(state.data.streaming, true);
-  };
-  if (process.env.ASR_RUN_STREAM_STATE_CASE) await t('STREAM_STATE: reports the post-fallback model', stateCase);
+  });
+
+  await t('STREAM_START: success response reaches the caller (#58)', async () => {
+    const { sandbox, listeners } = makeCoexistenceSandbox();
+    const started = await withTimeout(startSessionRaw(sandbox, listeners));
+    assert.ok(started, 'STREAM_START got no response (issue #58)');
+    assert.strictEqual(started.ok, true);
+    assert.strictEqual(started.data.streaming, true);
+    assert.strictEqual(started.data.model, 'fallback-model');
+    assert.strictEqual(started.data.micFallback, false);
+  });
+
+  await t('unknown STREAM_* action: answered by the streaming listener, not hijacked (#58)', async () => {
+    const { listeners } = makeCoexistenceSandbox();
+    const resp = await withTimeout(dispatch(listeners, 'asr:stream-unknown', {}));
+    assert.ok(resp, 'STREAM_* got no response (issue #58)');
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error.code, 'UNKNOWN_ACTION');
+  });
+
+  await t('unknown tab-record action: still answered by the tab-record listener', async () => {
+    const { listeners } = makeCoexistenceSandbox();
+    const resp = await withTimeout(new Promise((resolve) => {
+      listeners.forEach((l) => l({ target: 'offscreen', type: 'asr:tab-record-unknown', payload: {} }, {}, resolve));
+    }));
+    assert.ok(resp, 'tab-record listener must keep answering its own family');
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error.code, 'UNKNOWN_ACTION');
+  });
 
   console.log(`${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;
