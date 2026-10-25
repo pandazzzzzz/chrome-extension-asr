@@ -5,9 +5,8 @@
 # loading the unpacked directory.
 #
 # `npm test` covers the streaming provider contract and PCM helpers
-# (tests/streaming.test.js). The browser smoke tests (tests/p1-smoke-test.html,
-# 20 cases) need a real Chrome and are NOT run here yet — see the note at the
-# bottom of this file.
+# (tests/streaming.test.js). The browser smoke tests (tests/p1-smoke-test.html)
+# run in the `smoke` job below, in a real Chrome on ubuntu-latest.
 name: CI
 
 on:
@@ -132,4 +131,5 @@ jobs:
 #   - Live Stream / Record Tab end-to-end — needs a real DashScope API key and a
 #     Chrome-for-Testing binary. Record Tab itself IS automatable
 #     (page.triggerExtensionAction()); the blocker is the key, not the gesture.
-#     Tracked in docs/HANDOFF.md §3.
+#     Track end-to-end validation in docs/manual-verification.md (Live Stream
+#     section), which is the committed, self-contained procedure.
