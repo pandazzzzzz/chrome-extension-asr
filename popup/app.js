@@ -40,6 +40,7 @@ const streamSession = {
   targetTabId: null, // 本次字幕绑定的 tab（点击 Live Stream 时捕获，切 tab 后不跟随）
   everStarted: false, // 本次启动是否真正走到采集开始（区分启动中与停止中）
   finalSaved: false, // 最终文本已交给 background（pagehide 与正常 stop 只能写一次）
+  endedRemotely: false, // onEnd 由服务端/网络终止触发（区别于用户点 Stop），决定收尾状态文案
 };
 let streamSessionSeq = 0; // streamSession.sessionId 的自增源
 
@@ -649,7 +650,7 @@ async function stopTabRecording() {
     // offscreen 失败响应可携带部分已录音频（recorder 超时路径）；对账说已不在录时
     // 才能确定录音确实停了，此时恢复部分音频供 Save，避免用户几分钟音频全丢。
     const partialEnc = error.partialData;
-    if (partialEnc?.b64 && !(await syncTabRecordingState())) {
+    if (partialEnc?.b64 && (await syncTabRecordingState()) && !isTabRecording) {
       const partialBlob = globalThis.decodeAudio(partialEnc);
       if (!partialBlob) return; // 形状不合法：走下面的常规失败处理
       audioBlob = partialBlob;
@@ -807,6 +808,7 @@ async function startStreaming() {
     streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
     streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
     streamSession.finalSaved = false;
+    streamSession.endedRemotely = false;
     // 非 run-task 模型（批量模型、或走 /api-ws/v1/realtime 的会话制模型）不能用于本链路 ——
     // 回落 provider 默认流式模型。仅在确有默认值时回落，否则交给 createStreamSession 抛错。
     // requestedModel 要在改写前留住：回落后的提示要说"你填的 X 不行，改用 Y"。
@@ -884,6 +886,9 @@ async function startStreaming() {
           debugEvt('ws-end-stale', {});
           return;
         }
+        // 服务端/网络终止时 onError 已先行显示真实原因（qwen.js 的 fail() 先调
+        // onError 再 onEnd），stopStreaming 据此跳过成功文案，避免覆盖错误提示。
+        streamSession.endedRemotely = true;
         if (isStreaming) stopStreaming();
         else streamSession.endedEarly = true;
       },
@@ -983,8 +988,13 @@ async function stopStreaming() {
     isStreamingBusy = false;
   }
 
-  // 把最后的进行中句子并入定稿
-  showStatus('Streaming stopped.', 'success');
+  // 用户点 Stop 才显示成功提示；服务端/网络终止（onEnd 自动收尾）时 onError 已显示
+  // 真实原因，这里若再报成功会把红色错误覆盖成绿色误导（详见 qwen.js 的 fail() 时序）。
+  if (!streamSession.endedRemotely) {
+    showStatus('Streaming stopped.', 'success');
+  } else {
+    debugEvt('stream-ended-remotely', { provider: streamSession.providerId });
+  }
   debugEvt('stream-stopped', { provider: streamSession.providerId, model: streamSession.model });
 
   // 流式结束：最终文本 —— 一条历史记录 + 字幕镜像（done=true 让浮层自动淡出）。
