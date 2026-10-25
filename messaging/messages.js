@@ -15,12 +15,12 @@
  *   { ok: true,  data: ... }                    成功
  *   { ok: false, error: { code, message } }     失败
  *
- *   asr:subtitle-show    popup/sidepanel → background → content
+ *   asr:subtitle-show    offscreen 会话 → background → content
  *                        payload: { text, done, tabId? }（done=true 表示会话已结束，
  *                        浮层再亮 2s 后自动淡出）
  *                        data:    true
  *
- *   asr:subtitle-hide    popup/sidepanel → background → content
+ *   asr:subtitle-hide    offscreen 会话 → background → content
  *                        payload: { tabId? }
  *                        data:    true
  *

@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>ASR Offscreen (Tab Recording)</title>
+  <title>ASR Offscreen (Tab Recording + Live Stream)</title>
 </head>
 <body>
   <!--
-    Offscreen document — 标签页音频采集宿主。
-    MV3 中 tabCapture/MediaRecorder 无法在 service worker 运行，故放此处。
+    Offscreen document — 标签页音频采集 + Live Stream 会话宿主。
+    MV3 中 tabCapture/MediaRecorder/AudioContext 无法在 service worker 运行，
+    且流式会话必须活过 popup 的关闭，故两路都放此处。
     由 background 创建（reason: USER_MEDIA），无 UI。
   -->
   <script src="../messaging/messages.js"></script>
