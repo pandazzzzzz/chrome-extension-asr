@@ -143,6 +143,9 @@
     await finalizeSession(reason);
     await teardownSession();
     debugEvt('stream-stopped-offscreen', { reason: endedRemotely ? 'remote' : 'user' });
+    // 正常收尾也要广播 ended：popup 的按钮复位分支（applyStreamingState(false)）
+    // 依赖它；此前只靠 error-status 兜底，正常停止路径的 UI 复位无人驱动（#60）。
+    broadcastUpdate('ended', {});
     try {
       await chrome.runtime.sendMessage({
         type: MESSAGES.STREAM_ENDED,
@@ -293,7 +296,31 @@
   }
 
   function setSubtitles(subtitles) {
-    if (session) session.subtitles = !!subtitles;
+    const value = !!subtitles;
+    if (session) {
+      session.subtitles = value;
+      // 开关必须立即反映到浮层，而不是等下一句话（#57）：
+      //   开 → 立即镜像当前已确认文本（没有文本则什么都不做，浮层本就该空）；
+      //   关 → 显式发 SUBTITLE_HIDE 拆掉浮层（done:true 的自动淡出因 subtitles
+      //        已置 false 被跳过，此前浮层会残留到最后一句 partial 直到刷新）。
+      if (value) {
+        const parts = [session.finalText, session.partialText].filter(Boolean).join(' ');
+        const text = parts.trim();
+        if (text) {
+          chrome.runtime.sendMessage({
+            type: MESSAGES.SUBTITLE_SHOW,
+            payload: { text, done: false, tabId: session.targetTabId },
+            target: TARGETS.BACKGROUND,
+          }).catch(() => {});
+        }
+      } else {
+        chrome.runtime.sendMessage({
+          type: MESSAGES.SUBTITLE_HIDE,
+          payload: { tabId: session.targetTabId },
+          target: TARGETS.BACKGROUND,
+        }).catch(() => {});
+      }
+    }
     return { ok: true, data: { subtitles: !!subtitles } };
   }
 
