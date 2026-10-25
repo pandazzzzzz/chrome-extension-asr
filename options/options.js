@@ -7,6 +7,7 @@
 
 const els = {};
 let statusTimer = null;
+let lastSavedConfigSnapshot = ''; // 本页 save 成功后的字段快照（识别 storage 回声）
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -178,12 +179,37 @@ async function save() {
       model: resolveModel(),
       audioType: els.audioType.value,
     });
+    lastSavedConfigSnapshot = snapshotCurrentConfig();
     show('Settings saved.', 'success');
     await refreshStorageStatus();
   } catch (e) {
     show(`Save failed: ${e.message}`, 'error');
   }
 }
+
+// 跨入口页同步：popup/sidepanel 与本页可同屏共存，两边只在 DOMContentLoaded 各 load
+// 一次。popup 的 persistConfig 是全量 8 字段提交，本页保存后若不同步，本页 UI 里
+// 持有的旧值会在下一次 popup 保存时被写回 storage（静默回滚本页的修改）。监听
+// onChanged 重新套用外部修改；自己的写入用保存后的快照识别回声并跳过。本页是显式
+// Save 模式（无逐字段 change 保存），直接整体 applyToUI 不会冲掉未保存的编辑 ——
+// 那是本页 "revert to stored" 的既有语义。
+function snapshotCurrentConfig() {
+  return JSON.stringify({
+    provider: els.provider.value,
+    apiKey: els.apiKey.value.trim(),
+    region: els.region.value,
+    endpoint: els.endpoint.value.trim(),
+    model: resolveModel(),
+    audioType: els.audioType.value,
+  });
+}
+
+globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes.asrConfig) return;
+  if (lastSavedConfigSnapshot === snapshotCurrentConfig()) return;
+  // applyToUI 会重建 provider 下拉并级联重建 region/model 选项
+  applyToUI({ ...(changes.asrConfig.newValue || {}) });
+});
 
 async function refreshHistory() {
   let items;
