@@ -16,53 +16,13 @@ let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
 let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await），防重入
 let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await），防重入
-let isStreaming = false;      // 真流式转录中（麦克风 PCM → WebSocket）
-let isStreamingBusy = false;  // start/stop 进行中（含异步 setup/teardown），防重入
-let closingPage = false;      // pagehide 收尾已接管，避免与 stopStreaming 重复写历史
+let isStreaming = false;      // 真流式转录中（UI 镜像；真相在 background + offscreen）
+let isStreamingBusy = false;  // start/stop 消息往返进行中，防重入
 let lastSavedConfigSnapshot = ''; // 本页 persistConfig 成功后的字段快照（识别 storage 回声）
 
-// 流式会话（Live Stream 模式）
-const streamSession = {
-  context: null,
-  capture: null,
-  stream: null,
-  wsSession: null,   // 真 WebSocket 流式会话（supportsStreaming provider）
-  finalText: '',     // 已定稿的完整句文本
-  partialText: '',   // 当前进行中的句子
-  providerId: '',
-  model: '',
-  endpoint: '',
-  apiKey: '',
-  // 本次会话的 PCM 目标采样率（Hz），来自 provider.sampleRateFor(最终模型)。
-  // run-task 向服务端声明的就是这个值，故 onStreamFrame 必须重采样到同一个速率，
-  // 否则声明与实际不符。onStreamFrame 拿不到 provider，只能经 streamSession 传递。
-  targetSampleRate: 0,
-  sessionId: 0,      // 每次 startStreaming 自增，用于跨会话 onEnd 竞态防护
-  targetTabId: null, // 本次字幕绑定的 tab（点击 Live Stream 时捕获，切 tab 后不跟随）
-  everStarted: false, // 本次启动是否真正走到采集开始（区分启动中与停止中）
-  finalSaved: false, // 最终文本已交给 background（pagehide 与正常 stop 只能写一次）
-  endedRemotely: false, // onEnd 由服务端/网络终止触发（区别于用户点 Stop），决定收尾状态文案
-};
-let streamSessionSeq = 0; // streamSession.sessionId 的自增源
-
-const STREAM = {
-  // PCM 帧长（采样数）。16kHz 下每帧累积 16ms —— 这是**首字延迟里唯一由插件
-  // 决定的固定项**：采集必须攒满一帧才会 sendAudio，服务端也要等音频才出结果。
-  // 实测（stub WS，本地 RTT≈0，6s 会话；「点击 → 首帧送达」含固定启动 ~50ms）：
-  //   frameSize=1024 (64ms): 累积 64ms · 合计 123ms · 92 帧 · 间隔 p50 60ms max 71ms
-  //   frameSize= 512 (32ms): 累积 36ms · 合计  ~95ms · 186 帧 · 间隔 p50 30ms max 41ms
-  //   frameSize= 256 (16ms): 累积 31ms · 合计  82ms · 372 帧 · 间隔 p50 19ms max 21ms
-  // 三档字节总量一致（~190KB/6s），且 256 的节奏反而**更稳**（max 71 → 21ms）。
-  // 取 256：端到端 −41ms、抖动 −70%。代价（消息数 ×4）已实测：6s 内主线程任务时间
-  // 只从 0.2ms 涨到 0.3ms（`temp/perf/cpu.js`）。再往下（128）收益已不明显而消息数
-  // 再翻倍，故不取。
-  //
-  // ⚠️ 本值是**采样数**，所以上面「16ms」只在 16kHz 下成立。采样率现随模型走
-  // （provider.sampleRateFor），8k 电话模型下每帧累积 32ms —— 仍在电话语音的常规
-  // 帧长范围（20–40ms），且基准数据只对 256 有效，故**不**为 8k 单独调优（改成
-  // `Math.round(rate * 0.016)` 可让各速率都维持 ~16ms，但消息数翻倍且无基准背书）。
-  frameSize: 256,
-};
+// 流式会话的宿主已迁至 offscreen（offscreen-streaming.js），本页只是 UI 镜像：
+// 发 start/stop、收 STREAM_UPDATE 广播刷新结果区、装载时按 STREAM_STATE 对账。
+// 会话可以跨 popup/sidepanel 生命周期 —— 关闭 UI 不再断流，这正是 #43 的目标。
 
 // ---------- 字幕镜像（浮动字幕，可选按钮 #subtitleBtn） ----------
 // Live Stream 的 partial/final 实时镜像到**开始流式时**所在标签页的浮动字幕浮层
@@ -83,39 +43,7 @@ function debugEvt(phase, detail) {
   globalThis.emitDebug({ phase, at: Date.now(), detail: detail || {} });
 }
 
-// PCM 帧统计：每帧一条日志会把诊断页刷爆，这里 1s 聚合一次
-const pcmStats = { frames: 0, bytes: 0, srcRate: 0, wsRate: 0 };
-let pcmTimer = null;
-
-function flushPcmStats() {
-  if (!pcmStats.frames) return;
-  debugEvt('pcm-stats', { ...pcmStats });
-  pcmStats.frames = 0;
-  pcmStats.bytes = 0;
-}
-function startPcmStats(srcRate, wsRate) {
-  pcmStats.srcRate = srcRate;
-  pcmStats.wsRate = wsRate;
-  pcmTimer = setInterval(flushPcmStats, 1000);
-}
-function stopPcmStats() {
-  clearInterval(pcmTimer);
-  pcmTimer = null;
-  flushPcmStats();
-}
-
-// partial 中间结果高频刷新：节流到 ~4 条/秒，final（sentenceEnd）立即记
-let lastPartialLogAt = 0;
-function logStreamResult(text, sentenceEnd, sentenceId) {
-  if (sentenceEnd) {
-    debugEvt('final', { sentenceId, len: text.length });
-    return;
-  }
-  const now = Date.now();
-  if (now - lastPartialLogAt < 400) return;
-  lastPartialLogAt = now;
-  debugEvt('partial', { sentenceId, len: text.length });
-}
+// PCM 帧统计与 partial/final 打点随会话宿主一起迁到了 offscreen（offscreen-streaming.js）。
 
 // DOM references
 const els = {};
@@ -134,6 +62,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindEvents();
     void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
     void syncTabRecordingState(); // 录音活在 offscreen 里，popup 重开必须与真实状态对齐
+    void syncStreamingState(); // 流式会话同样活在 offscreen：对账按钮态并回填结果文本
     // 诊断页需要知道 popup 已就绪（配置阶段的失败会在这里看到迹象）
     debugEvt('popup-ready', {
       provider: els.providerSelect.value,
@@ -406,24 +335,9 @@ function bindEvents() {
   els.subtitleBtn?.addEventListener('click', toggleSubtitles);
 }
 
-// popup 可能在流式过程中被关闭（点页面、切窗口、Esc）。DOM 卸载时 WebSocket /
-// AudioContext / 麦克风会随页面销毁，但 IndexedDB 写入与字幕收尾必须在此之前
-// 交给常驻上下文：background 写历史，字幕消息带 done=true。这里不 await（pagehide
-// 不保证等待异步工作），消息一旦发出由 background 继续完成。
-globalThis.addEventListener('pagehide', () => {
-  // stopStreaming 会在等待 finish-task 前先把 isStreaming 置 false；若这时关闭
-  // popup，只检查 isStreaming 会丢掉最后的 partial。但启动阶段同样 busy，此时
-  // 结果区可能还是上一轮文本，不能收尾（否则会重复写历史）。
-  const shouldFinalize = globalThis.StreamLifecycle.shouldFinalizeOnPageHide({
-    streaming: isStreaming,
-    busy: isStreamingBusy,
-    everStarted: streamSession.everStarted,
-    closing: closingPage,
-  });
-  if (!shouldFinalize) return;
-  closingPage = true;
-  void finalizeStreamingText(false, 'pagehide');
-});
+// 会话宿主在 offscreen（#43 迁移）：popup 关闭不再断流，pagehide 无需任何收尾。
+// 历史写入与字幕收尾都在 offscreen 的会话结束路径完成；本页重开时按 STREAM_STATE
+// 对账并接收 STREAM_UPDATE 广播，与 tab 录音的 UI 镜像模式一致。
 
 // 三路录音互斥：开启任一路时禁用其它两路按钮（active 路保留自身）
 function disableOtherRecordButtons(active) {
@@ -705,16 +619,21 @@ async function toggleStreaming() {
   }
 }
 
+async function toggleStreaming() {
+  if (!isStreaming) {
+    await startStreaming();
+  } else {
+    await stopStreaming();
+  }
+}
+
 async function startStreaming() {
-  // 防重入：setup 期间（getUserMedia + await ready + capture.start）按钮尚未禁用，
-  // 双击会开两条流两个 WebSocket 抢共享 streamSession。
+  // busy 覆盖消息往返窗口（background 端 start 要建文档 + 等 task-started）。
   if (isStreamingBusy || isStreaming) {
     debugEvt('start-blocked', { isStreamingBusy, isStreaming });
     return;
   }
   isStreamingBusy = true;
-  closingPage = false;
-  streamSession.everStarted = false;
 
   const provider = getCurrentProvider();
   if (!provider) {
@@ -737,11 +656,8 @@ async function startStreaming() {
     return;
   }
 
-  // Custom 地域必须手填 endpoint：留空时 resolveEndpoint 返回 ''，而 provider 会把
-  // 空串当成"未指定"回落到公共北京端点 —— 用户明明选了 Custom 却被静默拨到别的地域
-  // （地域与 API Key 强绑定，必然握手 401，且报错信息完全指不到这里）。故在**开麦之前**
-  // 拦下：早退路径不能留下音轨（见 docs/manual-verification.md 的历史 bug #4）。
-  // 只算一次，下面直接复用，避免守卫与实际连接读到不同的值。
+  // Custom 地域必须手填 endpoint：发消息前在 UI 拦下（只有本页知道 region 下拉意图）。
+  // 留空会把 Custom 静默变成北京，跨地域 Key 必然握手 401。
   const endpoint = resolveEndpoint(provider);
   if (els.regionSelect?.value === 'custom' && !endpoint) {
     debugEvt('start-fail', { reason: 'no-endpoint', region: 'custom' });
@@ -754,373 +670,158 @@ async function startStreaming() {
   els.streamBtn.disabled = true;
   debugEvt('start-begin', { provider: provider.id });
 
-  // 字幕绑定"点击 Live Stream 时"的活动 tab。必须在开麦前取：权限弹窗期间
-  // 用户可能切 tab，开麦后再查会把字幕绑到错误的页面。查询失败不阻塞主流程。
-  streamSession.targetTabId = null;
+  // 字幕绑定"点击 Live Stream 时"的活动 tab：权限弹窗期间用户可能切 tab，
+  // 开麦后再查会把字幕绑到错误的页面。查询失败不阻塞主流程。
+  let targetTabId = null;
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    streamSession.targetTabId = tab?.id ?? null;
+    targetTabId = tab?.id ?? null;
   } catch {
-    streamSession.targetTabId = null;
+    targetTabId = null;
   }
 
+  els.resultText.value = '';
+  syncResultButtons(); // 清空后同步禁用 Copy/Fill
+
   try {
-    const stream = await acquireMicrophone();
-    debugEvt('mic-acquired', {
-      tracks: stream.getAudioTracks().length,
-      deviceId: selectedAudioInput || 'default',
-    });
-    void refreshAudioInputs(); // 授权后设备名才可见
-
-    // 跨会话竞态防护：streamSession 是原地复用的单例，旧会话的延迟 onclose/onEnd
-    // 可能在新会话启动期间触发。每次 startStreaming 自增 sessionId，onEnd 闭包持有
-    // 本次 mySessionId，若 streamSession.sessionId 已被新会话覆盖则判定为残留并忽略。
-    const mySessionId = ++streamSessionSeq;
-
-    streamSession.stream = stream;
-    // context 与 targetSampleRate 必须显式重置：AudioContext 要等模型定下来才能建
-    // （采样率随模型走），在此之前 onStreamFrame 的 !session.context 守卫必须看到
-    // null，而不是上一会话的残值。
-    streamSession.context = null;
-    streamSession.targetSampleRate = 0;
-    streamSession.providerId = provider.id;
-    streamSession.apiKey = apiKey;
-    streamSession.finalText = '';
-    streamSession.partialText = '';
-    streamSession.model = resolveModel() || provider.defaultStreamModel;
-    // endpoint 由地域决定（custom 才取手填值）；已在上面的守卫里算过一次，直接复用。
-    // Custom 留空已被拦下，故这里的 '' 只可能来自无 #region 的入口页 —— 那种情况
-    // 交给 provider 的默认端点兜底（undefined 才回落，'' 会被 provider 判为错误）。
-    streamSession.endpoint = endpoint || undefined;
-    streamSession.sessionId = mySessionId; // 置于 createStreamSession 之前：onEnd 在其后才可能触发
-    streamSession.endedEarly = false; // 启动期 onEnd 竞态防护（见 createStreamSession 处注释）
-    streamSession.finalSaved = false;
-    streamSession.endedRemotely = false;
-    // 非 run-task 模型（批量模型、或走 /api-ws/v1/realtime 的会话制模型）不能用于本链路 ——
-    // 回落 provider 默认流式模型。仅在确有默认值时回落，否则交给 createStreamSession 抛错。
-    // requestedModel 要在改写前留住：回落后的提示要说"你填的 X 不行，改用 Y"。
-    const requestedModel = streamSession.model;
-    if (!provider.isStreamModel(streamSession.model)) {
-      debugEvt('model-fallback', { requested: streamSession.model, using: provider.defaultStreamModel });
-      if (provider.defaultStreamModel) {
-        streamSession.model = provider.defaultStreamModel;
-        showStatus(
-          `Using ${streamSession.model} — "${requestedModel}" is not a run-task model.`,
-          'success',
-        );
-      }
-    }
-
-    // 采样率随模型走（8k 电话模型只接受 8000 Hz）。必须在模型回落**之后**取值，
-    // 否则回落到默认模型后仍按用户填的 8k 模型建 8kHz 图，声明与实际不符。
-    // provider 内部用同一个 sampleRateFor(最终模型串) 填 run-task 的 sample_rate，
-    // 两侧同入同出，构造上不会漂移。
-    const targetSampleRate = provider.sampleRateFor(streamSession.model);
-    streamSession.targetSampleRate = targetSampleRate;
-
-    // 直接把 AudioContext 建在目标采样率（官方 demo 同法），浏览器在源节点处做原生
-    // 重采样 —— 避免逐帧软件重采样的相位不连续与时序漂移。旧浏览器不支持 sampleRate
-    // 选项时回退默认采样率，onStreamFrame 里再软件重采样到 targetSampleRate。
-    let context;
-    try {
-      context = new AudioContext({ sampleRate: targetSampleRate });
-    } catch {
-      context = new AudioContext();
-    }
-    // 先挂上再 resume：resume 抛错时 teardownStreaming 才拿得到这个 context 并关掉它。
-    // 反过来的顺序会让 context 只存在于局部变量里 → AudioContext 泄漏。
-    streamSession.context = context;
-    await context.resume(); // 用户手势内解锁
-
-    // 先建会话：必须等 task-started（await ready）才开始采音，
-    // 否则 task-started 之前的音频帧被 sendAudio 丢弃 → 丢开头首句
-    debugEvt('ws-connecting', {
-      model: streamSession.model,
-      endpointConfigured: !!streamSession.endpoint,
-      ctxSampleRate: context.sampleRate,
-      targetSampleRate,
-    });
-    const wsSession = provider.createStreamSession({
-      apiKey: streamSession.apiKey,
-      model: streamSession.model,
-      endpoint: streamSession.endpoint,
-      // 跨会话竞态防护与 onEnd 同理：旧会话的延迟回调（理论上 socket.close 后不会再
-      // 触发，但保持对称）不应再写新会话的 streamSession 状态或误触 UI。
-      onResult: (r) => {
-        if (streamSession.sessionId !== mySessionId) return;
-        onStreamResult(r);
+    // 会话宿主在 offscreen：模型回落 / AudioContext / PCM / WebSocket 都在那边发生，
+    // 这里只发消息并镜像状态。超时 25s：ready(10s) + getUserMedia + 采集启动 + 余量。
+    await globalThis.MessageClient.send(
+      globalThis.MESSAGES.STREAM_START,
+      {
+        providerId: provider.id,
+        apiKey,
+        model: resolveModel() || provider.defaultStreamModel,
+        endpoint: endpoint || '',
+        subtitles: subtitlesEnabled,
+        targetTabId,
+        audioInput: selectedAudioInput,
       },
-      onError: (e) => {
-        if (streamSession.sessionId !== mySessionId) return;
-        debugEvt('ws-error', { message: e?.message || String(e) });
-        showStatus(`Stream error: ${e.message}`, 'error');
-      },
-      onComplete: () => {
-        if (streamSession.sessionId !== mySessionId) return;
-        debugEvt('ws-complete', {});
-      },
-      // 服务端/网络主动终止（task-finished / task-failed / onclose）：统一走 stopStreaming
-      // 的 teardown + 历史落盘，避免 UI 卡死 streaming 态。stopStreaming 内部有重入护栏。
-      //
-      // 竞态防护：连接可能在 await wsSession.ready 期间（isStreaming 仍为 false）就结束。
-      // 此时 stopStreaming() 会被跳过（护栏只看 isStreaming），启动流程会继续在死连接上开采集。
-      // 所以 onEnd 提前触发时记 endedEarly 标记，startStreaming 在 ready 之后检查并中止启动。
-      onEnd: () => {
-        debugEvt('ws-end-received', {});
-        // 跨会话竞态防护：sessionId 已被新会话覆盖 → 本回调是旧会话的延迟 onclose 残留，
-        // 不应再写 endedEarly（会误杀新会话的启动检查）或触发 stopStreaming。
-        if (streamSession.sessionId !== mySessionId) {
-          debugEvt('ws-end-stale', {});
-          return;
-        }
-        // 服务端/网络终止时 onError 已先行显示真实原因（qwen.js 的 fail() 先调
-        // onError 再 onEnd），stopStreaming 据此跳过成功文案，避免覆盖错误提示。
-        streamSession.endedRemotely = true;
-        if (isStreaming) stopStreaming();
-        else streamSession.endedEarly = true;
-      },
-      onEvent: (e) => debugEvt(e.ev, e),
-    });
-    try {
-      await wsSession.ready; // 启动失败/超时会 throw，由外层 catch 兜底
-    } catch (e) {
-      debugEvt('ws-ready-fail', { message: e?.message || String(e) });
-      wsSession.close(); // 关掉未就绪的连接，避免泄漏
-      throw e;
-    }
-    streamSession.wsSession = wsSession;
-    debugEvt('ws-ready', { model: streamSession.model });
-
-    // 竞态早检：await wsSession.ready 期间若 onEnd 已触发（endedEarly=true），先中止，
-    // 避免在已死会话上创建 PCM 采集（AudioWorklet 模块加载 + 音频图接线）。
-    // 下方 capture.start() 之后的二次检查覆盖该 await 窗口本身。
-    if (streamSession.endedEarly) {
-      debugEvt('ws-ended-before-capture', { model: streamSession.model });
-      throw new Error('Stream connection closed before recording started');
-    }
-
-    streamSession.capture = globalThis.createPcmCapture({
-      stream,
-      context,
-      frameSize: STREAM.frameSize,
-      onFrame: onStreamFrame,
-    });
-    await streamSession.capture.start();
-    debugEvt('capture-started', {
-      mode: streamSession.capture.mode?.() || 'unknown',
-      frameSize: STREAM.frameSize,
-      ctxSampleRate: context.sampleRate,
-    });
-    startPcmStats(context.sampleRate, targetSampleRate);
-
-    // 竞态检查（必须在 isStreaming 置位前的最后一步）：从 createStreamSession 到这里的
-    // 每个 await（ready / capture.start）期间 onEnd 都可能触发。它发生在 isStreaming 仍为
-    // false 时只会记 endedEarly 标记，这里统一中止，避免在已结束的会话上把 UI 卡进 streaming 态。
-    if (streamSession.endedEarly) {
-      debugEvt('ws-ended-before-active', { model: streamSession.model });
-      throw new Error('Stream connection closed before recording started');
-    }
-
-    els.resultText.value = '';
-    syncResultButtons(); // 清空后同步禁用 Copy/Fill
-
-    streamSession.everStarted = true;
+      globalThis.TARGETS.BACKGROUND,
+      25000,
+    );
     isStreaming = true;
     els.streamBtn.textContent = 'Stop Stream';
     disableOtherRecordButtons(els.streamBtn);
-    showStatus('Streaming: speak, results will appear as you go.', 'success');
-    debugEvt('streaming-active', { model: streamSession.model });
+    // 成功提示由 offscreen 的 STREAM_UPDATE(active) 补发（麦克风回退时替换为错误提示）
   } catch (error) {
     debugEvt('start-error', { message: error?.message || String(error) });
-    showStatus(`Cannot start streaming: ${error.message}`, 'error');
-    stopPcmStats(); // capture.start 之后若任一步抛错，清掉 1s 定时器，避免泄漏
-    await teardownStreaming();
+    showStatus('Cannot start streaming: ' + error.message, 'error');
     enableAllRecordButtons();
   } finally {
-    // 成功路径里 disableOtherRecordButtons 已把 streamBtn 置回 enabled；失败路径 enableAll 亦然。
-    // 这里兜底复位 busy 标记（不重复动 disabled，避免覆盖 disableOther/enableAll 的互斥语义）。
     isStreamingBusy = false;
     if (!isStreaming) els.streamBtn.disabled = false;
   }
 }
 
 async function stopStreaming() {
-  // 防重入：stop 期间（await stop + teardown）按钮/状态已切，但服务端 onEnd 可能与本函数
-  // 同时触发（用户点 Stop 恰好服务端也结束）—— 用 busy 护栏避免 teardown 跑两遍。
+  // 防重入：stop 消息往返期间 offscreen 的终止广播可能同时到达（服务端恰好也结束）。
   if (isStreamingBusy) {
     debugEvt('stop-blocked', {});
     return;
   }
   isStreamingBusy = true;
   isStreaming = false;
-  closingPage = false;
   els.streamBtn.disabled = true;
   debugEvt('stop-begin', {});
-
   try {
-    // 等待服务端 finish-task 确认，尾音/最后一句由 flushPartial 落定。
-    // stop() 内部有 5s 超时，不会永久挂起。
-    try {
-      await streamSession.wsSession?.stop();
-    } catch (e) {
-      /* 忽略 stop 阶段错误，仍继续清理 */
-      debugEvt('stop-ws-error', { message: e?.message || String(e) });
-    }
-
-    await teardownStreaming();
+    // 收尾（finish-task、最终文本、历史、字幕 done）都在 offscreen 完成后由
+    // STREAM_UPDATE 广播把最终文本回填本页。
+    await globalThis.MessageClient.send(
+      globalThis.MESSAGES.STREAM_STOP,
+      {},
+      globalThis.TARGETS.BACKGROUND,
+      20000,
+    );
+  } catch (error) {
+    // offscreen 停止失败时会话可能仍在跑：以 background 为准重新对账（同 tab 录音模式）
+    debugEvt('stop-error', { message: error?.message || String(error) });
+    await syncStreamingState();
   } finally {
-    stopPcmStats();
-    els.streamBtn.textContent = 'Live Stream';
-    enableAllRecordButtons();
+    els.streamBtn.textContent = isStreaming ? 'Stop Stream' : 'Live Stream';
+    if (!isStreaming) enableAllRecordButtons();
     isStreamingBusy = false;
   }
-
-  // 用户点 Stop 才显示成功提示；服务端/网络终止（onEnd 自动收尾）时 onError 已显示
-  // 真实原因，这里若再报成功会把红色错误覆盖成绿色误导（详见 qwen.js 的 fail() 时序）。
-  if (!streamSession.endedRemotely) {
-    showStatus('Streaming stopped.', 'success');
-  } else {
-    debugEvt('stream-ended-remotely', { provider: streamSession.providerId });
-  }
-  debugEvt('stream-stopped', { provider: streamSession.providerId, model: streamSession.model });
-
-  // 流式结束：最终文本 —— 一条历史记录 + 字幕镜像（done=true 让浮层自动淡出）。
-  // flushPartial(false) 避免先发一条 done=false、随后 done=true 造成消息竞态。
-  await finalizeStreamingText(true);
 }
 
-// 最终文本只交付一次：正常 Stop 与 popup 关闭（pagehide）可能同时发生。
-// `finalSaved` 在第一个 await 之前同步置位，二者不会各写一条历史。
-async function finalizeStreamingText(awaitDelivery, trigger = 'stop') {
-  if (streamSession.finalSaved) return;
-  streamSession.finalSaved = true;
-  flushPartial(false);
-  const finalText = els.resultText?.value.trim() || '';
-  const phase = trigger === 'pagehide' ? 'stream-pagehide' : 'stream-finalized';
-  debugEvt(phase, { len: finalText.length, awaitDelivery });
-  if (!finalText) return;
-
-  const tabId = streamSession.targetTabId;
-  const tasks = [];
-  if (subtitlesEnabled) tasks.push(pushSubtitle(finalText, true, tabId));
-  tasks.push(saveToHistory(finalText, streamSession.providerId, streamSession.model));
-  if (awaitDelivery) await Promise.all(tasks);
-  else void Promise.all(tasks);
-}
-
-async function teardownStreaming() {
-  debugEvt('teardown', {
-    hasCapture: !!streamSession.capture,
-    hasWs: !!streamSession.wsSession,
-    hasStream: !!streamSession.stream,
-    hasContext: !!streamSession.context,
-  });
+// 装载/停止失败后与 background 对账流式状态（同 syncTabRecordingState 模式）：
+// background 查 storage.session 标记 + offscreen 文档存在性；活跃时再向 offscreen
+// 拿会话详情（当前文本）回填结果区。
+async function syncStreamingState() {
   try {
-    streamSession.capture?.stop();
+    const data = await globalThis.MessageClient.send(globalThis.MESSAGES.STREAM_STATE, {});
+    applyStreamingState(!!data?.streaming);
+    if (data?.streaming) {
+      // background 只知道"活着"；会话详情（当前文本）要直接问 offscreen
+      const detail = await globalThis.MessageClient.send(
+        globalThis.MESSAGES.STREAM_STATE,
+        {},
+        globalThis.TARGETS.OFFSCREEN,
+        8000,
+      );
+      if (detail?.streaming && typeof detail.text === 'string') {
+        els.resultText.value = detail.text;
+        syncResultButtons();
+      }
+    }
+    return true;
   } catch {
-    /* ignore */
-  }
-  streamSession.capture = null;
-
-  streamSession.wsSession?.close();
-  streamSession.wsSession = null;
-
-  if (streamSession.stream) {
-    streamSession.stream.getTracks().forEach((t) => t.stop());
-    streamSession.stream = null;
-  }
-  if (streamSession.context) {
-    await streamSession.context.close().catch(() => {});
-    streamSession.context = null;
+    return false; // 查询失败（SW 刚回收等）：保持本地镜像，返回未对齐
   }
 }
 
-// 每收到一帧 PCM：重采样到本会话的目标采样率 → 转 Int16 → 发 WebSocket（服务端负责分段）
-function onStreamFrame(frame) {
-  const session = streamSession;
-  // targetSampleRate 是 run-task 里向服务端声明的速率，必须与实际发出的 PCM 一致
-  if (!session.wsSession || !session.context || !session.targetSampleRate) return;
-  const resampled = globalThis.resampleFloat32(frame, session.context.sampleRate, session.targetSampleRate);
-  const int16 = globalThis.floatToInt16(resampled);
-  session.wsSession.sendAudio(int16);
-  pcmStats.frames += 1;
-  pcmStats.bytes += int16.byteLength;
-}
-
-// 服务端逐帧返回句子：sentence_end=false 是进行中的中间结果（实时覆盖），
-// sentence_end=true 表示完整句（追加进定稿文本）。
-function onStreamResult({ text, sentenceEnd, sentenceId }) {
-  if (sentenceEnd) {
-    // 完整句：并入定稿，清空进行中
-    streamSession.finalText = (streamSession.finalText + ' ' + text).trim();
-    streamSession.partialText = '';
+// 按 background 真相刷新三路互斥按钮（streamBtn 文案 + 其它两路禁用）
+function applyStreamingState(streaming) {
+  isStreaming = streaming;
+  if (streaming) {
+    els.streamBtn.textContent = 'Stop Stream';
+    disableOtherRecordButtons(els.streamBtn);
   } else {
-    // 中间结果：覆盖当前进行中的句子
-    streamSession.partialText = text;
-  }
-  logStreamResult(text, sentenceEnd, sentenceId);
-  renderStreamText();
-}
-
-function renderStreamText(mirror = true) {
-  const parts = [streamSession.finalText, streamSession.partialText]
-    .filter(Boolean)
-    .join(' ');
-  els.resultText.value = parts.trim();
-  syncResultButtons(); // 程序化赋值不触发 input，须显式同步按钮
-  // 字幕镜像：partial/final 每次刷新都同步到起始页浮层（done=false，不自动淡出）
-  if (mirror && subtitlesEnabled && parts.trim()) {
-    void pushSubtitle(parts.trim(), false);
+    els.streamBtn.textContent = 'Live Stream';
+    enableAllRecordButtons();
   }
 }
 
-// 停止时把未定稿的进行中句子并入定稿（服务端最后一句可能没有 sentence_end 标记）
-function flushPartial(mirror = true) {
-  if (streamSession.partialText) {
-    streamSession.finalText = (streamSession.finalText + ' ' + streamSession.partialText).trim();
-    streamSession.partialText = '';
-    renderStreamText(mirror);
+// offscreen → 本页的单向广播（target:'ui'）：文本更新 / 状态提示 / 终止。
+// popup 关闭期间发出的广播自然丢失（无人监听），会话不受影响 —— 重开时按
+// STREAM_STATE 对账补齐。background/offscreen/content 的 target 过滤都会忽略它。
+globalThis.chrome?.runtime?.onMessage?.addListener((request) => {
+  if (request?.target !== globalThis.TARGETS.UI || request?.type !== globalThis.MESSAGES.STREAM_UPDATE) return false;
+  const { kind, text, message } = request.payload || {};
+  if ((kind === 'text' || kind === 'final-text') && typeof text === 'string') {
+    els.resultText.value = text;
+    syncResultButtons();
+  } else if (kind === 'status' && message) {
+    showStatus(message, 'success');
+  } else if (kind === 'error-status' && message) {
+    showStatus(message, 'error');
+    if (isStreaming) applyStreamingState(false); // 远端终止：会话已收尾，UI 复位
+  } else if (kind === 'ended') {
+    debugEvt('stream-ended-broadcast', {});
+    applyStreamingState(false);
   }
-}
-// ---------- Subtitle mirror（浮动字幕） ----------
+  return false;
+});
 
-// 开关按钮回调：切换字幕开关并立即同步远端浮层（关闭时让当前活动页隐藏浮层）。
-// popup 关闭（DOM 销毁）后 UI 开关随之消失，无需（也无法）再同步。
+// 字幕镜像现由 offscreen 会话驱动（partial/final/done 全在会话侧）；本页开关
+// 只负责持久化偏好 + 会话中途热切换（STREAM_SET_SUBTITLES）。会话不活跃时
+// 无需通知（下次 start 会带上开关值）。
 async function toggleSubtitles() {
   subtitlesEnabled = !subtitlesEnabled;
   els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
   els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
   await persistConfig(); // 配置写失败会自行显示状态，浮层仍按用户点击立即切换
-  if (subtitlesEnabled && els.resultText.value.trim()) {
-    // 已有结果时立即镜像到当前活动页（不沿用上一次会话的 tab）
-    await pushSubtitle(els.resultText.value.trim(), true, null);
-  } else if (!subtitlesEnabled) {
-    await hideSubtitle(null);
-  }
-}
-
-// 把文本推给字幕浮层（缺省用本次会话的起始 tab）。失败只打点 —— 字幕是旁路
-// 输出（chrome:// 页、无 content script 的页面都会失败），不该打断流式主流程。
-async function pushSubtitle(text, done = false, tabId = streamSession.targetTabId) {
-  if (!subtitlesEnabled || !text) return;
-  try {
-    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_SHOW, {
-      text,
-      done,
-      tabId,
-    });
-  } catch (error) {
-    debugEvt('subtitle-error', { code: error?.code || '', message: error?.message || String(error) });
-  }
-}
-
-async function hideSubtitle(tabId = streamSession.targetTabId) {
-  try {
-    await globalThis.MessageClient.send(globalThis.MESSAGES.SUBTITLE_HIDE, {
-      tabId,
-    });
-  } catch {
-    /* 浮层本就不存在（页面刷新走）时的 hide 失败无关紧要 */
+  if (isStreaming) {
+    try {
+      await globalThis.MessageClient.send(
+        globalThis.MESSAGES.STREAM_SET_SUBTITLES,
+        { subtitles: subtitlesEnabled },
+        globalThis.TARGETS.OFFSCREEN,
+        5000,
+      );
+    } catch {
+      /* 会话侧很快也会通过对账拿到正确值；失败不阻塞开关 */
+    }
   }
 }
 

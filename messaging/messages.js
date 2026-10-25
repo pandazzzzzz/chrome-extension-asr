@@ -64,6 +64,12 @@ globalThis.MESSAGES = Object.freeze({
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',
   TAB_RECORD_STATE: 'asr:tab-record-state', // 查询标签页录音是否在进行（popup 装载时对齐）
+  STREAM_START: 'asr:stream-start',         // Live Stream 会话（宿主在 offscreen，跨 popup 生命周期）
+  STREAM_STOP: 'asr:stream-stop',
+  STREAM_STATE: 'asr:stream-state',         // popup 装载时对账（同 tab-record-state 模式）
+  STREAM_SET_SUBTITLES: 'asr:stream-set-subtitles', // 会话中途切换字幕镜像
+  STREAM_UPDATE: 'asr:stream-update',       // offscreen → 扩展页广播（partial/final/终止），target: 'ui'
+  STREAM_ENDED: 'asr:stream-ended',         // offscreen → background：会话已自行收尾（远端终止），请清状态回收文档
   HISTORY_ADD: 'asr:history-add', // 由 background 写入历史，跨 popup 生命周期
   DEBUG_EVT: 'asr:debug',
   DEBUG_SUBSCRIBE: 'asr:debug-subscribe',     // 诊断页 content 桥 → background 登记本 tab
@@ -78,6 +84,9 @@ globalThis.TARGETS = Object.freeze({
   DEBUG: 'debug', // 调试事件：由 popup/sidepanel 发出，content 桥（debug/bridge.js）接收
                   // 后 window.postMessage 给诊断页（tests/stream-debug.html）。
                   // background / offscreen 的 target 过滤会忽略它，无需处理。
+  UI: 'ui',     // offscreen → 扩展页（popup/sidepanel）的单向广播：流式文本更新与会话终止。
+                // background / offscreen / content 的 target 过滤都会忽略它；只有
+                // popup/app.js 显式监听 target === TARGETS.UI 的消息。
 });
 
 /**

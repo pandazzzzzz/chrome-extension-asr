@@ -199,6 +199,92 @@ async function closeOffscreenDocument() {
 let offscreenGeneration = 0;
 let activeOffscreenToken = null;
 
+// ---------- Live Stream 状态（跨 popup 生命周期） ----------
+// 会话宿主在 offscreen（offscreen-streaming.js）：popup/sidepanel 只是 UI 壳，
+// 关闭即销毁，状态真相在 background + offscreen。apiKey 只在 offscreen 内存，
+// 不入任何 storage。流式与标签页录音共享同一份 offscreen 文档 —— 三路互斥的
+// "文档归属"判断必须覆盖两路，谁都不能在对方活跃时回收文档。
+const STREAMING_KEY = 'streaming';
+
+async function setStreaming(active) {
+  try {
+    await chrome.storage.session.set({ [STREAMING_KEY]: active === true });
+  } catch {
+    /* storage.session 不可用时降级为无状态：不影响会话本身 */
+  }
+}
+
+// 与 isTabRecording 同构：storage.session 标记与 offscreen 文档存在性对账。
+async function isStreaming() {
+  let flagged = false;
+  try {
+    const r = await chrome.storage.session.get(STREAMING_KEY);
+    flagged = r?.[STREAMING_KEY] === true;
+  } catch {
+    return false;
+  }
+  if (!flagged) return false;
+  const ctxs = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
+  });
+  if (ctxs.length === 0) {
+    await setStreaming(false);
+    return false;
+  }
+  return true;
+}
+
+async function handleStreamStart(payload) {
+  // 三路互斥在 background 侧裁决（各 UI 只护栏自己的本地标志，跨路互斥必须查真相源）
+  if (await isTabRecording()) {
+    return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
+  }
+  await ensureOffscreenDocument();
+  let result;
+  try {
+    result = await sendToOffscreen(globalThis.MESSAGES.STREAM_START, payload, 19000);
+  } catch (e) {
+    // START 超时：offscreen 失联且未开始会话（后台已代为清理，见 offscreen 侧）。
+    // 但若它实际已开始（结果丢失），标记与文档对账会自愈，这里只回收文档。
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+    throw e;
+  }
+  if (result.ok) {
+    activeOffscreenToken = ++offscreenGeneration;
+    await setStreaming(true);
+  } else if (result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+  }
+  return result;
+}
+
+async function handleStreamStop() {
+  const tokenAtStart = activeOffscreenToken;
+  const result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STOP, {}, 15000);
+  // 代际守卫与 handleTabRecordStop 同构（流式与 tab 录音共享文档）
+  if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null || result.ok)) {
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+  }
+  if (result.ok) await setStreaming(false);
+  return result;
+}
+
+// offscreen 的远端终止通知：会话已自行收尾（finalize + teardown），这里只做
+// background 侧的清理。文档回收按代际 —— 若用户已重开新一轮，绝不关新会话的文档。
+async function handleStreamEnded() {
+  const tokenAtStart = activeOffscreenToken;
+  await setStreaming(false);
+  if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null)) {
+    await closeOffscreenDocument();
+    activeOffscreenToken = null;
+  }
+  return { ok: true };
+}
+
 // ---------- 标签页录音状态（跨 popup 生命周期） ----------
 // popup 是随时会被关掉的 UI 壳，而录音活在 offscreen 里 —— 状态不能只存 popup
 // 的内存变量：关掉再打开 popup 会丢掉「正在录音」，按钮复位成可点，此时再点
@@ -270,6 +356,11 @@ async function sendToOffscreen(type, payload, timeoutMs) {
 
 // 开始录标签页：取 streamId → 通知 offscreen 开始
 async function handleTabRecordStart(payload) {
+  // 三路互斥：流式会话活跃时禁止开 tab 录音（两路共享同一份 offscreen 文档，
+  // 且麦克风流与 tab 采集同时跑会导致 AudioContext 数量翻倍、帧率不可控）。
+  if (await isStreaming()) {
+    return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) {
     return { ok: false, error: globalThis.Errors.NO_TAB };
@@ -381,6 +472,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return await handleTabRecordStop();
         case globalThis.MESSAGES.TAB_RECORD_STATE:
           return { ok: true, data: { recording: await isTabRecording() } };
+        case globalThis.MESSAGES.STREAM_START:
+          return await handleStreamStart(payload);
+        case globalThis.MESSAGES.STREAM_STOP:
+          return await handleStreamStop();
+        case globalThis.MESSAGES.STREAM_STATE:
+          return { ok: true, data: { streaming: await isStreaming() } };
+        case globalThis.MESSAGES.STREAM_ENDED:
+          return await handleStreamEnded();
         case globalThis.MESSAGES.HISTORY_ADD:
           return await handleHistoryAdd(payload);
         default:
