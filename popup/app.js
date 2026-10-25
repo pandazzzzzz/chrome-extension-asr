@@ -19,6 +19,7 @@ let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await）
 let isStreaming = false;      // 真流式转录中（麦克风 PCM → WebSocket）
 let isStreamingBusy = false;  // start/stop 进行中（含异步 setup/teardown），防重入
 let closingPage = false;      // pagehide 收尾已接管，避免与 stopStreaming 重复写历史
+let lastSavedConfigSnapshot = ''; // 本页 persistConfig 成功后的字段快照（识别 storage 回声）
 
 // 流式会话（Live Stream 模式）
 const streamSession = {
@@ -1300,6 +1301,7 @@ async function persistConfig() {
   };
   try {
     await globalThis.ConfigStore.save(config);
+    lastSavedConfigSnapshot = snapshotCurrentConfig();
     debugEvt('config-saved', {
       provider: config.provider,
       model: config.model,
@@ -1314,6 +1316,41 @@ async function persistConfig() {
     showStatus(`Cannot save settings: ${error.message}`, 'error');
   }
 }
+
+// 跨入口页同步：popup/sidepanel 与 options 可同屏共存（side panel 不随焦点销毁），
+// 两边只在 DOMContentLoaded 各 load 一次，此后互不感知。persistConfig 是全量 8 字段
+// 提交，会把本页 UI 里的**旧** apiKey/model 写回 storage，静默回滚 options 刚保存的
+// 值（ConfigStore.merge 只保护未提交字段，保护不了已提交但过期的值）。监听 onChanged
+// 把外部修改刷回 UI 才能堵住这个窗口。自己的写入会触发同一事件 —— 用保存后的字段
+// 快照识别回声并跳过；用户正在编辑、还没触发 change 的输入框不回填（等他自己的
+// change 落盘），避免光标下内容被外部值冲掉。
+function snapshotCurrentConfig() {
+  return JSON.stringify({
+    provider: els.providerSelect.value,
+    apiKey: els.apiKeyInput.value.trim(),
+    region: els.regionSelect ? els.regionSelect.value : '',
+    endpoint: els.endpointInput.value.trim(),
+    model: resolveModel(),
+    audioType: els.audioTypeSelect.value,
+    subtitles: subtitlesEnabled,
+    audioInput: selectedAudioInput,
+  });
+}
+
+globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes.asrConfig) return;
+  if (lastSavedConfigSnapshot === snapshotCurrentConfig()) {
+    debugEvt('config-echo-ignored', {});
+    return;
+  }
+  const base = getDefaultConfig();
+  const stored = changes.asrConfig.newValue || {};
+  debugEvt('config-external-change', {
+    keys: Object.keys(stored).filter((k) => k !== 'apiKey').join(','),
+    hasKey: !!stored.apiKey,
+  });
+  applyConfigToUI({ ...base, ...stored });
+});
 
 // ---------- Helpers ----------
 
