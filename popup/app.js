@@ -620,14 +620,6 @@ async function toggleStreaming() {
   }
 }
 
-async function toggleStreaming() {
-  if (!isStreaming) {
-    await startStreaming();
-  } else {
-    await stopStreaming();
-  }
-}
-
 async function startStreaming() {
   // busy 覆盖消息往返窗口（background 端 start 要建文档 + 等 task-started）。
   if (isStreamingBusy || isStreaming) {
@@ -887,26 +879,6 @@ async function handleCopy() {
 }
 
 // ---------- Config ----------
-
-// 写入转录历史。交给常驻的 background，而不是在 popup 里直接开 IndexedDB：
-// popup 可能在历史事务完成前被关闭，导致最终文本丢失。失败不影响主流程，但必须
-// 打点而不是假装成功。
-async function saveToHistory(text, provider, model) {
-  if (!text) return false;
-  try {
-    await globalThis.MessageClient.send(
-      globalThis.MESSAGES.HISTORY_ADD,
-      { text, provider, model },
-      globalThis.TARGETS.BACKGROUND,
-      15000,
-    );
-    debugEvt('history-saved', { len: text.length });
-    return true;
-  } catch (error) {
-    debugEvt('history-error', { message: error?.message || String(error) });
-    return false;
-  }
-}
 
 function getDefaultConfig() {
   const firstProvider = globalThis.PROVIDERS?.[0];
