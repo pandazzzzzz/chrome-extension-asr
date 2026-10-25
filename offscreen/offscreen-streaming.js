@@ -212,6 +212,7 @@
 
       // 模型回落必须发生在 sampleRateFor 之后取值覆盖 —— 与 popup 时代同序
       if (!provider.isStreamModel(s.model) && provider.defaultStreamModel) {
+        debugEvt('model-fallback', { requested: s.model, using: provider.defaultStreamModel });
         s.model = provider.defaultStreamModel;
         s.targetSampleRate = provider.sampleRateFor(s.model);
       }

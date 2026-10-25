@@ -56,8 +56,7 @@ one-shot migration and write serialization), `tests/history.test.js` (IndexedDB
 errors are not reported as empty/success, trim failures do not hide a
 successful write, and trimming follows createdAt), `tests/content-fill.test.js`
 (fill-text cannot report false success; open Shadow DOM is supported),
-`tests/stream-lifecycle.test.js`
-(pagehide only finalizes a session that actually started), `tests/recorder.test.js`
+`tests/recorder.test.js`
 (MediaRecorder format fallback), `tests/pcm-capture.test.js` (the ScriptProcessor
 fallback carries partial frames across callbacks),
 `tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and

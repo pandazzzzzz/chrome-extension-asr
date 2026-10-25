@@ -17,14 +17,14 @@
 
 | 模块 | 现状 | 问题 |
 |---|---|---|
-| `popup/app.js` + `sidepanel` + `options` | mic/Tab 录音 + **Live Stream 真流式** + 配置表单（Provider 为下拉框，API Key 加密） | — |
+| `popup/app.js` + `sidepanel` + `options` | mic/Tab 录音 UI + **Live Stream UI 镜像**（会话宿主在 offscreen） + 配置表单（Provider 为下拉框，API Key 加密） | — |
 | `background/background.js` | 消息路由 + offscreen 协调 + fill-text/字幕转发 + **标签页录音状态持有者**（`storage.session` 的 `tabRecording`；录音活在 offscreen，跨 popup 生命周期） | 无 API 代理/转录（已删，设计取舍） |
 | `content/content.js` + `.css` | 页面听写注入（`asr:fill-text`），兼容受控组件 | — |
 | `content/subtitle.js` | 浮动字幕浮层（`asr:subtitle-show` / `-hide`）：closed Shadow DOM 渲染，可拖动、会话结束自动淡出；流式会话绑定开始时的 tab，不跟随切 tab | 宿主节点仍在 light DOM，页面可主动隐藏/移除整层 |
-| `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式；帧长是调优常量，基准数据见 `popup/app.js` 的 `STREAM.frameSize` 注释） | `vad.js` 已删（服务旧伪流式） |
+| `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式；帧长是调优常量，基准数据见 `offscreen/offscreen-streaming.js` 的 `FRAME_SIZE` 注释） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
-| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` = `tests/streaming.test.js`（34）+ `tests/config.test.js`（10）+ `tests/config-ui-sync.test.js`（2，跨页配置同步守卫）+ `tests/history.test.js`（6）+ `tests/content-fill.test.js`（5）+ `tests/stream-lifecycle.test.js`（5）+ `tests/recorder.test.js`（9）+ `tests/pcm-capture.test.js`（3）+ `tests/debug-redact.test.js`（5）+ `tests/serve-debug.test.js`（9，诊断服务器安全边界）+ `tests/pack.test.js`（7）；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome，已入 CI（`smoke` job） | 依赖脚本加载顺序；无类型契约 |
+| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` = `tests/streaming.test.js`（34）+ `tests/config.test.js`（10）+ `tests/config-ui-sync.test.js`（2，跨页配置同步守卫）+ `tests/offscreen-messaging.test.js`（3，offscreen 流式消息契约）+ `tests/history.test.js`（6）+ `tests/content-fill.test.js`（5）+ `tests/recorder.test.js`（9）+ `tests/pcm-capture.test.js`（3）+ `tests/debug-redact.test.js`（5）+ `tests/serve-debug.test.js`（13，诊断服务器安全边界）+ `tests/pack.test.js`（7）；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome，已入 CI（`smoke` job） | 依赖脚本加载顺序；无类型契约 |
 | `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen` + **`commands` 3 条**（popup / side panel / options）+ `minimum_chrome_version: 116`（`getContexts` / SW 中的 `getMediaStreamId`）。**无 `activeTab`**（2026-10-11 移除，实测不承载功能：content 的 host 访问来自 `content_scripts` 的 `<all_urls>`，tabCapture 授权只看 `tabCapture`）；**host_permissions 为空**（WebSocket 不受其约束，扩展也无 `fetch()`）；诊断桥 `debug/bridge.js` **只注入回环主机**（issue #32 收窄） | 功能 content script 的 `<all_urls>` 注入面仍然偏宽（fill/字幕需要）；`[::1]` 诊断页无法用 match pattern 表达，属已知取舍 |
 
 ### 1.2 目标能力

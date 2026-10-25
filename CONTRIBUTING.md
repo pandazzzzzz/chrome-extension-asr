@@ -94,7 +94,7 @@ CI 另会校验 PR 内的提交与 PR 标题。规则见 `commitlint.config.mjs`
 
 ```
 npm run lint                    # 全量 JS 语法检查（无依赖）
-npm test                        # 单元测试（streaming 33 + config 10 + history 6 + content-fill 5 + stream-lifecycle 5 + recorder 6 + pcm-capture 3 + debug-redact 5 + serve-debug 8 + pack 6，纯 Node）
+npm test                        # 单元测试（streaming 34 + config 10 + config-ui-sync 2 + offscreen-messaging 3 + history 6 + content-fill 5 + recorder 9 + pcm-capture 3 + debug-redact 5 + serve-debug 13 + pack 7，纯 Node）
 node scripts/check-manifest.js  # manifest.json 与所引路径校验
 npm run pack                    # 打包 extension.zip
 ```
