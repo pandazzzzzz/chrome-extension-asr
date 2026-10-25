@@ -18,7 +18,7 @@ let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await）�
 let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await），防重入
 let isStreaming = false;      // 真流式转录中（UI 镜像；真相在 background + offscreen）
 let isStreamingBusy = false;  // start/stop 消息往返进行中，防重入
-let lastSavedConfigSnapshot = ''; // 本页 persistConfig 成功后的字段快照（识别 storage 回声）
+let lastSavedConfigSnapshot = null; // 本页 persistConfig 成功后的字段快照（识别 storage 回声；null = 尚未初始化）
 
 // 流式会话的宿主已迁至 offscreen（offscreen-streaming.js），本页只是 UI 镜像：
 // 发 start/stop、收 STREAM_UPDATE 广播刷新结果区、装载时按 STREAM_STATE 对账。
@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const config = await loadConfig();
     applyConfigToUI(config);
+    lastSavedConfigSnapshot = snapshotCurrentConfig(); // 初始基线：此后任何 UI 偏离都是未保存编辑
 
     bindEvents();
     void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
@@ -1024,10 +1025,24 @@ function snapshotCurrentConfig() {
   });
 }
 
+// 本页 UI 是否有尚未落盘的编辑：与上次成功保存的快照不一致即视为有。
+// 初始加载完成后由 applyConfigToUI 路径建立基线快照（见 loadConfig 完成处）。
+function hasUnsavedConfigEdits() {
+  return lastSavedConfigSnapshot !== snapshotCurrentConfig();
+}
+
 globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
   if (areaName !== 'local' || !changes.asrConfig) return;
   if (lastSavedConfigSnapshot === snapshotCurrentConfig()) {
     debugEvt('config-echo-ignored', {});
+    return;
+  }
+  // 本页存在未保存编辑（当前 UI 与上次落盘快照不一致）时不得整体重渲染：
+  // applyConfigToUI 会覆写正在输入的 custom model / API key 等字段并隐藏
+  // Custom 行（issue #54 手测：11 秒内三次把用户输入清成 model:""）。有未保存
+  // 编辑的页本来就不该被外部状态覆盖；等本页把编辑保存后，后续外部变更再同步。
+  if (lastSavedConfigSnapshot !== null && hasUnsavedConfigEdits()) {
+    debugEvt('config-external-deferred', {});
     return;
   }
   const base = getDefaultConfig();
