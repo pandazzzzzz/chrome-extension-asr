@@ -781,12 +781,22 @@ function applyStreamingState(streaming) {
 // STREAM_STATE 对账补齐。background/offscreen/content 的 target 过滤都会忽略它。
 globalThis.chrome?.runtime?.onMessage?.addListener((request) => {
   if (request?.target !== globalThis.TARGETS.UI || request?.type !== globalThis.MESSAGES.STREAM_UPDATE) return false;
-  const { kind, text, message } = request.payload || {};
+  // 字段约定（与 offscreen-streaming.js 的 broadcastUpdate 对齐）：
+  //   status → { text, type }；error-status → { message }；ended → {}
+  // 此前这里读 message（offscreen 从不发送该字段），成功提示与麦克风回退
+  // 警告全部被静默丢弃（#60）。
+  const { kind, text, type, message } = request.payload || {};
+  const statusText = typeof text === 'string' ? text : '';
   if ((kind === 'text' || kind === 'final-text') && typeof text === 'string') {
     els.resultText.value = text;
     syncResultButtons();
-  } else if (kind === 'status' && message) {
-    showStatus(message, 'success');
+  } else if (kind === 'status' && statusText) {
+    showStatus(statusText, type === 'error' ? 'error' : 'success');
+  } else if (kind === 'active') {
+    // 启动成功（offscreen 在 task-started + 采集就绪后广播）。STREAM_START 的响应
+    // 也能置位 isStreaming，但那时 offscreen 的状态广播可能已先到达（popup 关闭
+    // 期间重开对账等场景）——这里只做幂等复位与按钮文案兜底。
+    if (!isStreaming) applyStreamingState(true);
   } else if (kind === 'error-status' && message) {
     showStatus(message, 'error');
     if (isStreaming) applyStreamingState(false); // 远端终止：会话已收尾，UI 复位

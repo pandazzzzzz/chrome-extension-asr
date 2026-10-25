@@ -5,6 +5,10 @@
 //      诊断页据此知道用户的 Custom 模型名为何被换成默认模型。
 //   2. STREAM_SET_SUBTITLES 关闭时必须发 SUBTITLE_HIDE（#57 item 1）——该修复
 //      落地后此文件继续为它守住回归面。
+//   3. 开启时必须立即发 SUBTITLE_SHOW 镜像当前文本（#57 item 2）——
+//      否则开关联动滞后到下一句话，用户以为开关无效。
+//   4. 会话收尾必须广播 STREAM_UPDATE kind:'ended'（#60）——popup 的复位分支
+//      依赖它把 Stop 按钮还原，kind:'error-status' 的兜底掩盖不了正常收尾路径。
 //
 // 覆盖 #58 的回归面：offscreen 文档加载两个 onMessage 监听器（offscreen.js 先
 // 注册、offscreen-streaming.js 后注册）。Chrome 只取第一个实际调用 sendResponse
@@ -85,17 +89,30 @@ function dispatch(listeners, type, payload) {
 }
 
 async function startSession(sandbox, listeners, overrides = {}) {
+  const payloadOverrides = overrides.payload || {};
+  delete overrides.payload;
   // 最小 provider：非法模型 → 回落 defaultStreamModel
+  let sessionCallbacks = null;
   sandbox.PROVIDERS.push({
     id: 'qwen', supportsStreaming: true, defaultStreamModel: 'fallback-model',
     sampleRateFor: () => 16000,
     isStreamModel: (m) => m === 'fallback-model',
-    createStreamSession: async (opts) => ({ ready: Promise.resolve(), sendAudio() {}, stop: async () => {}, close() {} }),
+    createStreamSession: async (opts) => {
+      sessionCallbacks = opts;
+      return {
+        ready: Promise.resolve(),
+        sendAudio() {},
+        stop: async () => {},
+        close() {},
+      };
+    },
+    emitResult: (r) => sessionCallbacks?.onResult?.(r),
     ...overrides,
   });
   return withTimeout(dispatch(listeners, 'asr:stream-start', {
       providerId: 'qwen', apiKey: 'sk-x', model: 'my-bad-model', endpoint: undefined,
       subtitles: false, targetTabId: 42, audioInput: '',
+      ...payloadOverrides,
   }));
 }
 
@@ -175,6 +192,50 @@ async function run() {
     assert.ok(resp, 'tab-record listener must keep answering its own family');
     assert.strictEqual(resp.ok, false);
     assert.strictEqual(resp.error.code, 'UNKNOWN_ACTION');
+  });
+
+  // ---- #57：字幕开关的即时联动 ----
+  async function setSubtitles(listeners, value) {
+    return withTimeout(dispatch(listeners, 'asr:stream-set-subtitles', { subtitles: value }));
+  }
+
+  await t('setSubtitles(false): sends SUBTITLE_HIDE so the overlay is removed (#57)', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    await startSession(sandbox, listeners, { subtitles: true });
+    sent.length = 0; // 丢弃启动期广播，只看开关动作
+    const resp = await setSubtitles(listeners, false);
+    assert.ok(resp?.ok, 'STREAM_SET_SUBTITLES got no response');
+    const hide = sent.find((m) => m.type === 'asr:subtitle-hide');
+    assert.ok(hide, '关闭字幕必须发 SUBTITLE_HIDE，否则浮层残留直到刷新页面');
+    assert.strictEqual(hide.target, 'background');
+    assert.strictEqual(hide.payload.tabId, 42);
+  });
+
+  await t('setSubtitles(true): immediately mirrors current text via SUBTITLE_SHOW (#57)', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    await startSession(sandbox, listeners, { subtitles: false });
+    // 让会话产生已确认文本（provider onResult 驱动）。
+    const provider = sandbox.PROVIDERS[0];
+    provider.emitResult?.({ text: 'hello', sentenceEnd: true });
+    sent.length = 0;
+    const resp = await setSubtitles(listeners, true);
+    assert.ok(resp?.ok);
+    const show = sent.find((m) => m.type === 'asr:subtitle-show');
+    assert.ok(show, '开启字幕必须立即镜像当前文本，否则开关滞后到下一句话');
+    assert.strictEqual(show.payload.done, false);
+    assert.strictEqual(show.payload.tabId, 42);
+  });
+
+  // ---- #60：STREAM_UPDATE 的 ended 广播 ----
+  await t('endSession: broadcasts STREAM_UPDATE ended so the popup resets (#60)', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    await startSession(sandbox, listeners, { subtitles: false });
+    sent.length = 0;
+    const resp = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(resp?.ok, 'STREAM_STOP got no response');
+    const ended = sent.find((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'ended');
+    assert.ok(ended, '会话收尾必须广播 kind:"ended"，popup 的按钮复位分支依赖它');
+    assert.strictEqual(ended.target, 'ui');
   });
 
   console.log(`${pass} passed, ${fail} failed`);
