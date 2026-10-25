@@ -109,6 +109,10 @@
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // 只处理发给 offscreen 的消息（target 过滤，避免与 background 重复响应）
     if (request?.target !== TARGETS.OFFSCREEN) return false;
+    // asr:stream-* 家族归后注册的 offscreen-streaming.js：Chrome 只取第一个实际
+    // 回包者，这里抢先回（哪怕是 UNKNOWN_ACTION）会把流式会话的真实结果挤掉（#58）。
+    // 其余消息（含未知动作）仍由本监听器兜底回 UNKNOWN_ACTION，保持快速失败。
+    if (typeof request.type === 'string' && request.type.startsWith('asr:stream-')) return false;
 
     (async () => {
       try {

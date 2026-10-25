@@ -342,8 +342,12 @@
     });
   }
 
-  chrome.runtime.onMessage.addListener((request) => {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request?.target !== TARGETS.OFFSCREEN) return false;
+    // 只认领流式家族（契约前缀，覆盖未来新增动作）。同一文档还有 offscreen.js
+    // 的监听器（先注册）：Chrome 只取第一个实际回包的监听器，任何一侧替对方
+    // 家族抢答（哪怕是 UNKNOWN_ACTION）都会把真实结果挤掉 —— #58 正来源于此。
+    if (typeof request.type !== 'string' || !request.type.startsWith('asr:stream-')) return false;
     (async () => {
       switch (request.type) {
         case MESSAGES.STREAM_START:
@@ -357,7 +361,9 @@
         default:
           return { ok: false, error: globalThis.createError(Errors.UNKNOWN_ACTION, 'Unknown message type') };
       }
-    })().catch((e) => ({ ok: false, error: globalThis.createError(Errors.OFFSCREEN_ERROR, e.message || '') }));
+    })()
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: globalThis.createError(Errors.OFFSCREEN_ERROR, e.message || '') }));
     return true;
   });
 })();
