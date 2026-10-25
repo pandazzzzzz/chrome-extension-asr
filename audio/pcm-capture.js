@@ -38,9 +38,9 @@ globalThis.createPcmCapture = function createPcmCapture({
 
     if (context.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
       try {
-        // offscreen 宿主等非页面上下文同样可用；URL 兜底覆盖无 chrome API 的宿主
-        await context.audioWorklet.addModule(globalThis.chrome?.runtime?.getURL?.('audio/pcm-worklet.js')
-          ?? new URL('pcm-worklet.js', import.meta.url).href);
+        // 本模块只在扩展上下文运行（offscreen 文档），worklet URL 恒可经 runtime 解析。
+        // 不要写 import.meta.url 兜底：经典脚本里那是 SyntaxError，只是从未被求值。
+        await context.audioWorklet.addModule(globalThis.chrome.runtime.getURL('audio/pcm-worklet.js'));
         const worklet = new AudioWorkletNode(context, 'pcm-capture-processor', {
           processorOptions: { frameSize },
         });

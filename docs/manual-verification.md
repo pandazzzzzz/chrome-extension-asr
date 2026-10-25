@@ -38,7 +38,7 @@
 | 1.5 | 说英文 | 出英文文本（**不应**被当中文） | 出中文 = `language_hints` 被硬编码成 `['zh']`（§7 决策 #6） |
 | 1.6 | 点 **Stop Stream** | 按钮回 `Live Stream`，状态 `Streaming stopped.`，**未定稿的 partial 被并入结果**（`flushPartial()` 兜底） | 最后半句丢失 = flushPartial 未执行 |
 | 1.7 | **重入测试**：快速双击 **Live Stream** | 只开一条流；日志无两条 `start-begin` | 两条流 = busy 护栏失效（§7 决策 #8） |
-| 1.8 | 停止后看 options 页 | 历史**新增一条**，内容与结果一致，provider/model 正确 | 无记录 = `saveToHistory` 未触发 |
+| 1.8 | 停止后看 options 页 | 历史**新增一条**，内容与结果一致，provider/model 正确 | 无记录 = offscreen `finalizeSession` 的 `asr:history-add` 未送达 background |
 | 1.9 | 下拉选 `paraformer-realtime-8k-v2`（或 Custom 手填 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`ws-connecting` 的 `targetSampleRate` = **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |
 | 1.10 | 选 `Custom` → **清空** Endpoint → 点 **Live Stream** | 状态 `Custom region requires an endpoint URL.`，**麦克风不亮**、无 `ws-connecting` 事件、按钮仍是 `Live Stream` 可点 | 拨到 `dashscope.aliyuncs.com` = 守卫失效（静默回落北京，本 PR 修的就是它） |
 
@@ -48,7 +48,7 @@
 - 状态显示 `No provider selected.` → provider 下拉框为空
 - 状态显示 `Custom region requires an endpoint URL.` → 选了 `Custom` 但端点框为空。守卫在**开麦之前**，因此麦克风红点不会出现、也不会建立 WebSocket；补一个 `wss://…` URL 再点即可
 - 10 秒后报 `Timed out waiting for task-started (check model / API key)` → Key 无效，或模型不在 run-task 白名单
-- 状态显示 `Using qwen-audio-3.1-asr-flash-streaming — "<你填的模型名>" is not a run-task model.` → 你填了批量模型或会话制模型（如 `qwen3-asr-flash-realtime`），代码已自动兜底为默认流式模型（**这是正确行为**，非 bug）
+- 诊断页出现 `model-fallback`（`requested` = 你填的模型名，`using` = 默认流式模型）→ 你填了批量模型或会话制模型（如 `qwen3-asr-flash-realtime`），offscreen 已自动兜底为默认流式模型（**这是正确行为**，非 bug）
 - 选 8k 电话模型（`fun-asr-flash-8k-realtime` / `paraformer-realtime-8k-v2`）后服务端立刻回 `task-failed` → 检查 run-task 报文 `payload.parameters.sample_rate` 是否为 **8000**（诊断页 `run-task-sent` 事件的 `sampleRate` 字段直接给出该值；若为 16000 说明采样率元数据回退了）
 
 ---
@@ -150,15 +150,16 @@
 | 5.8 | 把系统/浏览器切到深色（`chrome://settings` → Appearance → Dark）后打开 popup / 侧栏 / options | 三处**全部**变深色：页面底、输入框、按钮、状态条；`<select>` 下拉菜单也是深色（靠 `color-scheme: dark`）。**无任何区域仍是白底** |
 | 5.9 | 深色下检查对比度 | 正文与按钮文字清晰可读（自动化实测：正文 15.4:1、主按钮白字 5.2:1） |
 | 5.10 | 设置页 Region 选 `Custom`、清空 Endpoint → 点 **Save** | 提示 `Custom region requires an endpoint URL.`，且 `chrome.storage.local` 里 `asrConfig.endpoint` **保持上一次的值**（被拒绝的 save 不落盘、不覆盖）。填一个 `wss://…` 后再 Save → `Settings saved.` |
-| 5.11 | 流式过程中直接关闭 popup（不点 Stop） | 重开 options：历史有本次结果；开着 Subtitles 时原页面浮层约 2s 后淡出。诊断页出现 `stream-pagehide` | 无历史/浮层不消失 = `pagehide` 收尾或 `asr:history-add` 未生效 |
+| 5.11 | 流式过程中直接关闭 popup（不点 Stop） | 流**不断**（会话宿主在 offscreen）；重开 options：历史在停止后出现；开着 Subtitles 时原页面浮层持续更新 | 断流 = 会话宿主仍留在 popup（回归 #51）；历史缺失 = `asr:history-add` 未生效 |
 
 ---
 
 ## 6. 失败时怎么取证
 
 诊断页（`node tests/serve-debug.js`）会实时显示扩展遥测事件，面板顶部可按事件名过滤
-（输入 `ws-` / `record-` / `tab-` 只看一条路径）。事件名来自 `popup/app.js` 的 `debugEvt()`
-与 provider 的 `track()`，共约 60 个；下表按**功能路径**分组列出排查时真正用得上的。
+（输入 `ws-` / `record-` / `tab-` 只看一条路径）。事件名来自 `popup/app.js` 与
+`offscreen/offscreen-streaming.js` 的 `debugEvt()`、以及 provider 的 `track()`；
+下表按**功能路径**分组列出排查时真正用得上的。
 
 **① Live Stream / WebSocket（流式主路径）**
 
@@ -203,18 +204,18 @@
 | 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`subtitles`/`audioInput`/`hasKey` | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 记原值（看得出是不是 `https://` 批量残留） |
 | Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
 | 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
-| 历史没记上 | `history-saved` + `len` / `history-error` | 无 `history-saved` 且有 `history-error` = background 写入 IndexedDB 失败；两者都无 = `saveToHistory` 未触发（清单 1.8 的失败含义） |
-| 关闭 popup 时是否收尾 | `stream-pagehide` + `len` | 流式期间关闭 popup 应出现该事件；历史与 `done=true` 字幕已交给 background |
+| 历史没记上 | `history-error`（offscreen） | offscreen → background 的 `asr:history-add` 失败 = background 写 IndexedDB 出错；连 `stream-finalized` 都没有 = 会话收尾路径未执行 |
+| 会话是否正常收尾 | `stream-finalized`（用户停止）/ `stream-pagehide-like-end`（远端终止） | 停止后应出现其一；两者皆无 = `endSession` 未执行 |
 
 **⑤ 结果动作与字幕（清单 §4、§4b）**
 
 | 现象 | 关键事件 | 含义 |
 |---|---|---|
-| 字幕没出现 | `subtitle-error` + `code` | 浮层消息转发失败（`NO_CONTENT`=页面无 content script，如 `chrome://`） |
+| 字幕没出现 | （无专有打点；转发失败被 offscreen 静默吞掉） | 先确认页面有 content script（`chrome://` 等页面本就无浮层）；再查 `SUBTITLE_SHOW` 是否发出 |
 | 注入没生效 | `fill-ok` / `fill-error` + `code` | `fill-error` 带 `NO_FIELD` = 活动元素不是可编辑字段（看诊断面板「活动元素」） |
 | 复制失败 | `copy-ok` / `copy-error` | `copy-error` 多为页面未获焦（clipboard 需焦点） |
 
-> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app.js` 的 `debugEvt(...)` 调用点为准。
+> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app.js` 与 `offscreen/offscreen-streaming.js` 的 `debugEvt(...)` 调用点为准。
 
 诊断页底部有**导出日志 (.txt)** 按钮，导出含「扩展遥测」与「fill-text 注入」两段，便于附到 issue。
 长跑时事件列表有 **2000 条上限**（超出丢最早的，导出同样截断并在段头标注）——取证请尽早导出。
