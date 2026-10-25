@@ -19,6 +19,7 @@ let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await）
 let isStreaming = false;      // 真流式转录中（UI 镜像；真相在 background + offscreen）
 let isStreamingBusy = false;  // start/stop 消息往返进行中，防重入
 let lastSavedConfigSnapshot = null; // 本页 persistConfig 成功后的字段快照（识别 storage 回声；null = 尚未初始化）
+let pendingConfigEchoes = 0; // 本页已保存、尚未收到对应 onChanged 回声的次数（精确回声识别，见 persistConfig）
 
 // 流式会话的宿主已迁至 offscreen（offscreen-streaming.js），本页只是 UI 镜像：
 // 发 start/stop、收 STREAM_UPDATE 广播刷新结果区、装载时按 STREAM_STATE 对账。
@@ -58,7 +59,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const config = await loadConfig();
     applyConfigToUI(config);
-    lastSavedConfigSnapshot = snapshotCurrentConfig(); // 初始基线：此后任何 UI 偏离都是未保存编辑
+      lastSavedConfigSnapshot = snapshotCurrentConfig(); // 初始基线：此后任何 UI 偏离都是未保存编辑
 
     bindEvents();
     void refreshAudioInputs(); // 先填"已授权/未授权"的设备列表；授权后由录音/流式路径再刷新
@@ -960,6 +961,7 @@ async function persistConfig() {
     audioInput: selectedAudioInput,
   };
   try {
+    pendingConfigEchoes += 1;
     await globalThis.ConfigStore.save(config);
     lastSavedConfigSnapshot = snapshotCurrentConfig();
     debugEvt('config-saved', {
@@ -972,6 +974,7 @@ async function persistConfig() {
       hasKey: !!config.apiKey,
     });
   } catch (error) {
+    pendingConfigEchoes = 0; // 保存失败不会有回声；清零避免吞掉下一次外部变更
     debugEvt('config-save-error', { message: error?.message || String(error) });
     showStatus(`Cannot save settings: ${error.message}`, 'error');
   }
@@ -981,9 +984,9 @@ async function persistConfig() {
 // 两边只在 DOMContentLoaded 各 load 一次，此后互不感知。persistConfig 是全量 8 字段
 // 提交，会把本页 UI 里的**旧** apiKey/model 写回 storage，静默回滚 options 刚保存的
 // 值（ConfigStore.merge 只保护未提交字段，保护不了已提交但过期的值）。监听 onChanged
-// 把外部修改刷回 UI 才能堵住这个窗口。自己的写入会触发同一事件 —— 用保存后的字段
-// 快照识别回声并跳过；用户正在编辑、还没触发 change 的输入框不回填（等他自己的
-// change 落盘），避免光标下内容被外部值冲掉。
+// 把外部修改刷回 UI 才能堵住这个窗口。自己的写入会触发同一事件 —— 用
+// pendingConfigEchoes 计数精确识别回声（保存前置 +1，事件消费 -1）。不能只比较
+//「UI == 上次快照」：初始化基线也一样相等，会把首次外部变更误判成回声吞掉。
 function snapshotCurrentConfig() {
   return JSON.stringify({
     provider: els.providerSelect.value,
@@ -1005,25 +1008,35 @@ function hasUnsavedConfigEdits() {
 
 globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
   if (areaName !== 'local' || !changes.asrConfig) return;
-  if (lastSavedConfigSnapshot === snapshotCurrentConfig()) {
-    debugEvt('config-echo-ignored', {});
-    return;
-  }
-  // 本页存在未保存编辑（当前 UI 与上次落盘快照不一致）时不得整体重渲染：
-  // applyConfigToUI 会覆写正在输入的 custom model / API key 等字段并隐藏
-  // Custom 行（issue #54 手测：11 秒内三次把用户输入清成 model:""）。有未保存
-  // 编辑的页本来就不该被外部状态覆盖；等本页把编辑保存后，后续外部变更再同步。
-  if (lastSavedConfigSnapshot !== null && hasUnsavedConfigEdits()) {
-    debugEvt('config-external-deferred', {});
-    return;
-  }
-  const base = getDefaultConfig();
-  const stored = changes.asrConfig.newValue || {};
-  debugEvt('config-external-change', {
-    keys: Object.keys(stored).filter((k) => k !== 'apiKey').join(','),
-    hasKey: !!stored.apiKey,
-  });
-  applyConfigToUI({ ...base, ...stored });
+  // 同步必须走 load() 解密：newValue 是原始存储对象，apiKey 是 AES-GCM 密文，
+  // 直接套进 UI 会把密文写进输入框，本页下一次保存再把它加密一次就永久损坏
+  // 密钥（#59）。
+  (async () => {
+    if (pendingConfigEchoes > 0) {
+      pendingConfigEchoes -= 1;
+      debugEvt('config-echo-ignored', {});
+      return;
+    }
+    // 本页存在未保存编辑（当前 UI 与上次落盘快照不一致）时不得整体重渲染：
+    // applyConfigToUI 会覆写正在输入的 custom model / API key 等字段并隐藏
+    // Custom 行（issue #54 手测：11 秒内三次把用户输入清成 model:""）。有未保存
+    // 编辑的页本来就不该被外部状态覆盖；等本页把编辑保存后，后续外部变更再同步。
+    if (lastSavedConfigSnapshot !== null && hasUnsavedConfigEdits()) {
+      debugEvt('config-external-deferred', {});
+      return;
+    }
+    const stored = changes.asrConfig.newValue || {};
+    debugEvt('config-external-change', {
+      keys: Object.keys(stored).filter((k) => k !== 'apiKey').join(','),
+      hasKey: !!stored.apiKey,
+    });
+    try {
+      const decrypted = await globalThis.ConfigStore.load();
+      applyConfigToUI({ ...getDefaultConfig(), ...decrypted });
+    } catch (error) {
+      debugEvt('config-external-load-error', { message: error?.message || String(error) });
+    }
+  })();
 });
 
 // ---------- Helpers ----------

@@ -49,6 +49,9 @@ function gatherElements() {
 function applyToUI(config) {
   // provider 是下拉框，选项来自 providers 注册表；无匹配时回退默认
   const providers = globalThis.PROVIDERS || [];
+  // onChanged 同步会多次进入本函数：重建前必须清空，否则 provider 选项
+  // 每次外部变更都追加一份（"Qwen (DashScope)" 越积越多，#59）。
+  els.provider.textContent = '';
   providers.forEach((provider) => {
     const option = document.createElement('option');
     option.value = provider.id;
@@ -191,8 +194,17 @@ function snapshotCurrentConfig() {
 globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
   if (areaName !== 'local' || !changes.asrConfig) return;
   if (lastSavedConfigSnapshot === snapshotCurrentConfig()) return;
-  // applyToUI 会重建 provider 下拉并级联重建 region/model 选项
-  applyToUI({ ...(changes.asrConfig.newValue || {}) });
+  // 同步必须走 load() 解密：newValue 里 apiKey 是 AES-GCM 密文，直接套 UI
+  // 会在下一次 Save 时被再加密一次，密钥永久损坏（#59）。
+  (async () => {
+    try {
+      const decrypted = await globalThis.ConfigStore.load();
+      // applyToUI 会重建 provider 下拉并级联重建 region/model 选项
+      applyToUI(decrypted);
+    } catch (e) {
+      show(`Cannot sync settings: ${e.message}`, 'error');
+    }
+  })();
 });
 
 async function refreshHistory() {
