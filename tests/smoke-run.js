@@ -19,10 +19,33 @@ const fs = require('node:fs');
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.SMOKE_PORT || 18923);
 
+// temp/ 下是本地 harness 常放的 Chrome-for-Testing（AGENTS.md「npm ci」一节提到），
+// 版本目录名不固定，这里对两个常见布局各探一次。放最前：本机调试优先用受控版本。
+const CFT_DIRS = [
+  path.join(ROOT, 'temp', 'chrome-headless-shell'), // puppeteer 布局：*-win64/ 下有 exe
+  path.join(ROOT, 'temp', 'chrome-for-testing'),
+];
+function chromeForTestingCandidate() {
+  for (const dir of CFT_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    const name = fs.readdirSync(dir).find((e) => /win64|linux64|mac/.test(e));
+    if (!name) continue;
+    const sub = path.join(dir, name);
+    const inner = fs.existsSync(sub) && fs.statSync(sub).isDirectory()
+      ? fs.readdirSync(sub).find((e) => /^(chrome|chrome-headless-shell|Google Chrome for Testing)(\.exe)?$/i.test(e))
+      : null;
+    if (inner) return path.join(sub, inner);
+  }
+  return null;
+}
+
 const CHROME_CANDIDATES = [
   process.env.SMOKE_CHROME_PATH,
+  chromeForTestingCandidate(),
   process.platform === 'win32' && 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   process.platform === 'win32' && 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  // Edge 在 Windows 上几乎必装且内核同源，作为正式 Chrome 缺失时的兜底
+  process.platform === 'win32' && 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   process.platform === 'darwin' && '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   process.platform === 'linux' && '/usr/bin/google-chrome',
   process.platform === 'linux' && '/usr/bin/google-chrome-stable',
@@ -30,7 +53,7 @@ const CHROME_CANDIDATES = [
 
 function findChrome() {
   for (const p of CHROME_CANDIDATES) {
-    if (p && fs.existsSync(p)) return p;
+    if (p && fs.existsSync(p)) return fs.statSync(p).isFile() ? p : null;
   }
   return null;
 }
@@ -41,7 +64,9 @@ function waitReady(server) {
     let buf = '';
     server.stdout.on('data', (d) => {
       buf += d.toString();
-      if (buf.includes('已启动') || buf.includes('started')) {
+      // serve-debug 的就绪行带机器可读 [ready] 标记 —— 不依赖中文文案，
+      // 改日志措辞不会悄悄弄断 CI。
+      if (buf.includes('[ready]')) {
         clearTimeout(timer);
         resolve();
       }

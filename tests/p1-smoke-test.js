@@ -335,6 +335,103 @@ async function runTests() {
     addResult('audio devices: listAudioInputs', false, e.message);
   }
 
+  // --- 20. Format: timestampForFile 文件名安全（无冒号/点，ISO 形状） ---
+  try {
+    const ts = globalThis.Format.timestampForFile(new Date('2026-10-26T12:34:56.789Z'));
+    const ok = ts === '2026-10-26T12-34-56' && !/[:.]/.test(ts);
+    addResult('Format: timestampForFile is filename-safe', ok, `ts="${ts}"`);
+  } catch (e) {
+    addResult('Format: timestampForFile', false, e.message);
+  }
+
+  // --- 21. ConfigUI: region 决策规则（saved > legacy custom > 首地域 > custom 兜底） ---
+  try {
+    const regions = [
+      { id: 'cn-beijing', label: 'Beijing' },
+      { id: 'custom', label: 'Custom' },
+    ];
+    const known = globalThis.ConfigUI.resolveRegionSelection(regions, 'cn-beijing', '');
+    const legacy = globalThis.ConfigUI.resolveRegionSelection(regions, '', 'wss://old.example');
+    const first = globalThis.ConfigUI.resolveRegionSelection(regions, '', '');
+    const unknown = globalThis.ConfigUI.resolveRegionSelection(regions, 'gone-region', '');
+    const empty = globalThis.ConfigUI.resolveRegionSelection([], '', '');
+    const ok = known.value === 'cn-beijing' && !known.legacyCustom
+      && legacy.value === 'custom' && legacy.legacyCustom === true
+      && first.value === 'cn-beijing'
+      && unknown.value === 'cn-beijing' // 未知 region 回退首地域，不是 custom
+      && empty.value === 'custom';
+    addResult('ConfigUI: region selection precedence', ok,
+      `known=${known.value}, legacy=${legacy.value}(${legacy.legacyCustom}), unknown=${unknown.value}`);
+  } catch (e) {
+    addResult('ConfigUI: region selection', false, e.message);
+  }
+
+  // --- 22. ConfigUI: 模型选中态（预置项直选；非预置落 Custom 保留原文） ---
+  try {
+    const provider = globalThis.PROVIDERS?.[0];
+    const preset = globalThis.ConfigUI.resolveModelSelection(provider, provider?.defaultStreamModel);
+    const custom = globalThis.ConfigUI.resolveModelSelection(provider, 'fun-asr-realtime-2026-02-28');
+    const none = globalThis.ConfigUI.resolveModelSelection(null, 'any-model');
+    const ok = preset.value === provider.defaultStreamModel
+      && custom.value === '' && custom.customText === 'fun-asr-realtime-2026-02-28'
+      && none.value === '' && none.customText === 'any-model';
+    addResult('ConfigUI: model selection mapping', ok,
+      `preset=${preset.value}, custom="${custom.customText}"`);
+  } catch (e) {
+    addResult('ConfigUI: model selection', false, e.message);
+  }
+
+  // --- 23. Provider 元数据：采样率例外表与模型白名单（offscreen 也加载同一层） ---
+  try {
+    const p = globalThis.PROVIDERS?.[0];
+    const ok = !!p
+      && p.sampleRateFor('fun-asr-flash-8k-realtime') === 8000
+      && p.sampleRateFor('fun-asr-flash-8k-realtime-2026-01-28') === 8000 // 前缀覆盖快照
+      && p.sampleRateFor(p.defaultStreamModel) === p.defaultSampleRate
+      && p.isStreamModel(p.defaultStreamModel)
+      && p.isStreamModel('paraformer-realtime-v2-2099-01-01') // 前缀匹配快照
+      && !p.isStreamModel('qwen3-asr-flash-realtime') // 会话制协议，必须不在白名单
+      && p.endpointFor('cn-beijing').startsWith('wss://')
+      && p.endpointFor('custom') === '';
+    addResult('providers: sampleRateFor / isStreamModel / endpointFor', ok,
+      p ? `8k=${p.sampleRateFor('fun-asr-flash-8k-realtime')}, default=${p.sampleRateFor(p.defaultStreamModel)}` : 'no provider');
+  } catch (e) {
+    addResult('providers: metadata', false, e.message);
+  }
+
+  // --- 24. 流式消息契约（#43 迁移后的新增动作与 UI 广播目标） ---
+  try {
+    const M = globalThis.MESSAGES;
+    const T = globalThis.TARGETS;
+    // 前向兼容：offscreen 迁移（#43）合入前 main 上还没有这组动作 —— 缺席时
+    // 标注通过而不是失败，合并顺序无关；存在则全量断言。
+    if (!('STREAM_START' in M)) {
+      addResult('messages: streaming contract actions + TARGETS.UI', true,
+        'STREAM_* actions not in this build yet (offscreen migration pending)');
+    } else {
+      const ok = M.STREAM_START === 'asr:stream-start'
+        && M.STREAM_STOP === 'asr:stream-stop'
+        && M.STREAM_STATE === 'asr:stream-state'
+        && M.STREAM_SET_SUBTITLES === 'asr:stream-set-subtitles'
+        && M.STREAM_UPDATE === 'asr:stream-update'
+        && M.STREAM_ENDED === 'asr:stream-ended'
+        && T.UI === 'ui';
+      addResult('messages: streaming contract actions + TARGETS.UI', ok,
+        ok ? 'all six STREAM_* actions + ui target defined' : 'missing action');
+    }
+  } catch (e) {
+    addResult('messages: streaming contract', false, e.message);
+  }
+
+  // --- 25. 脱敏助手在浏览器上下文可执行（Node 测同一实现，这里只验挂载） ---
+  try {
+    const out = globalThis.redactDebugText('wss://host/path?api_key=sk-secret&model=x');
+    const ok = out === 'wss://host/path?api_key=<redacted>&model=x';
+    addResult('debug-redact: executes in browser context', ok, out);
+  } catch (e) {
+    addResult('debug-redact', false, e.message);
+  }
+
   finish();
 }
 

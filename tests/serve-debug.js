@@ -10,6 +10,7 @@
  * 用法：
  *   node tests/serve-debug.js            # 默认端口 18923
  *   node tests/serve-debug.js 8080       # 指定端口
+ *   SERVE_LOG=1 node tests/serve-debug.js # 打印访问日志（诊断 404/请求序列用）
  *   然后浏览器打开 http://localhost:18923/tests/stream-debug.html
  *
  * 安全边界 —— 这是本仓库唯一对外开 socket 的开发组件，下面两条都不能松：
@@ -29,6 +30,16 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.argv[2] || process.env.PORT || 18923);
+
+// 端口必须在拉起任何 server 之前校验：listen(NaN) 会同步抛未捕获异常，
+// 调用方只能看到一段栈，分不清是参数错了还是端口被占。
+if (!Number.isInteger(PORT) || PORT <= 0 || PORT > 65535) {
+  console.error(`无效端口 "${process.argv[2] || process.env.PORT}"：需要 1-65535 的整数。`);
+  process.exit(1);
+}
+
+// 访问日志默认关闭：静默是常态；诊断"页面到底请求了什么 / 有没有 404"时再开。
+const LOG_REQUESTS = process.env.SERVE_LOG === '1';
 
 // 精确文件白名单（相对 ROOT）。未命中一律 404 —— 不区分"不存在"与"不许访问"，
 // 避免用状态码差异探测仓库里有哪些文件。诊断页的脚本必须列在这里。
@@ -81,6 +92,14 @@ function hostnameOf(hostHeader) {
 }
 
 const handleRequest = (req, res) => {
+  // 静态文件服务只回答 GET/HEAD：POST/PUT/DELETE 也走文件分发等于多开了一条
+  // 与读文件无异的通路，405 把面收掉。
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' });
+    res.end('Method not allowed');
+    return;
+  }
+
   // 1) Host 校验（防 DNS rebinding）。放在最前：非法 Host 不该拿到任何信息。
   if (!ALLOWED_HOSTNAMES.has(hostnameOf(req.headers.host))) {
     res.writeHead(403, { 'Content-Type': 'text/plain' });
@@ -115,6 +134,7 @@ const handleRequest = (req, res) => {
     return;
   }
 
+  const isHead = req.method === 'HEAD';
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -129,7 +149,8 @@ const handleRequest = (req, res) => {
       // 开发期不缓存：改了 stream-debug.html / 素材后刷新即见，不用清缓存。
       'Cache-Control': 'no-store',
     });
-    res.end(data);
+    // HEAD 只回头不回体（保持与 GET 同形，便于探活/缓存判断）
+    res.end(isHead ? undefined : data);
   });
 };
 
@@ -144,6 +165,13 @@ const handleRequest = (req, res) => {
 const LOOPBACKS = ['127.0.0.1', '::1'];
 LOOPBACKS.forEach((host) => {
   const server = http.createServer(handleRequest);
+  if (LOG_REQUESTS) {
+    server.on('request', (req, res) => {
+      res.on('finish', () => {
+        console.log(`${new Date().toISOString()} ${req.method} ${req.url} -> ${res.statusCode}`);
+      });
+    });
+  }
   server.on('error', (err) => {
     // 某回环族不可用（如系统禁用 IPv6）→ EADDRNOTAVAIL，忽略该族即可。
     if (err.code === 'EADDRNOTAVAIL') {
@@ -161,7 +189,9 @@ LOOPBACKS.forEach((host) => {
   });
   server.listen(PORT, host, () => {
     const shown = host.includes(':') ? `[${host}]` : host;
-    console.log(`诊断页静态服务器已启动： http://${shown}:${PORT}/tests/stream-debug.html`);
+    // "ready" 是给 smoke-run.js 的机器可读标记（ASCII，不受日志文案改动影响）；
+    // 其余输出保持中文给本地开发者读。
+    console.log(`诊断页静态服务器已启动 [ready]： http://${shown}:${PORT}/tests/stream-debug.html`);
     console.log(`  只托管诊断页、debug-redact.js 与 samples/media/sample.mp4；其余路径（含 tests/ 下的本地计划/日志、.env.local、.git/、docs/、temp/）一律 404。`);
   });
 });

@@ -74,10 +74,10 @@ async function startServer(port, env = {}) {
 }
 
 /** 发一个请求，返回 { status, headers, body }。headers 可覆盖 Host 等。 */
-function req(port, urlPath, headers = {}) {
+function req(port, urlPath, headers = {}, method = 'GET') {
   return new Promise((resolve, reject) => {
     const r = http.request(
-      { host: '127.0.0.1', port, path: urlPath, method: 'GET', headers },
+      { host: '127.0.0.1', port, path: urlPath, method, headers },
       (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -199,6 +199,34 @@ function req(port, urlPath, headers = {}) {
       const after = await req(port, '/tests/stream-debug.html');
       assert.strictEqual(after.status, 200, '畸形请求后服务应仍可用');
     });
+  // --- 5a. HTTP method：静态文件只回答 GET/HEAD ---
+  await t('POST/PUT/DELETE → 405（带 Allow），不读文件', async () => {
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const res = await req(port, '/tests/stream-debug.html', {}, method);
+      assert.strictEqual(res.status, 405, `${method} 应 405（实际 ${res.status}）`);
+      assert.match(res.headers.allow, /GET/, 'Allow 头应包含 GET');
+      assert.ok(!res.body.includes('流式诊断页'), `${method} 不应拿到文件内容`);
+    }
+    // 405 后服务继续可用
+    const after = await req(port, '/tests/stream-debug.html');
+    assert.strictEqual(after.status, 200);
+  });
+
+  // --- 5b. HEAD 与 GET 同形：状态码/头一致，无响应体 ---
+  await t('HEAD → 200 同头无体（探活/缓存判断）', async () => {
+    const head = await req(port, '/tests/stream-debug.html', {}, 'HEAD');
+    const get = await req(port, '/tests/stream-debug.html');
+    assert.strictEqual(head.status, 200);
+    assert.strictEqual(head.headers['content-type'], get.headers['content-type']);
+    assert.strictEqual(head.body, '', 'HEAD 不应有响应体');
+  });
+
+  // --- 5c. 查询串不影响白名单判定 ---
+  await t('带查询串的请求正常工作（?v=1）', async () => {
+    const res = await req(port, '/tests/stream-debug.html?v=1&x=2');
+    assert.strictEqual(res.status, 200, '查询串不应影响路径解析');
+    assert.ok(res.body.includes('流式诊断页'));
+  });
   } finally {
     await srv.stop();
   }
@@ -242,6 +270,25 @@ function req(port, urlPath, headers = {}) {
       await new Promise((resolve) => blocker.close(resolve));
     }
   });
+
+  // --- 7. 非法端口参数：明确报错退出，不崩栈 ---
+  await t('端口参数非整数 → 退出码 1 且 stderr 说明用法', async () => {
+    for (const bad of ['abc', '0', '99999']) {
+      const child = spawn(process.execPath, [SERVER, bad], {
+        cwd: ROOT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stderr = '';
+      child.stderr.on('data', (b) => { stderr += String(b); });
+      const code = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { child.kill(); reject(new Error('未在 10s 内退出')); }, 10000);
+        child.on('exit', (c) => { clearTimeout(timer); resolve(c); });
+      });
+      assert.strictEqual(code, 1, `端口 "${bad}" 应退出码 1（实际 ${code}）`);
+      assert.match(stderr, /无效端口/, `端口 "${bad}" 的 stderr 未说明原因`);
+    }
+  });
+
 
   console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);
   process.exit(fail === 0 ? 0 : 1);
