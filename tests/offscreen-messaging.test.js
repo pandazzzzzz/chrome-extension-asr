@@ -256,6 +256,18 @@ async function run() {
     assert.strictEqual(typeof active.payload.streamSeq, 'number', 'streamSeq missing');
   });
 
+  await t('stopStreaming: STREAM_STOP response leaves before STREAM_ENDED (#72)', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    await startSession(sandbox, listeners);
+    sent.length = 0;
+    // Chrome 取第一个 sendResponse；STREAM_ENDED 不应阻断响应通道。
+    const resp = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(resp?.ok, 'STREAM_STOP must respond before background can close the document');
+    const ended = sent.find((m) => m.type === 'asr:stream-ended');
+    assert.ok(ended, 'STREAM_ENDED must be sent (fire-and-forget) during stop');
+    assert.strictEqual(typeof ended.payload.streamSeq, 'number', 'STREAM_ENDED must carry streamSeq for background stale filtering (#72)');
+  });
+
   console.log(`${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;
 }

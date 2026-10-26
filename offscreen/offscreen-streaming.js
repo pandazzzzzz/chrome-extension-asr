@@ -143,21 +143,22 @@
   async function endSession(reason) {
     if (!session) return;
     const endedRemotely = reason === 'remote' || session.endedRemotely;
+    const seq = session.streamSeq;
     await finalizeSession(reason);
     await teardownSession();
-    debugEvt('stream-stopped-offscreen', { reason: endedRemotely ? 'remote' : 'user' });
+    // fire-and-forget：先发消息让 background 收到并返回，stopStreaming 才能发
+    // STREAM_STOP response；否则 closeDocument 在消息到达前杀死文档。
+    void chrome.runtime.sendMessage({
+      type: MESSAGES.STREAM_ENDED,
+      payload: { reason: endedRemotely ? 'remote' : 'user', streamSeq: seq },
+      target: TARGETS.BACKGROUND,
+    }).catch(() => {});
     // 正常收尾也要广播 ended：popup 的按钮复位分支（applyStreamingState(false)）
     // 依赖它；此前只靠 error-status 兜底，正常停止路径的 UI 复位无人驱动（#60）。
     broadcastUpdate('ended', {});
-    try {
-      await chrome.runtime.sendMessage({
-        type: MESSAGES.STREAM_ENDED,
-        payload: { reason: endedRemotely ? 'remote' : 'user' },
-        target: TARGETS.BACKGROUND,
-      });
-    } catch {
-      /* SW 挂起重启窗口：状态标记有 isStreamActive 的文档对账兜底 */
-    }
+    // fire-and-forget：background 处理这个消息时会 closeDocument。若在这里
+    // await 它，STREAM_STOP 的 sendResponse 还没发出文档就被杀，popup 拿到
+    // 超时/断连；不 await 让 stopStreaming 先返回，文档自然由 background 收。
   }
 
   async function startStreaming(payload) {

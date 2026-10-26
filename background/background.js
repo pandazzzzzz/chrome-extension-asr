@@ -293,16 +293,24 @@ async function handleStreamStop() {
 
 // offscreen 的远端终止通知：会话已自行收尾（finalize + teardown），这里只做
 // background 侧的清理。文档回收按代际 —— 若用户已重开新一轮，绝不关新会话的文档。
-async function handleStreamEnded() {
+async function handleStreamEnded(payload) {
   const tokenAtStart = activeOffscreenToken;
-  debugEvt('stream-ended-received', { token: tokenAtStart });
+  const seq = payload?.streamSeq;
+  debugEvt('stream-ended-received', { token: tokenAtStart, seq: seq ?? null });
+  // 带 seq 的消息可严格识别旧会话的迟到事件（#72）：seq 不等于当前代就绝不
+  // 关文档，也不清当前代状态；旧版 offscreen 无 seq，退回 generation 守卫。
+  const staleSeq = typeof seq === 'number' && seq !== tokenAtStart;
+  if (staleSeq) {
+    debugEvt('stream-ended-stale', { seq, token: tokenAtStart });
+    return { ok: true, data: { stale: true } };
+  }
   await setStreaming(false);
-  if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null)) {
+  if (tokenAtStart === activeOffscreenToken && tokenAtStart !== null) {
     debugEvt('stream-ended-close', { token: tokenAtStart });
     await closeOffscreenDocument();
     activeOffscreenToken = null;
   }
-  return { ok: true };
+  return { ok: true, data: { stale: false } };
 }
 
 // ---------- 标签页录音状态（跨 popup 生命周期） ----------
@@ -501,7 +509,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case globalThis.MESSAGES.STREAM_STATE:
           return { ok: true, data: { streaming: await isStreaming() } };
         case globalThis.MESSAGES.STREAM_ENDED:
-          return await handleStreamEnded();
+          return await handleStreamEnded(payload);
         case globalThis.MESSAGES.HISTORY_ADD:
           return await handleHistoryAdd(payload);
         default:

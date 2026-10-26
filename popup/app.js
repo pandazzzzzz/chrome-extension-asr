@@ -745,6 +745,7 @@ async function stopStreaming() {
       globalThis.TARGETS.BACKGROUND,
       20000,
     );
+    showStatus('Streaming stopped.', 'success');
   } catch (error) {
     // offscreen 停止失败时会话可能仍在跑：以 background 为准重新对账（同 tab 录音模式）
     debugEvt('stop-error', { message: error?.message || String(error) });
