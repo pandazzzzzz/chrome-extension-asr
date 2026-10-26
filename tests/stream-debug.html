@@ -144,8 +144,8 @@
     }
   }
 
-  function renderEvt(phase, detail) {
-    const d = new Date();
+  function renderEvt(phase, detail, at, src) {
+    const d = at ? new Date(at) : new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const ts = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
     const line = document.createElement('div');
@@ -158,11 +158,17 @@
     tsEl.textContent = ts;
     const phaseEl = document.createElement('b');
     phaseEl.textContent = phase;
-    line.append(tsEl, ' ', phaseEl, detailStr);
+    line.append(tsEl, ' ', phaseEl, ' ', detailStr);
+    if (src) {
+      const srcEl = document.createElement('span');
+      srcEl.className = 'muted';
+      srcEl.textContent = `{${src}} `;
+      line.insertBefore(srcEl, tsEl);
+    }
     if (!evtMatches(phase)) line.style.display = 'none';
     evtLog.appendChild(line);
     if (evtAutoscroll.checked) evtLog.scrollTop = evtLog.scrollHeight;
-    const entry = { ts, phase, detail, el: line };
+    const entry = { ts, phase, detail, at, src, el: line };
     evtEntries.push(entry);
     evtTotal++;
     while (evtEntries.length > EVT_MAX) {
@@ -211,7 +217,7 @@
     }
     if (e.data?.type !== 'asr:debug-log') return;
     const entry = e.data.entry || {};
-    renderEvt(entry.phase || entry.ev || '(未知)', entry.detail || {});
+    renderEvt(entry.phase || entry.ev || '(未知)', entry.detail || {}, entry.at, entry.src);
     connLabel();
   });
 
@@ -357,7 +363,12 @@
     // 两段都要导出：遥测面板（evtEntries，含 run-task-sent/ws-connecting/start-fail
     // 这些分诊表依赖的事件）与 fill 注入日志（entries）。此前只导 entries，
     // 导致「屏幕上有遥测、导出文件是空的」。
-    const evtLines = evtEntries.map((e) => `${e.ts}  [${e.phase}]  ${redactDebugText(JSON.stringify(e.detail ?? {}))}`);
+    const evtLines = evtEntries.map((e) => {
+      const src = e.src ? `{${e.src}} ` : '';
+      const seq = e.detail && e.detail.streamSeq != null ? `#seq${e.detail.streamSeq} ` : '';
+      const atMs = e.at != null ? `@${e.at} ` : '';
+      return `${e.ts}  ${atMs}${src}${seq}[${e.phase}]  ${redactDebugText(JSON.stringify(e.detail ?? {}))}`;
+    });
     const fillLines = entries.map((e) => `${e.ts}  [${e.type}]  ${redactDebugText(e.text)}${e.detail ? '  ' + redactDebugText(e.detail) : ''}`);
     const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n\n`
       + `==== 扩展遥测（${evtLines.length} 条${evtEntries.length >= EVT_MAX ? '，已达上限 2000，更早的已丢弃' : ''}）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}\n\n`
