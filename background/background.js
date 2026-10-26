@@ -297,15 +297,19 @@ async function handleStreamEnded(payload) {
   const tokenAtStart = activeOffscreenToken;
   const seq = payload?.streamSeq;
   debugEvt('stream-ended-received', { token: tokenAtStart, seq: seq ?? null });
-  // 带 seq 的消息可严格识别旧会话的迟到事件（#72）：seq 不等于当前代就绝不
-  // 关文档，也不清当前代状态；旧版 offscreen 无 seq，退回 generation 守卫。
-  const staleSeq = typeof seq === 'number' && seq !== tokenAtStart;
+  // 带 seq 的消息可严格识别旧会话的迟到事件（#72）：当前代存在且 seq 不匹配
+  // 时绝不关文档。SW 重启后 token 为 null，此时 STREAM_ENDED 本身已证明
+  // 会话收尾完成，不能把 seq 与 null 比较而误判 stale（#68）。
+  const staleSeq = typeof seq === 'number' && tokenAtStart !== null && seq !== tokenAtStart;
   if (staleSeq) {
     debugEvt('stream-ended-stale', { seq, token: tokenAtStart });
     return { ok: true, data: { stale: true } };
   }
   await setStreaming(false);
-  if (tokenAtStart === activeOffscreenToken && tokenAtStart !== null) {
+  // both-null（SW 重启丢 token）也回收：STREAM_ENDED 只会在 offscreen 完整
+  // 收尾后发出，比 STOP 的 result.ok 更强；与 handleTabRecordStop 的
+  // both-null 分支同构（#68）。
+  if (tokenAtStart === activeOffscreenToken) {
     debugEvt('stream-ended-close', { token: tokenAtStart });
     await closeOffscreenDocument();
     activeOffscreenToken = null;
