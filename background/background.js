@@ -219,6 +219,24 @@ let activeOffscreenToken = null;
 // 不入任何 storage。流式与标签页录音共享同一份 offscreen 文档 —— 三路互斥的
 // "文档归属"判断必须覆盖两路，谁都不能在对方活跃时回收文档。
 const STREAMING_KEY = 'streaming';
+const STREAM_GENERATION_KEY = 'streamGeneration';
+
+async function nextStreamGeneration() {
+  let current = 0;
+  try {
+    const r = await chrome.storage.session.get(STREAM_GENERATION_KEY);
+    current = Number(r?.[STREAM_GENERATION_KEY]) || 0;
+  } catch {
+    /* storage.session 不可用时仍用内存计数兜底 */
+  }
+  current += 1;
+  try {
+    await chrome.storage.session.set({ [STREAM_GENERATION_KEY]: current });
+  } catch {
+    /* 同上：竞态防护降级，不影响会话本身 */
+  }
+  return current;
+}
 
 async function setStreaming(active) {
   try {
@@ -268,8 +286,9 @@ async function handleStreamStart(payload) {
     throw e;
   }
   if (result.ok) {
-    activeOffscreenToken = ++offscreenGeneration;
-    debugEvt('stream-token-claimed', { generation: offscreenGeneration });
+    const streamGeneration = await nextStreamGeneration();
+    activeOffscreenToken = streamGeneration;
+    debugEvt('stream-token-claimed', { generation: streamGeneration, streamGeneration });
     await setStreaming(true);
   } else if (result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
     await closeOffscreenDocument();
@@ -295,14 +314,17 @@ async function handleStreamStop() {
 // background 侧的清理。文档回收按代际 —— 若用户已重开新一轮，绝不关新会话的文档。
 async function handleStreamEnded(payload) {
   const tokenAtStart = activeOffscreenToken;
-  const seq = payload?.streamSeq;
-  debugEvt('stream-ended-received', { token: tokenAtStart, seq: seq ?? null });
-  // 带 seq 的消息可严格识别旧会话的迟到事件（#72）：当前代存在且 seq 不匹配
-  // 时绝不关文档。SW 重启后 token 为 null，此时 STREAM_ENDED 本身已证明
-  // 会话收尾完成，不能把 seq 与 null 比较而误判 stale（#68）。
-  const staleSeq = typeof seq === 'number' && tokenAtStart !== null && seq !== tokenAtStart;
-  if (staleSeq) {
-    debugEvt('stream-ended-stale', { seq, token: tokenAtStart });
+  const streamGeneration = payload?.streamGeneration;
+  debugEvt('stream-ended-received', { token: tokenAtStart, streamGeneration: streamGeneration ?? null });
+  // streamGeneration 是 storage.session 持久的流式专属计数，与 offscreen 文档
+  // 生命周期解耦；streamSeq 只在文档内部防延迟回调串扰，不能跨文档比较。
+  // SW 重启后 token 为 null，此时 STREAM_ENDED 本身已证明会话收尾完成，
+  // 不能把 generation 与 null 比较而误判 stale（#68）。
+  const staleStream = typeof streamGeneration === 'number'
+    && tokenAtStart !== null
+    && streamGeneration !== tokenAtStart;
+  if (staleStream) {
+    debugEvt('stream-ended-stale', { streamGeneration, token: tokenAtStart });
     return { ok: true, data: { stale: true } };
   }
   await setStreaming(false);

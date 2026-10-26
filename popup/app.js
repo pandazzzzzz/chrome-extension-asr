@@ -551,10 +551,10 @@ async function startTabRecording() {
       if (!isTabRecording) showStatus(`Tab record failed: ${error.message}`, 'error');
     } else {
       showStatus(`Tab record failed: ${error.message}`, 'error');
-      enableAllRecordButtons();
     }
   } finally {
     isTabRecordingBusy = false;
+    enableAllRecordButtons();
   }
 }
 
@@ -578,7 +578,6 @@ async function stopTabRecording() {
     );
     debugEvt('tab-record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
     showStatus('Tab recording complete.', 'success');
-    enableAllRecordButtons();
   } catch (error) {
     debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
     // offscreen 失败响应可携带部分已录音频（recorder 超时路径）；对账说已不在录时
@@ -590,8 +589,6 @@ async function stopTabRecording() {
       audioBlob = partialBlob;
       debugEvt('tab-record-partial', { size: audioBlob.size, mime: audioBlob.type });
       showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
-      enableAllRecordButtons();
-      return;
     }
     // 停止失败（超时/offscreen 失联）时录音**可能还在跑** —— 乐观复位成空闲会再次
     // 制造"停不掉的录音"。与 start 同样处理：以 background 为准重新对齐。
@@ -599,10 +596,10 @@ async function stopTabRecording() {
       if (!isTabRecording) showStatus(`Tab record stop failed: ${error.message}`, 'error');
     } else {
       showStatus(`Tab record stop failed: ${error.message}`, 'error');
-      enableAllRecordButtons();
     }
   } finally {
     isTabRecordingBusy = false;
+    enableAllRecordButtons();
   }
 }
 
@@ -732,9 +729,9 @@ async function startStreaming() {
   } catch (error) {
     debugEvt('start-error', { message: error?.message || String(error) });
     showStatus('Cannot start streaming: ' + error.message, 'error');
-    enableAllRecordButtons();
   } finally {
     isStreamingBusy = false;
+    if (!isStreaming) enableAllRecordButtons();
     if (!isStreaming) els.streamBtn.disabled = false;
   }
 }

@@ -143,14 +143,14 @@
   async function endSession(reason) {
     if (!session) return;
     const endedRemotely = reason === 'remote' || session.endedRemotely;
-    const seq = session.streamSeq;
+    const streamGeneration = session.streamSeq;
     await finalizeSession(reason);
     await teardownSession();
     // fire-and-forget：先发消息让 background 收到并返回，stopStreaming 才能发
     // STREAM_STOP response；否则 closeDocument 在消息到达前杀死文档。
     void chrome.runtime.sendMessage({
       type: MESSAGES.STREAM_ENDED,
-      payload: { reason: endedRemotely ? 'remote' : 'user', streamSeq: seq },
+      payload: { reason: endedRemotely ? 'remote' : 'user', streamGeneration },
       target: TARGETS.BACKGROUND,
     }).catch(() => {});
     // 正常收尾也要广播 ended：popup 的按钮复位分支（applyStreamingState(false)）

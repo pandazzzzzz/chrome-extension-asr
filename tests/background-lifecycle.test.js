@@ -85,7 +85,7 @@ async function dispatch(sandbox, type, payload = {}) {
     const page = makeSandbox();
     vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
     await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
-    const resp = await dispatch(page, 'asr:stream-ended', { streamSeq: 1 });
+    const resp = await dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
     assert.strictEqual(resp.data.stale, false);
     assert.strictEqual(page.contexts.length, 0, 'offscreen document must be reclaimed after STREAM_ENDED');
     console.log('PASS | STREAM_ENDED reclaims the offscreen document');
@@ -97,7 +97,7 @@ async function dispatch(sandbox, type, payload = {}) {
     await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
     // Simulate SW restart: in-memory token is lost, but session storage stays.
     await vm.runInContext('activeOffscreenToken = null', page.sandbox);
-    const resp = await dispatch(page, 'asr:stream-ended', { streamSeq: 1 });
+    const resp = await dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
     assert.strictEqual(resp.data.stale, false);
     assert.strictEqual(page.contexts.length, 0, 'both-null STREAM_ENDED must reclaim after SW restart (#68)');
     console.log('PASS | STREAM_ENDED reclaims after SW restart (#68)');
@@ -107,12 +107,26 @@ async function dispatch(sandbox, type, payload = {}) {
     const page = makeSandbox();
     vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
     await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
-    // A stale event from generation 1 arrives while generation 2 is active.
+    // A stale event from stream generation 1 arrives while generation 2 is active.
     await vm.runInContext('activeOffscreenToken = 2', page.sandbox);
-    const resp = await dispatch(page, 'asr:stream-ended', { streamSeq: 1 });
+    const resp = await dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
     assert.strictEqual(resp.data.stale, true);
     assert.strictEqual(page.contexts.length, 1, 'stale STREAM_ENDED must not close the newer session (#72)');
     console.log('PASS | stale STREAM_ENDED does not close a newer session (#72)');
+  }
+
+  {
+    const page = makeSandbox();
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    // Model a retained/reused offscreen document: two sequential stream starts
+    // must give distinct stream generations even when streamSeq resets to 1.
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    await dispatch(page, 'asr:stream-stop');
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    const resp = await dispatch(page, 'asr:stream-ended', { streamGeneration: 2 });
+    assert.strictEqual(resp.data.stale, false, 'second stream must not be judged stale by document-local seq');
+    assert.strictEqual(page.contexts.length, 0, 'second stream remote end must reclaim the offscreen document');
+    console.log('PASS | sequential streams use distinct generations (#80)');
   }
 
   process.exit(0);
