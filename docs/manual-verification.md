@@ -167,16 +167,16 @@
 |---|---|---|
 | 点 Live Stream 无反应 | `start-blocked` | busy/已流式，被重入护栏拦下 |
 | 同上 | `start-fail` + `reason` | `no-provider` / `no-streaming-support` / `no-api-key` / `no-endpoint`（Custom 留空，开麦前即返回） |
-| 连不上 | `ws-connecting` → `ws-error` | WebSocket 握手失败（查 Key / endpoint / 网络）。`ws-connecting` 带 `targetSampleRate`，可核对是否等于模型要求的速率 |
+| 连不上 | `ws-open` → `ws-error`（provider） / `ws-ready-fail` | WebSocket 握手失败（查 Key / endpoint / 网络）。`run-task-sent` 带 `sampleRate`，可核对是否等于模型要求的速率 |
 | 卡在等待 | `ws-ready-fail` / `ready-timeout` | 10s 内未收到 `task-started` |
 | 模型被换 | `model-fallback` | 填了批量模型，已自动兜底 |
 | 采样率不符 | `run-task-sent` + `sampleRate` | 该值 = run-task 实际声明的 `sample_rate`（8k 电话模型应为 `8000`，其余 `16000`） |
 | 服务端拒绝任务 | `task-failed` | 报文里带 `error_message`，多为模型名/地域与 Key 不匹配 |
-| 停止异常 | `stop-ws-error` | 关闭时 WebSocket 报错（teardown 仍应完成） |
-| 结果丢失 | `ws-end-stale` | 旧会话残留的 `onEnd` 被正确忽略（**正常**） |
-| 提前结束 | `ws-ended-before-active` / `ws-ended-before-capture` | 启动期服务端就断开 |
+| 停止异常 | `stop-sent` → `stop-done`（provider）/ `ws-error` | `stop-done` 带 `winner`：`timeout` = 服务端 5s 未确认（teardown 仍会完成） |
+| 结果丢失 | `ws-end-stale` | 旧会话残留的 `onEnd` 被正确忽略（**正常**，对照 payload 的 `streamSeq` 分拣新旧会话） |
+| 提前结束 | `session-end`（provider） | 启动期服务端就断开；`message:null` + `closeRequested:true` = 主动关闭（正常） |
 | 静音时断连 | `heartbeat`（有）/ 无该事件（无） | 持续静音应周期性出 `heartbeat`；完全没有 = 心跳包未生效 |
-| 收尾是否干净 | `teardown` + `hasCapture`/`hasWs`/`hasStream`/`hasContext` | 四项应全 `false`；某个 `true` = 该资源未释放（泄漏） |
+| 会话已在跑 | `streaming-active-offscreen` | task-started + 采集就绪后由 offscreen 打点；出现即整条链路健康 |
 
 **② 麦克风录音 / 输入设备（清单 §2、§2b）**
 
@@ -196,6 +196,16 @@
 | 重开 popup 后按钮态错 | `tab-record-restored` | popup 从 background 对齐到「正在录音」——有它说明状态同步生效 |
 | 停止后没拿到音频 | `tab-record-stopped` + `size`/`mime` | `size: 0` = offscreen 返回空 Blob |
 
+**③b. 三路互斥与 offscreen 生命周期（background 仲裁层）**
+
+| 现象 | 关键事件 | 含义 |
+|---|---|---|
+| 某一路点不动 | `mutex-rejected` + `want`/`held` | background 拒绝并发：`want`=想开的那路，`held`=正在跑的那路。**被拒是正常仲裁**，不是故障 |
+| offscreen 文档反复重建 | `offscreen-create` → `offscreen-created` | 每次 start 都出现 = 文档未被复用（查为何上一轮没回收）；复用路径只有 `offscreen-created` 前无 `offscreen-create` |
+| 文档残留/不回收 | `offscreen-closed` | 收尾时应出现；缺失 = `closeDocument` 未被调用（对照 #68 的场景） |
+| 会话代际混乱 | `stream-token-claimed` / `tab-record-token-claimed` + `generation` | 每次成功 start 自增一代；对照 `stream-stop-relay`/`stream-ended-received` 的 `token` 可判断迟到的收尾是否属于当前代（#72 的观测点） |
+| Stop 无响应 | `stream-stop-relay` → `stream-ended-received` 顺序 | stop 在 ended 之后被处理 = #72 描述的响应被吞；两者交错出现即复现 |
+
 **④ 配置与存储（清单 §5）**
 
 | 现象 | 关键事件 | 含义 |
@@ -205,7 +215,7 @@
 | Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
 | 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
 | 历史没记上 | `history-error`（offscreen） | offscreen → background 的 `asr:history-add` 失败 = background 写 IndexedDB 出错；连 `stream-finalized` 都没有 = 会话收尾路径未执行 |
-| 会话是否正常收尾 | `stream-finalized`（用户停止）/ `stream-pagehide-like-end`（远端终止） | 停止后应出现其一；两者皆无 = `endSession` 未执行 |
+| 会话是否正常收尾 | `stream-finalized`（用户停止）/ `stream-pagehide-like-end`（远端终止）/ `stream-stopped-offscreen` + `reason` | 停止后应出现其一；两者皆无 = `endSession` 未执行 |
 
 **⑤ 结果动作与字幕（清单 §4、§4b）**
 
@@ -215,7 +225,10 @@
 | 注入没生效 | `fill-ok` / `fill-error` + `code` | `fill-error` 带 `NO_FIELD` = 活动元素不是可编辑字段（看诊断面板「活动元素」） |
 | 复制失败 | `copy-ok` / `copy-error` | `copy-error` 多为页面未获焦（clipboard 需焦点） |
 
-> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app.js` 与 `offscreen/offscreen-streaming.js` 的 `debugEvt(...)` 调用点为准。
+> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app.js`、`offscreen/offscreen-streaming.js`、
+> `background/background.js` 的 `debugEvt(...)` 调用点与 `transcription/providers/qwen.js` 的 `track(...)` 为准。
+> 事件统一带 `{src}` 来源标记（`ui` / `offscreen` / `background` / provider 事件经 offscreen 转发）；
+> offscreen 会话事件带 `streamSeq`，可分拣新旧会话交错的日志。
 
 诊断页底部有**导出日志 (.txt)** 按钮，导出含「扩展遥测」与「fill-text 注入」两段，便于附到 issue。
 长跑时事件列表有 **2000 条上限**（超出丢最早的，导出同样截断并在段头标注）——取证请尽早导出。

@@ -246,8 +246,9 @@
     const pad = (n) => String(n).padStart(2, '0');
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`;
   }
+  // 注入日志与遥测共用 epoch（entry.at）——导出时两条时间线才能按真实发生顺序合并。
   function pushEntry(type, text, detail) {
-    const e = { ts: now(), type, text: text || '', detail: detail || '' };
+    const e = { ts: now(), at: Date.now(), type, text: text || '', detail: detail || '' };
     entries.push(e);
     const line = document.createElement('div');
     line.className = 'logline';
@@ -363,23 +364,32 @@
     // 两段都要导出：遥测面板（evtEntries，含 run-task-sent/ws-connecting/start-fail
     // 这些分诊表依赖的事件）与 fill 注入日志（entries）。此前只导 entries，
     // 导致「屏幕上有遥测、导出文件是空的」。
-    const evtLines = evtEntries.map((e) => {
+    // 单一时间线：遥测与注入日志都带 epoch（entry.at），合并后按发生顺序排序。
+    // 遥测缺 at 的（旧版本事件）回退 0 排在最前，避免与有 at 的条目错插。
+    const merged = [
+      ...evtEntries.map((e) => ({ at: e.at || 0, kind: 'evt', e })),
+      ...entries.map((e) => ({ at: e.at || 0, kind: 'fill', e })),
+    ].sort((a, b) => a.at - b.at);
+    const evtLines = merged.map(({ kind, e }) => {
       const src = e.src ? `{${e.src}} ` : '';
-      const seq = e.detail && e.detail.streamSeq != null ? `#seq${e.detail.streamSeq} ` : '';
+      const seq = kind === 'evt' && e.detail && e.detail.streamSeq != null ? `#seq${e.detail.streamSeq} ` : '';
       const atMs = e.at != null ? `@${e.at} ` : '';
+      if (kind === 'fill') {
+        return `${e.ts}  ${atMs}{page} [${e.type}]  ${redactDebugText(e.text)}${e.detail ? '  ' + redactDebugText(e.detail) : ''}`;
+      }
       return `${e.ts}  ${atMs}${src}${seq}[${e.phase}]  ${redactDebugText(JSON.stringify(e.detail ?? {}))}`;
     });
-    const fillLines = entries.map((e) => `${e.ts}  [${e.type}]  ${redactDebugText(e.text)}${e.detail ? '  ' + redactDebugText(e.detail) : ''}`);
-    const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n\n`
-      + `==== 扩展遥测（${evtLines.length} 条${evtEntries.length >= EVT_MAX ? '，已达上限 2000，更早的已丢弃' : ''}）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}\n\n`
-      + `==== fill-text 注入日志（${fillLines.length} 条）====\n${fillLines.join('\n') || '(无)'}`;
+    const fillCount = merged.filter((m) => m.kind === 'fill').length;
+    const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n`
+      + `来源标记：{ui}=popup/sidepanel {offscreen}=会话宿主 {background}=仲裁层 {page}=本页注入日志；@=epoch(ms)\n\n`
+      + `==== 统一时间线（${evtLines.length} 条：遥测 ${evtLines.length - fillCount} + 注入 ${fillCount}${evtEntries.length >= EVT_MAX ? '；遥测已达上限 2000，更早的已丢弃' : ''}）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}`;
     const a = document.createElement('a');
     a.href = blobUrl(text);
     a.download = `asr-debug-log-${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    pushEntry('导出', text.slice(0, 60) + '…', `遥测 ${evtLines.length} + 注入 ${fillLines.length} 条`);
+    pushEntry('导出', text.slice(0, 60) + '…', `时间线 ${evtLines.length} 条`);
   });
   document.getElementById('clearBtn').addEventListener('click', () => {
     entries.length = 0;
