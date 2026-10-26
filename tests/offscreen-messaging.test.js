@@ -265,7 +265,7 @@ async function run() {
     assert.ok(resp?.ok, 'STREAM_STOP must respond before background can close the document');
     const ended = sent.find((m) => m.type === 'asr:stream-ended');
     assert.ok(ended, 'STREAM_ENDED must be sent (fire-and-forget) during stop');
-    assert.strictEqual(typeof ended.payload.streamSeq, 'number', 'STREAM_ENDED must carry streamSeq for background stale filtering (#72)');
+    assert.strictEqual(typeof ended.payload.streamGeneration, 'number', 'STREAM_ENDED must carry a stream-scoped generation for background stale filtering (#72)');
   });
 
   console.log(`${pass} passed, ${fail} failed`);

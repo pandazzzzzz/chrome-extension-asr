@@ -215,7 +215,7 @@
 | Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
 | 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
 | 历史没记上 | `history-error`（offscreen） | offscreen → background 的 `asr:history-add` 失败 = background 写 IndexedDB 出错；连 `stream-finalized` 都没有 = 会话收尾路径未执行 |
-| 会话是否正常收尾 | `stream-finalized`（用户停止）/ `stream-pagehide-like-end`（远端终止）/ `stream-stopped-offscreen` + `reason` | 停止后应出现其一；两者皆无 = `endSession` 未执行 |
+| 会话是否正常收尾 | `stream-finalized`（用户停止）/ `stream-pagehide-like-end`（远端终止）+ `reason` | 停止后应出现其一；两者皆无 = `endSession` 未执行 |
 
 **⑤ 结果动作与字幕（清单 §4、§4b）**
 

@@ -155,6 +155,17 @@ async function makePopup() {
     assert.strictEqual(els.tabRecordBtn.disabled, true, 'mic path keeps tab path locked (#71)');
   }
   console.log('PASS | ended broadcast resets only idle paths (#71)');
+  {
+    const { sandbox, els } = await makePopup();
+    // Model the exact stop path: the call resolves while its own busy flag is
+    // still set. The shared reset must not treat that just-finished path busy.
+    await vm.runInContext('stopTabRecording()', sandbox);
+    await flushAsync();
+    assert.strictEqual(els.recordBtn.disabled, false, 'mic path re-enables after tab stop');
+    assert.strictEqual(els.tabRecordBtn.disabled, false, 'tab path re-enables after tab stop');
+    assert.strictEqual(els.streamBtn.disabled, false, 'stream path re-enables after tab stop');
+    console.log('PASS | successful tab stop unlocks all paths (#81)');
+  }
 })().catch((e) => {
   console.error(e);
   process.exit(1);
