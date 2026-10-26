@@ -38,10 +38,28 @@ let subtitlesEnabled = false;
 let selectedAudioInput = '';
 
 // ---------- 调试打点（诊断页 tests/stream-debug.html 经 debug/bridge.js 接收） ----------
-// bridge.js 未加载时静默跳过；绝不携带 apiKey（endpoint 也只传"是否设置"的布尔）。
+// bridge.js 正常先于 app.js 加载（三个入口页的 <script> 顺序都已保证），这里的
+// fallback 只兜底“未来某个入口页漏配 script 标签”。绝不携带 apiKey（endpoint 也
+// 只传"是否设置"的布尔）。
+// schema 与 background/offscreen 对齐：{ ev, at, src, detail }。诊断页兼容旧
+// 导出日志里的 phase 字段。
+globalThis.emitDebug = typeof globalThis.emitDebug === 'function'
+  ? globalThis.emitDebug
+  : function (entry) {
+    try {
+      chrome.runtime.sendMessage({
+        type: (globalThis.MESSAGES && globalThis.MESSAGES.DEBUG_EVT) || 'asr:debug',
+        payload: entry,
+        target: (globalThis.TARGETS && globalThis.TARGETS.DEBUG) || 'debug',
+      });
+    } catch {
+      /* 上下文已销毁 —— 调试日志丢失无妨 */
+    }
+  };
+
 function debugEvt(phase, detail) {
   if (typeof globalThis.emitDebug !== 'function') return;
-  globalThis.emitDebug({ phase, at: Date.now(), detail: detail || {} });
+  globalThis.emitDebug({ ev: phase, at: Date.now(), src: 'ui', detail: detail || {} });
 }
 
 // PCM 帧统计与 partial/final 打点随会话宿主一起迁到了 offscreen（offscreen-streaming.js）。

@@ -23,6 +23,17 @@ const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 // 时重发订阅自愈。
 const debugSubscribers = new Set();
 
+// background 侧生命周期遥测。诊断事件此前只来自 popup/offscreen，而三路互斥、
+// offscreen 文档回收、代际守卫的仲裁都发生在本上下文 —— #68/#71/#72 的竞态
+// 在诊断页上不可见。schema 与 offscreen-streaming.js 的 debugEvt 对齐（{ ev, at, src }）。
+function debugEvt(ev, detail) {
+  chrome.runtime.sendMessage({
+    type: globalThis.MESSAGES.DEBUG_EVT,
+    payload: { ev, at: Date.now(), src: 'background', ...detail },
+    target: globalThis.TARGETS.DEBUG,
+  }).catch(() => {});
+}
+
 function forwardDebugToTabs(payload) {
   for (const tabId of debugSubscribers) {
     chrome.tabs.sendMessage(
@@ -171,6 +182,7 @@ async function ensureOffscreenDocument() {
     await creatingOffscreen;
     return;
   }
+  debugEvt('offscreen-create', {});
   creatingOffscreen = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
     reasons: ['USER_MEDIA'],
@@ -179,6 +191,7 @@ async function ensureOffscreenDocument() {
     creatingOffscreen = null;
   });
   await creatingOffscreen;
+  debugEvt('offscreen-created', {});
 }
 
 // 录音结束后显式关闭 offscreen 文档：它的 JS 上下文（含已加载脚本）会常驻内存,
@@ -187,6 +200,7 @@ async function ensureOffscreenDocument() {
 async function closeOffscreenDocument() {
   try {
     await chrome.offscreen.closeDocument();
+    debugEvt('offscreen-closed', {});
   } catch {
     /* 已不存在 / 关闭失败 */
   }
@@ -238,8 +252,10 @@ async function isStreaming() {
 async function handleStreamStart(payload) {
   // 三路互斥在 background 侧裁决（各 UI 只护栏自己的本地标志，跨路互斥必须查真相源）
   if (await isTabRecording()) {
+    debugEvt('mutex-rejected', { want: 'stream', held: 'tab-record' });
     return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
   }
+  debugEvt('stream-start-relay', {});
   await ensureOffscreenDocument();
   let result;
   try {
@@ -253,6 +269,7 @@ async function handleStreamStart(payload) {
   }
   if (result.ok) {
     activeOffscreenToken = ++offscreenGeneration;
+    debugEvt('stream-token-claimed', { generation: offscreenGeneration });
     await setStreaming(true);
   } else if (result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
     await closeOffscreenDocument();
@@ -263,6 +280,7 @@ async function handleStreamStart(payload) {
 
 async function handleStreamStop() {
   const tokenAtStart = activeOffscreenToken;
+  debugEvt('stream-stop-relay', { token: tokenAtStart });
   const result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STOP, {}, 15000);
   // 代际守卫与 handleTabRecordStop 同构（流式与 tab 录音共享文档）
   if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null || result.ok)) {
@@ -277,8 +295,10 @@ async function handleStreamStop() {
 // background 侧的清理。文档回收按代际 —— 若用户已重开新一轮，绝不关新会话的文档。
 async function handleStreamEnded() {
   const tokenAtStart = activeOffscreenToken;
+  debugEvt('stream-ended-received', { token: tokenAtStart });
   await setStreaming(false);
   if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null)) {
+    debugEvt('stream-ended-close', { token: tokenAtStart });
     await closeOffscreenDocument();
     activeOffscreenToken = null;
   }
@@ -359,6 +379,7 @@ async function handleTabRecordStart(payload) {
   // 三路互斥：流式会话活跃时禁止开 tab 录音（两路共享同一份 offscreen 文档，
   // 且麦克风流与 tab 采集同时跑会导致 AudioContext 数量翻倍、帧率不可控）。
   if (await isStreaming()) {
+    debugEvt('mutex-rejected', { want: 'tab-record', held: 'stream' });
     return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
   }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -400,6 +421,7 @@ async function handleTabRecordStart(payload) {
   // 并把「正在录音」落到 storage.session —— popup 关掉重开要靠它对齐 UI。
   if (result.ok) {
     activeOffscreenToken = ++offscreenGeneration;
+    debugEvt('tab-record-token-claimed', { generation: offscreenGeneration });
     await setTabRecording(true);
   }
   return result;

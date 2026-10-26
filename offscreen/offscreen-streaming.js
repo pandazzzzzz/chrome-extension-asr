@@ -34,11 +34,14 @@
     }).catch(() => {});
   }
 
-  // 诊断事件：与 popup 时代同格式，target:'debug' 由 background 中转诊断页。
+  // 诊断事件：统一 schema { ev, at, src, streamSeq?, ...detail }——at/src 让
+  // 跨上下文时间线可排序、来源可辨；streamSeq 关联同一会话的全部事件
+  // （新旧会话交错时据此分拣）。target:'debug' 由 background 中转诊断页。
   function debugEvt(ev, data) {
+    const seq = session ? { streamSeq: session.streamSeq } : {};
     chrome.runtime.sendMessage({
       type: MESSAGES.DEBUG_EVT,
-      payload: { ev, ...data },
+      payload: { ev, at: Date.now(), src: 'offscreen', ...seq, ...data },
       target: TARGETS.DEBUG,
     }).catch(() => {});
   }

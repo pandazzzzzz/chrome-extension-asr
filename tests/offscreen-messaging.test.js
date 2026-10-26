@@ -238,6 +238,24 @@ async function run() {
     assert.strictEqual(ended.target, 'ui');
   });
 
+  await t('debug events use the unified schema (ev/at/src/streamSeq)', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    await startSession(sandbox, listeners);
+    await new Promise((r) => setTimeout(r, 50));
+    const evts = sent.filter((m) => m.type === 'asr:debug');
+    assert.ok(evts.length > 0, 'no debug events emitted');
+    for (const m of evts) {
+      const p = m.payload;
+      assert.ok(typeof p.ev === 'string' && p.ev, `ev missing on ${JSON.stringify(p)}`);
+      assert.ok(typeof p.at === 'number' && p.at > 0, `at missing on ${p.ev}`);
+      assert.strictEqual(p.src, 'offscreen', `src must be offscreen on ${p.ev}`);
+    }
+    // 会话期事件必须带 streamSeq：新旧会话交错时据此分拣（#72）。
+    const active = evts.find((m) => m.payload.ev === 'streaming-active-offscreen');
+    assert.ok(active, 'streaming-active-offscreen not emitted');
+    assert.strictEqual(typeof active.payload.streamSeq, 'number', 'streamSeq missing');
+  });
+
   console.log(`${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;
 }
