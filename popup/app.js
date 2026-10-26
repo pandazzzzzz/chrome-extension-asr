@@ -368,6 +368,19 @@ function disableOtherRecordButtons(active) {
 
 // 停止后恢复三路按钮
 function enableAllRecordButtons() {
+  // 状态感知：ended 广播可能先于 stop 响应到达，无条件全开会在毫秒窗口内
+  // 放行其它两路，随后迟到的 stop finally 再次全开，冲掉正在录音那路的互斥
+  // 状态（#71）。任一路忙/活跃时保持三路互斥，只复位真正全空闲的状态。
+  const recording = isRecording || isRecordingBusy;
+  const tabRecording = isTabRecording || isTabRecordingBusy;
+  const streaming = isStreaming || isStreamingBusy;
+  const activeCount = [recording, tabRecording, streaming].filter(Boolean).length;
+  if (activeCount > 0) {
+    if (recording) disableOtherRecordButtons(els.recordBtn);
+    else if (tabRecording) disableOtherRecordButtons(els.tabRecordBtn);
+    else disableOtherRecordButtons(els.streamBtn);
+    return;
+  }
   els.recordBtn.disabled = false;
   els.tabRecordBtn.disabled = false;
   els.streamBtn.disabled = false;
