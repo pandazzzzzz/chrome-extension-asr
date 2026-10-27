@@ -273,17 +273,11 @@
   }
 
   // ---- 本地媒体：不提交样例文件，按需从用户磁盘选择 ----
-  let localMediaUrl = '';
   localMedia.addEventListener('change', () => {
     const file = localMedia.files?.[0];
     if (!file) return;
-    if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
-    localMediaUrl = URL.createObjectURL(file);
-    video.src = localMediaUrl;
+    video.srcObject = file;
     video.load();
-  });
-  window.addEventListener('beforeunload', () => {
-    if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
   });
 
   // ---- 记日志 ----
