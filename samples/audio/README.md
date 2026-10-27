@@ -6,7 +6,8 @@
 
 - Live Stream 的真机验证用真人说话，或假麦（`--use-fake-device-for-media-stream` 出的是音调，
   只够验协议通路，识别文本无意义）；
-- `tests/stream-debug.html` 的 Record Tab 素材用的是 `samples/media/sample.mp4`（自带 AAC 音轨）；
+- `tests/stream-debug.html` 的 Record Tab 素材由用户在本页选择本地音视频文件，
+  不再随仓库提交固定样例；
 - 临时/大体积音频请放 `temp/audio/`（已 gitignore）。
 
 约定（真要加样例时）：

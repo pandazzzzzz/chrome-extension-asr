@@ -43,7 +43,7 @@
 <h1>ASR 扩展 — 流式诊断页</h1>
 <p class="muted">本页用于配合扩展做端到端调试：<b>Live Stream</b>（含字幕浮层）、<b>Record Tab</b>、
 <b>麦克风录音</b>、<b>Fill into page</b>、<b>配置保存</b> 都会把遥测事件转发到这里。
-内置样例视频供 Record Tab 采集；监听可编辑字段接收 fill-text 注入并记日志；
+可从本机选择音视频供 Record Tab 采集；监听可编辑字段接收 fill-text 注入并记日志；
 实时诊断焦点与字段状态；可一键导出日志贴给开发。</p>
 
 <div class="hint">
@@ -56,9 +56,10 @@
 <div class="row">
   <div class="col">
     <div class="card">
-      <h2>样例视频（Record Tab 源）</h2>
+      <h2>本地媒体（Record Tab 源）</h2>
+      <input id="localMedia" type="file" accept="audio/*,video/*">
       <video id="sampleVideo" controls loop preload="metadata"></video>
-      <p class="muted">播放后用扩展的 <b>Record Tab</b> 采集本标签页音频 —— 应听得见声音、不被静音。</p>
+      <p class="muted">选择一个本地音频/视频文件（不会上传或入库），播放后用扩展的 <b>Record Tab</b> 采集本标签页音频 —— 应听得见声音、不被静音。</p>
     </div>
   </div>
   <div class="col">
@@ -94,7 +95,7 @@
   <p class="muted" style="margin-top:8px;">扩展 popup/sidepanel 的打点经 content script（debug/bridge.js）转发到这里。
   <b>必须用 http:// 打开本页</b>（content script 不注入 file://）。起服务：<code>node tests/serve-debug.js</code> 后访问
   <code>http://localhost:18923/tests/stream-debug.html</code>。服务器只托管本页、
-  <code>debug-redact.js</code> 与样例视频，不会暴露 <code>tests/</code> 下的手测计划或导出日志。</p>
+  <code>debug-redact.js</code>，不会暴露 <code>tests/</code> 下的手测计划或导出日志。</p>
 </div>
 
 <div class="card">
@@ -114,6 +115,7 @@
 (function () {
   'use strict';
   const video = document.getElementById('sampleVideo');
+  const localMedia = document.getElementById('localMedia');
   const diag = document.getElementById('diag');
   const logEl = document.getElementById('log');
   const autoscroll = document.getElementById('autoscroll');
@@ -270,8 +272,13 @@
     evtConn.style.color = 'var(--err)';
   }
 
-  // ---- 样例视频：相对路径（tests/ -> ../samples/media/sample.mp4）----
-  video.src = '../samples/media/sample.mp4';
+  // ---- 本地媒体：不提交样例文件，按需从用户磁盘选择 ----
+  localMedia.addEventListener('change', () => {
+    const file = localMedia.files?.[0];
+    if (!file) return;
+    video.srcObject = file;
+    video.load();
+  });
 
   // ---- 记日志 ----
   function now() {

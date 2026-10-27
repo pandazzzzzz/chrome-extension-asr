@@ -1,8 +1,8 @@
 # temp/ — 临时与本地文件目录
 
-> ⚠️ 此目录下的**内容**不会被 git 跟踪（`.gitignore` 的 `temp/**` 规则）。
-> 仅保留目录结构与说明文件：`README.md` 与各子目录的 `.gitkeep` 是例外，会被跟踪。
+> ⚠️ 此目录下除 `README.md` 外均不会被 git 跟踪（`.gitignore` 的 `temp/**` 规则）。
 > 这里存放开发过程中产生的临时文件、本地模型缓存、测试脚本等，不进入版本控制。
+> 子目录按需创建，不再用 `.gitkeep` 占位。
 
 ## 目录结构
 
@@ -11,6 +11,7 @@ temp/
 ├── models/       # 本地 AI 模型文件（如 Whisper ONNX / WASM 模型）
 ├── cache/        # 各类运行时缓存（如 transformers.js 缓存、音频缓存）
 ├── audio/        # 临时录制的音频文件、测试音频样本
+├── media/        # 本地诊断素材（如 Record Tab 用的音视频，不入库）
 ├── scripts/      # 本地调试用的一次性脚本、测试代码片段
 ├── notes/        # 开发笔记、调研记录、临时 markdown 文档
 │   # 说明：本地 e2e/探针脚本散落在 temp/ 根（如 subtitle-e2e.js / audio-input-e2e.js / run-smoke.js），
@@ -18,9 +19,9 @@ temp/
 └── README.md     # 本说明文件
 ```
 
-各子目录以 `.gitkeep` 占位（目录结构入库，内容不入库）。此外目录下可随时出现
-未跟踪的临时产物（如 `temp/verify/` 的 Chrome-for-Testing 与自动化 profile），
-它们同样被 `temp/**` 覆盖，无需登记。
+上述子目录只在本机需要时创建。目录下可随时出现未跟踪的临时产物
+（如 `temp/verify/` 的 Chrome-for-Testing 与自动化 profile），它们都被
+`temp/**` 覆盖，无需登记。
 
 ## 使用约定
 

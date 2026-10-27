@@ -1,7 +1,7 @@
 // 诊断页静态服务器单元测试 —— 纯 Node，无浏览器依赖。
 //
 // 覆盖 `tests/serve-debug.js` 的**安全边界与分发契约**（消费方可见的行为）：
-//   1. 只托管诊断页所需文件与样例视频 —— `.env.local`（真实 API Key）、`.git/`、
+//   1. 只托管诊断页所需文件 —— `.env.local`（真实 API Key）、`.git/`、
 //      `docs/`、`temp/`、`package.json`，以及 `tests/` 下的手测计划/导出日志一律不可达；
 //   2. 路径穿越（`tests/../.env.local`、`%2e%2e`、`..%2f`）读不到仓库根文件；
 //   3. Host 头校验 —— 非回环 Host（DNS rebinding）返回 403；
@@ -98,16 +98,15 @@ function req(port, urlPath, headers = {}, method = 'GET') {
   const srv = await startServer(port);
   try {
     // --- 1. 诊断页所需文件可访问 ---
-    await t('诊断页、脱敏脚本与样例视频可访问，且带 nosniff', async () => {
+    await t('诊断页与脱敏脚本可访问，且带 nosniff', async () => {
       const page = await req(port, '/tests/stream-debug.html');
       assert.strictEqual(page.status, 200, '诊断页应可访问');
       assert.match(page.headers['content-type'], /text\/html/, 'Content-Type 应为 html');
       assert.strictEqual(page.headers['x-content-type-options'], 'nosniff', '缺 nosniff');
       assert.ok(page.body.includes('流式诊断页'), '返回的不是诊断页内容');
 
-      const mp4 = await req(port, '/samples/media/sample.mp4');
-      assert.strictEqual(mp4.status, 200, '样例视频应可访问（Record Tab 源）');
-      assert.match(mp4.headers['content-type'], /video\/mp4/);
+      const sample = await req(port, '/samples/media/sample.mp4');
+      assert.strictEqual(sample.status, 404, '不托管的样例媒体路径必须返回 404');
 
       const redact = await req(port, '/tests/debug-redact.js');
       assert.strictEqual(redact.status, 200, '脱敏脚本应可访问');
