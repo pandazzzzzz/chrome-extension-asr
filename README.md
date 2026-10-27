@@ -62,7 +62,7 @@ fallback carries partial frames across callbacks),
 `tests/pack.test.js` (the packaged zip keeps every manifest-referenced path and
 no dev-only/agent artifacts), `tests/debug-redact.test.js` (diagnostic logs
 redact query/JSON/Bearer credentials), and `tests/serve-debug.test.js` (the
-diagnostics server serves only its exact page assets and sample video, blocks
+diagnostics server serves only its exact page assets, blocks
 path traversal, rejects a non-loopback `Host` header, and exits cleanly when
 its port is taken).
 No browser or network needed.
@@ -75,10 +75,9 @@ the extension CSP).
 For streaming diagnostics, run `node tests/serve-debug.js` and open
 `http://localhost:18923/tests/stream-debug.html`. Pass a port to override the
 default: `node tests/serve-debug.js 19150`. The server binds to loopback only,
-serves only the diagnostic page, its redaction helper, and
-`samples/media/sample.mp4` (so `.env.local`, `.git/`, `docs/`, `temp/`, local
-manual plans and exported logs are never reachable over HTTP), and rejects any
-non-loopback `Host` header.
+serves only the diagnostic page and its redaction helper (so `.env.local`,
+`.git/`, `docs/`, `temp/`, local manual plans, exported logs, and local media
+are never reachable over HTTP), and rejects any non-loopback `Host` header.
 
 ## License
 

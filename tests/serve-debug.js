@@ -46,7 +46,6 @@ const LOG_REQUESTS = process.env.SERVE_LOG === '1';
 const SERVE_FILES = new Set([
   'tests/stream-debug.html',
   'tests/debug-redact.js',
-  'samples/media/sample.mp4',
 ]);
 // 本地工具（如 smoke-run.js）可用 SERVE_EXTRA_FILES 追加精确文件列表（逗号分隔、
 // 相对 ROOT）；仍是精确白名单，不开放目录，也不影响默认行为。
@@ -192,7 +191,7 @@ LOOPBACKS.forEach((host) => {
     // "ready" 是给 smoke-run.js 的机器可读标记（ASCII，不受日志文案改动影响）；
     // 其余输出保持中文给本地开发者读。
     console.log(`诊断页静态服务器已启动 [ready]： http://${shown}:${PORT}/tests/stream-debug.html`);
-    console.log(`  只托管诊断页、debug-redact.js 与 samples/media/sample.mp4；其余路径（含 tests/ 下的本地计划/日志、.env.local、.git/、docs/、temp/）一律 404。`);
+    console.log(`  只托管诊断页与 debug-redact.js；其余路径（含 tests/ 下的本地计划/日志、.env.local、.git/、docs/、temp/）一律 404。`);
   });
 });
 console.log(`（按 Ctrl+C 停止）`);

@@ -116,12 +116,9 @@ tests/asr-debug-log-*.txt
 .cache/
 .temp/
 
-# Local temp directory (track structure only, ignore contents)
-# temp/** 忽略所有层级内容，再显式恢复结构文件
+# Local temp directory (only the README is shared; create subdirectories on demand)
 temp/**
-!temp/**/
 !temp/README.md
-!temp/**/.gitkeep
 
 # User data — root-level ONLY (leading slash).
 # Without the slash these would match ANY directory of that name anywhere in the
