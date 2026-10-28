@@ -281,7 +281,10 @@
     // A Blob URL gives the media element a playable source for local files.
     if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
     localMediaUrl = URL.createObjectURL(file);
-    video.src = localMediaUrl;
+    if (!localMediaUrl.startsWith('blob:')) return;
+    // The browser-generated Blob URL cannot execute script; CodeQL cannot
+    // infer that through createObjectURL here.
+    video.src = localMediaUrl; // codeql[js/xss-through-dom]
     video.load();
   });
   window.addEventListener('pagehide', () => {
