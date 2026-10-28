@@ -9,6 +9,16 @@ const fs = require('node:fs');
 const assert = require('node:assert');
 
 const root = path.resolve(__dirname, '..');
+let newTestFailures = 0;
+
+async function test(name, fn) {
+  try {
+    await fn();
+  } catch (error) {
+    newTestFailures += 1;
+    console.error(`FAIL | ${name} | ${error.message}`);
+  }
+}
 
 function makeSandbox() {
   const sent = [];
@@ -272,7 +282,76 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     console.log('PASS | sequential streams use distinct generations (#80)');
   }
 
-  process.exit(0);
+  await test('stale STREAM_ENDED cannot release a newer stream lease', async () => {
+    const page = makeSandbox();
+    let releaseEndedSet;
+    let endedSetBlocked = false;
+    const originalSet = page.storage.session.set.bind(page.storage.session);
+    page.storage.session.set = async (obj) => {
+      if (!endedSetBlocked && obj.streaming === false) {
+        endedSetBlocked = true;
+        await new Promise((resolve) => { releaseEndedSet = resolve; });
+      }
+      return originalSet(obj);
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+
+    const ended = dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
+    while (!endedSetBlocked) await new Promise((resolve) => setTimeout(resolve, 0));
+    await dispatch(page, 'asr:stream-stop');
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.ok, true, 'new stream must start after the old stop releases its lease');
+
+    releaseEndedSet();
+    await ended;
+    const token = await vm.runInContext('activeOffscreenToken', page.sandbox);
+    const owner = await vm.runInContext('audioOwner', page.sandbox);
+    assert.strictEqual(token?.kind, 'stream', 'old STREAM_ENDED must not clear the new token');
+    assert.strictEqual(owner?.kind, 'stream', 'old STREAM_ENDED must not release the new stream lease');
+    assert.strictEqual(page.storage.session.values.streaming, true, 'old STREAM_ENDED must not clear the new streaming flag');
+    assert.strictEqual(page.contexts.length, 1, 'old STREAM_ENDED must not close the new offscreen session');
+    console.log('PASS | stale STREAM_ENDED cannot release a newer stream lease');
+  });
+
+  await test('recovered STREAM_STOP cannot tear down a newer stream', async () => {
+    const page = makeSandbox();
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+
+    // Model an SW restart: the offscreen document survives, but in-memory
+    // ownership is gone and the persisted streaming flag is stale/absent.
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null', page.sandbox);
+    page.storage.session.values.streaming = false;
+
+    let releaseTabLookup;
+    let tabLookupStarted = false;
+    const originalGet = page.storage.session.get.bind(page.storage.session);
+    page.storage.session.get = async (key) => {
+      if (key === 'tabRecording' && !tabLookupStarted) {
+        tabLookupStarted = true;
+        await new Promise((resolve) => { releaseTabLookup = resolve; });
+      }
+      return originalGet(key);
+    };
+
+    const stopped = dispatch(page, 'asr:stream-stop');
+    while (!tabLookupStarted) await new Promise((resolve) => setTimeout(resolve, 0));
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.ok, true, 'new stream must start while the recovered stop is still checking state');
+
+    releaseTabLookup();
+    await stopped;
+    const token = await vm.runInContext('activeOffscreenToken', page.sandbox);
+    const owner = await vm.runInContext('audioOwner', page.sandbox);
+    assert.strictEqual(token?.kind, 'stream', 'recovered stop must not clear a newer stream token');
+    assert.strictEqual(owner?.kind, 'stream', 'recovered stop must not release a newer stream lease');
+    assert.strictEqual(page.storage.session.values.streaming, true, 'recovered stop must not clear the newer streaming flag');
+    assert.strictEqual(page.contexts.length, 1, 'recovered stop must not close the newer offscreen session');
+    console.log('PASS | recovered STREAM_STOP cannot tear down a newer stream');
+  });
+
+  process.exit(newTestFailures ? 1 : 0);
 })().catch((e) => {
   console.error(e);
   process.exit(1);
