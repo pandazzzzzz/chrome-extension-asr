@@ -59,6 +59,27 @@ globalThis.audioConstraintsForDevice = function audioConstraintsForDevice(device
 };
 
 /**
+ * Convert getUserMedia failures into actionable UI text.
+ * Permission errors are common and the raw browser message does not tell the
+ * user where to recover, so point them at Chrome's microphone settings.
+ * @param {unknown} error
+ * @returns {string}
+ */
+globalThis.microphoneErrorMessage = function microphoneErrorMessage(error) {
+  const name = error?.name || '';
+  const message = error?.message || '';
+  if (name === 'NotAllowedError' || /permission (?:dismissed|denied)/i.test(message)) {
+    return 'Microphone access is blocked. Allow microphone access in Chrome settings '
+      + '(chrome://settings/content/microphone), then try again.';
+  }
+  return message || 'Cannot access the microphone.';
+};
+
+function microphoneFailure(error) {
+  return new Error(globalThis.microphoneErrorMessage(error), { cause: error });
+}
+
+/**
  * 按 deviceId 打开麦克风；失效的 deviceId 回退默认设备（并告知调用方）。
  * @param {string} deviceId
  * @returns {Promise<{stream: MediaStream, fellBack: boolean}>}
@@ -73,7 +94,11 @@ globalThis.openMicrophone = async function openMicrophone(deviceId) {
     // 无设备）不该再试一次默认设备。OverconstrainedError / NotFoundError 都表示 id 失效。
     const recoverable = !!deviceId
       && (error?.name === 'OverconstrainedError' || error?.name === 'NotFoundError');
-    if (!recoverable) throw error;
-    return { stream: await navigator.mediaDevices.getUserMedia({ audio: true }), fellBack: true };
+    if (!recoverable) throw microphoneFailure(error);
+    try {
+      return { stream: await navigator.mediaDevices.getUserMedia({ audio: true }), fellBack: true };
+    } catch (fallbackError) {
+      throw microphoneFailure(fallbackError);
+    }
   }
 };
