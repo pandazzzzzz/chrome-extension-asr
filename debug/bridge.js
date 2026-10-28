@@ -10,9 +10,10 @@
  *
  * 2. content script（回环诊断页，http://localhost / http://127.0.0.1）
  *    监听 target:'debug' 的 runtime 消息，window.postMessage 转给页面。
- *    manifest 里本脚本只匹配回环主机（issue #32 注入面收窄），脚本内的
- *    主机 + 路径双判定是第二道闸。[::1] 无法用 match pattern 表达 ——
- *    IPv6 回环上的诊断页不再被注入，属已知取舍（主入口是 localhost）。
+ *    manifest 里本脚本用 include_globs 精确匹配诊断页端口 + 路径（issue #32
+ *    注入面收窄），脚本内的 URL 判定与 background 的 top-frame 校验是第二、
+ *    第三道闸。[::1] 无法用 match pattern 表达 —— IPv6 回环上的诊断页不再被
+ *    注入，属已知取舍（主入口是 localhost）。
  *
  * 参与方：
  *   - background / offscreen 的 target 过滤忽略 target:'debug'（无需改它们）
@@ -43,7 +44,7 @@
   }
 
   // ---- content script 侧：runtime 消息 → window 消息 ----
-  // 只对本地诊断页装监听（stream-debug.html + localhost），普通页面不装。
+  // 只对本地诊断页装监听（stream-debug.html + localhost:18923），普通页面不装。
   // 关键：不能只用 ?debug 这种宽松匹配做开关 —— 任何网站在 URL 里带 debug 参数
   // 都会装上监听，扩展每次打点（含 config-saved 的 endpoint/model/provider）都会被
   // 转发给该页，等于把配置泄露给攻击者选中的页面。诊断页靠 tests/serve-debug.js

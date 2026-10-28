@@ -94,6 +94,14 @@ t('manifest: bridge 只注入回环主机，不随功能 content script 注入�
     assert.match(host, /^http:\/\/(localhost|127\.0\.0\.1)\//,
       'bridge 注入面只能是回环主机: ' + host);
   }
+  assert.deepStrictEqual(
+    bridgeBlocks[0].include_globs,
+    [
+      'http://localhost:18923/tests/stream-debug.html*',
+      'http://127.0.0.1:18923/tests/stream-debug.html*',
+    ],
+    'bridge 必须用 include_globs 精确限定诊断页端口和路径',
+  );
 });
 
 t('zip 不含 commit 工具链（.husky/ 与 commitlint 配置）', () => {

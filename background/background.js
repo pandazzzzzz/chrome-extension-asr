@@ -622,8 +622,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // 15s 低频重发自愈（见 debug/bridge.js）。subscribe 回响应：桥据此把「订阅链路
   // 是否活着」转给页面，面板显示真实状态而非陈旧计数（SW 冷启时第一条订阅会唤醒
   // worker 并得到响应，即天然的心跳）。
+  // 订阅只接受批准 URL 的 top frame：iframe 的 sender.url 也可能指向诊断页，
+  // 但不应因此获得整个 tab 的遥测转发权。
   if (type === globalThis.MESSAGES.DEBUG_SUBSCRIBE && sender?.tab?.id != null) {
-    if (!globalThis.isApprovedDebugPageUrl(sender.url)) {
+    if (sender.frameId !== 0 || !globalThis.isApprovedDebugPageUrl(sender.url)) {
       sendResponse({
         ok: false,
         error: globalThis.createError(globalThis.Errors.UNKNOWN, 'Debug subscription denied'),

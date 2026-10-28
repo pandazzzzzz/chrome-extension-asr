@@ -159,15 +159,23 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     const approved = await dispatch(page, 'asr:debug-subscribe', {}, {
       tab: { id: 9 },
       url: 'http://localhost:18923/tests/stream-debug.html',
+      frameId: 0,
     });
     assert.strictEqual(approved?.ok, true, 'approved diagnostic page must subscribe');
+
+    const framed = await dispatch(page, 'asr:debug-subscribe', {}, {
+      tab: { id: 9 },
+      url: 'http://localhost:18923/tests/stream-debug.html',
+      frameId: 1,
+    });
+    assert.strictEqual(framed?.ok, false, 'diagnostic subscription must originate from the top frame');
 
     for (const url of [
       'http://localhost:8080/tests/stream-debug.html',
       'http://127.0.0.1:18923/not-the-debug-page.html',
       'https://localhost:18923/tests/stream-debug.html',
     ]) {
-      const denied = await dispatch(page, 'asr:debug-subscribe', {}, { tab: { id: 9 }, url });
+      const denied = await dispatch(page, 'asr:debug-subscribe', {}, { tab: { id: 9 }, url, frameId: 0 });
       assert.strictEqual(denied?.ok, false, `unapproved diagnostic origin must be rejected: ${url}`);
     }
     console.log('PASS | diagnostic subscriptions require the approved loopback page');
@@ -179,6 +187,7 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     const sub = await dispatch(page, 'asr:debug-subscribe', {}, {
       tab: { id: 9 },
       url: 'http://localhost:18923/tests/stream-debug.html',
+      frameId: 0,
     });
     assert.strictEqual(sub?.ok, true);
     page.tabsSent.length = 0;

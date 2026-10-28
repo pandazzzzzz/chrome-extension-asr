@@ -35,6 +35,32 @@ t('redact: bearer token in headers', () => {
     redact('Authorization: Bearer abc.def-123'),
     'Authorization: Bearer <redacted>',
   );
+  assert.strictEqual(
+    redact('Authorization: Basic dXNlcjpwYXNz'),
+    'Authorization: Basic <redacted>',
+  );
+});
+
+t('redact: cookie headers and JSON cookie/session fields', () => {
+  assert.strictEqual(
+    redact('Cookie: SESSION=abc; theme=dark'),
+    'Cookie: <redacted>',
+  );
+  assert.strictEqual(
+    redact('Set-Cookie: session=abc; HttpOnly'),
+    'Set-Cookie: <redacted>',
+  );
+  assert.strictEqual(
+    redact('{"cookie":"abc","sessionId":"def","session_id":"ghi"}'),
+    '{"cookie":"<redacted>","sessionId":"<redacted>","session_id":"<redacted>"}',
+  );
+});
+
+t('redact: unknown URL fragments do not survive in diagnostics', () => {
+  assert.strictEqual(
+    redact('wss://host/path#opaque-session-secret'),
+    'wss://host/path#<redacted>',
+  );
 });
 
 t('redact: URL userinfo credentials', () => {
