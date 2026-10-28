@@ -295,11 +295,28 @@ async function reserveAudio(kind, port = null) {
   }
 }
 
-function releaseAudio(kind, port = null) {
+function releaseAudio(kind, port = null, expectedOwner = null) {
   if (audioOwner?.kind !== kind) return false;
   if (port && audioOwner.port !== port) return false;
+  if (expectedOwner && audioOwner !== expectedOwner) return false;
   debugEvt('audio-owner-released', { kind });
   audioOwner = null;
+  return true;
+}
+
+function hasNewerStreamToken(tokenAtStart) {
+  return activeOffscreenToken !== null && activeOffscreenToken !== tokenAtStart;
+}
+
+async function clearStreamingFlagUnlessReplaced(tokenAtStart) {
+  if (hasNewerStreamToken(tokenAtStart)) return false;
+  await setStreaming(false);
+  if (hasNewerStreamToken(tokenAtStart)) {
+    // The old teardown lost the race after writing false. Restore the flag for
+    // the session that now owns the offscreen document.
+    await setStreaming(true);
+    return false;
+  }
   return true;
 }
 
@@ -346,6 +363,7 @@ async function handleStreamStart(payload) {
 
 async function handleStreamStop() {
   const tokenAtStart = activeOffscreenToken;
+  const ownerAtStart = audioOwner?.kind === 'stream' ? audioOwner : null;
   debugEvt('stream-stop-relay', { token: tokenAtStart });
   const result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STOP, {}, 15000);
   // 代际守卫与 handleTabRecordStop 同构（流式与 tab 录音共享文档）
@@ -353,16 +371,20 @@ async function handleStreamStop() {
   const ownsStream = tokenAtStart?.kind === 'stream'
     && tokenAtStart === activeOffscreenToken;
   const recoveredStream = tokenAtStart === null && result.ok && !(await isTabRecording());
+  if (hasNewerStreamToken(tokenAtStart)) {
+    debugEvt('stream-stop-stale', { token: tokenAtStart });
+    return result;
+  }
   if ((ownsStream || recoveredStream) && (tokenAtStart !== null || result.ok)) {
     await closeOffscreenDocument();
-    activeOffscreenToken = null;
+    if (!hasNewerStreamToken(tokenAtStart)) activeOffscreenToken = null;
     reclaimed = true;
   }
   if (result.ok) {
-    await setStreaming(false);
-    releaseAudio('stream');
+    const cleared = await clearStreamingFlagUnlessReplaced(tokenAtStart);
+    if (cleared) releaseAudio('stream', null, ownerAtStart);
   } else if (reclaimed) {
-    releaseAudio('stream');
+    releaseAudio('stream', null, ownerAtStart);
   }
   return result;
 }
@@ -371,6 +393,7 @@ async function handleStreamStop() {
 // background 侧的清理。文档回收按代际 —— 若用户已重开新一轮，绝不关新会话的文档。
 async function handleStreamEnded(payload) {
   const tokenAtStart = activeOffscreenToken;
+  const ownerAtStart = audioOwner?.kind === 'stream' ? audioOwner : null;
   const streamGeneration = payload?.streamGeneration;
   debugEvt('stream-ended-received', { token: tokenAtStart, streamGeneration: streamGeneration ?? null });
   // streamGeneration 是 storage.session 持久的流式专属计数，与 offscreen 文档
@@ -387,7 +410,11 @@ async function handleStreamEnded(payload) {
     debugEvt('stream-ended-stale', { streamGeneration, token: tokenAtStart });
     return { ok: true, data: { stale: true } };
   }
-  await setStreaming(false);
+  const cleared = await clearStreamingFlagUnlessReplaced(tokenAtStart);
+  if (!cleared) {
+    debugEvt('stream-ended-replaced', { streamGeneration, token: tokenAtStart });
+    return { ok: true, data: { stale: true } };
+  }
   // both-null（SW 重启丢 token）也回收：STREAM_ENDED 只会在 offscreen 完整
   // 收尾后发出，比 STOP 的 result.ok 更强；与 handleTabRecordStop 的
   // both-null 分支同构（#68）。
@@ -398,7 +425,9 @@ async function handleStreamEnded(payload) {
   }
   // 文档关闭期间必须继续持有音频租约；否则新的 STREAM_START 会复用即将关闭的
   // 文档，随后这里把新会话的 token 清掉，留下无文档但 streaming=true 的僵尸态。
-  releaseAudio('stream');
+  if (!hasNewerStreamToken(tokenAtStart)) {
+    releaseAudio('stream', null, ownerAtStart);
+  }
   return { ok: true, data: { stale: false } };
 }
 
