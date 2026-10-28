@@ -215,6 +215,19 @@ t('Qwen.testConnection: 握手网络错误返回失败而不是抛出', async ()
     assert.match(result.error, /API key|handshake/);
   });
 });
+t('Qwen.testConnection: 关闭阶段失败不得误报成功', async () => {
+  await withFakeSocket(async (sockets) => {
+    const probe = Q.testConnection({ apiKey: 'k', model: 'fun-asr-realtime' });
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    await Promise.resolve();
+    sockets[0].onmessage({ data: JSON.stringify({ header: {
+      event: 'task-failed', error_message: 'Shutdown failed',
+    } }) });
+    const result = await probe;
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Shutdown failed/);
+  });
+});
 t('Qwen.createStreamSession: 非 run-task 模型被拒绝', () => {
   assert.throws(() => Q.createStreamSession({ apiKey: 'k', model: 'qwen3-asr-flash', onResult() {} }),
     (e) => e.code === 'UNKNOWN');
@@ -333,16 +346,26 @@ function withFakeSocket(fn) {
     send(data) { this.sent.push(data); }
     close() {
       this.readyState = 3; // CLOSED
+      this.closeCalled = true;
       this.onclose?.({ wasClean: true, code: 1000, reason: '' });
     }
   }
   const prev = globalThis.WebSocket;
   globalThis.WebSocket = FakeSocket;
-  try {
-    fn(sockets);
-  } finally {
+  function restore() {
     if (prev === undefined) delete globalThis.WebSocket;
     else globalThis.WebSocket = prev;
+  }
+  try {
+    const result = fn(sockets);
+    if (result && typeof result.then === 'function') {
+      return Promise.resolve(result).finally(restore);
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 }
 

@@ -192,6 +192,13 @@ async function makePage() {
 }
 
 (async () => {
+  await t('Test model: popup, side panel, and options all expose the button', async () => {
+    for (const file of ['popup/popup.html', 'sidepanel/sidepanel.html', 'options/options.html']) {
+      const html = fs.readFileSync(path.join(root, file), 'utf8');
+      assert.match(html, /id="testModelBtn"/, `${file} is missing the Test model button`);
+    }
+  });
+
   await t('Test model: 使用未保存的 Custom 模型与 Custom endpoint', async () => {
     const { sandbox, els } = await makePage();
     let observed;

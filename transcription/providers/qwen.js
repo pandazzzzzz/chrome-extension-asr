@@ -459,6 +459,7 @@ class QwenProvider extends BaseProvider {
       await session.ready;
       if (failure) return { ok: false, error: failure.message };
       await session.stop();
+      if (failure) return { ok: false, error: failure.message };
       return { ok: true, model: streamModel };
     } catch (error) {
       return { ok: false, error: error?.message || String(error) };

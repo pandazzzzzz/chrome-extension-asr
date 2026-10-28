@@ -202,9 +202,19 @@ function changeEvent(config) {
     };
     els.model.value = '';
     els.modelCustom.value = 'draft-model';
+    els.region.value = 'custom';
+    els.endpoint.value = 'wss://draft.test/inference';
+    els.apiKey.value = 'sk-draft';
     await sandbox.testModel();
     assert.strictEqual(observed.model, 'draft-model');
+    assert.strictEqual(observed.endpoint, 'wss://draft.test/inference');
+    assert.strictEqual(observed.apiKey, 'sk-draft');
     assert.strictEqual(els.status.textContent, 'Model test passed: draft-model.');
+    assert.strictEqual(els.testModelBtn.disabled, false);
+
+    sandbox.PROVIDERS[0].testConnection = async () => ({ ok: false, error: 'Model is not available' });
+    await sandbox.testModel();
+    assert.strictEqual(els.status.textContent, 'Model test failed: Model is not available');
     assert.strictEqual(els.testModelBtn.disabled, false);
   });
 
