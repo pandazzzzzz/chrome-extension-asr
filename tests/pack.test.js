@@ -83,11 +83,10 @@ t('zip 不含 dev-only 文件（package*.json / samples / scripts / .github / �
 t('manifest: bridge 只注入回环主机，不随功能 content script 注入所有页面', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
   const allUrls = manifest.content_scripts.filter((cs) => cs.matches.includes('<all_urls>'));
-  assert.ok(allUrls.length >= 1, '功能 content script 仍应全站注入');
-  for (const cs of allUrls) {
-    assert.ok(!cs.js.some((p) => p.includes('debug/bridge.js')),
-      'bridge 不得出现在 <all_urls> 注入块（issue #32 注入面收窄）');
-  }
+  assert.deepStrictEqual(allUrls, [], '功能 content script 必须按需注入（issue #45）');
+  assert.ok(manifest.permissions.includes('activeTab'), '按需注入需要 activeTab');
+  assert.ok(manifest.permissions.includes('scripting'), '按需注入需要 scripting');
+  assert.deepStrictEqual(manifest.host_permissions, [], '不得重新引入常驻站点权限');
   const bridgeBlocks = manifest.content_scripts.filter((cs) => cs.js.some((p) => p.includes('debug/bridge.js')));
   assert.strictEqual(bridgeBlocks.length, 1, 'bridge 应恰好有独立注入块');
   for (const host of bridgeBlocks[0].matches) {

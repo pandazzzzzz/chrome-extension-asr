@@ -9,17 +9,20 @@
  * 隔离：宿主为 closed Shadow DOM 的 <div>。页面 CSS / 页面脚本既改不到浮层，
  * 浮层样式也不会泄漏进页面（issue #7 的 HTML 注入教训 —— 文本只走 textContent）。
  *
- * 常驻性：content script 随页面常驻，但**浮层不常驻** —— hide 即拆掉宿主节点，
- * show 时惰性重建；跨导航/刷新自然消失（content script 世界随文档销毁）。
+ * 常驻性：脚本仅在首次显示时按需注入，**浮层不常驻** —— hide 即拆掉宿主节点，
+ * show 时惰性重建；跨导航/刷新自然消失。
  * 流式会话把字幕固定到开始时的 tab，切 tab 不会在新页面再开一份。
  *
  * 自动淡出：show({ done:true })（流式会话结束）后 2s 无新消息自动隐藏。
  * 拖动后位置随会话保持（内存变量，不落盘 —— 刷新即回默认，属预期）。
  *
- * 消息常量 MESSAGES / TARGETS 由 manifest 在本脚本之前注入 messaging/messages.js。
+ * 消息常量 MESSAGES / TARGETS 由 background 在本脚本之前注入 messaging/messages.js。
  */
 (function () {
   'use strict';
+
+  if (globalThis.__asrSubtitleInstalled) return;
+  globalThis.__asrSubtitleInstalled = true;
 
   var HOST_ID = 'asr-subtitle-host';
   var TEXT_TIMEOUT_MS = 2000; // done=true 后无新文本的自动隐藏延时

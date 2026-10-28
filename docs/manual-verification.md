@@ -116,10 +116,13 @@
 | 4.5 | 在 `#ce1`（contenteditable）重复 | 同上（走 `execCommand('insertText')` 分支） |
 | 4.6 | 在**无聚焦输入框**的页面点 **Fill into page** | 报错 `Fill failed: No focused input field`（`NO_FIELD`），**不**静默失败 |
 | 4.7 | 验证受控组件兼容 | 在 React/Vue 受控输入框填充后，组件状态应同步（原生 setter + `input`/`change` 事件） |
+| 4.8 | 在从未打开过扩展的普通页面执行 4.3，然后重复一次 | 首次也成功；两次只插入本次文本，无重复监听器导致的多份响应 |
 
 > 4.6 对应历史真机 bug #3（fill-text 错误被吞）。另注：若页面响应慢，`MessageClient` 10s 超时后提示的是
 > `Fill timed out — check the page before retrying (it may already be filled).` —— 这是**刻意**区别于失败，
 > 因为填充不可取消，慢页面上可能已落地（重试会插入两遍）。
+> 4.8 同时验证按需注入。`activeTab` 来自工具栏入口或快捷键等直接手势；独立打开的 side panel
+> 不自动授予此权限。`chrome://`、Chrome Web Store 等受限页面无法填充，返回 `NO_CONTENT` 属预期。
 
 ---
 
@@ -224,7 +227,7 @@
 
 | 现象 | 关键事件 | 含义 |
 |---|---|---|
-| 字幕没出现 | （无专有打点；转发失败被 offscreen 静默吞掉） | 先确认页面有 content script（`chrome://` 等页面本就无浮层）；再查 `SUBTITLE_SHOW` 是否发出 |
+| 字幕没出现 | （无专有打点；转发失败被 offscreen 静默吞掉） | `chrome://` 等受限页面或无 `activeTab` 授权的 side panel 本就无浮层；再查 `SUBTITLE_SHOW` 是否发出 |
 | 注入没生效 | `fill-ok` / `fill-error` + `code` | `fill-error` 带 `NO_FIELD` = 活动元素不是可编辑字段（看诊断面板「活动元素」） |
 | 复制失败 | `copy-ok` / `copy-error` | `copy-error` 多为页面未获焦（clipboard 需焦点） |
 

@@ -98,7 +98,32 @@ chrome.commands.onCommand.addListener((command) => {
 // 查询当前活动 tab 并把消息转发给它的 content script。
 // content 的响应必须原样透传（如 fill-text 无聚焦字段时回 { ok:false, NO_FIELD }，
 // 丢掉它会让 popup 永远显示成功）；message 未定义时（异常路径）按失败处理。
-async function forwardToTab(type, payload, tabId) {
+const CONTENT_BUNDLES = Object.freeze({
+  [globalThis.MESSAGES.FILL_TEXT]: Object.freeze({
+    files: ['messaging/messages.js', 'shared/errors.js', 'content/content.js'],
+    css: ['content/content.css'],
+  }),
+  [globalThis.MESSAGES.SUBTITLE_SHOW]: Object.freeze({
+    files: ['messaging/messages.js', 'shared/errors.js', 'content/subtitle.js'],
+  }),
+});
+
+async function sendToContent(tabId, type, payload) {
+  const response = await chrome.tabs.sendMessage(tabId, {
+    type,
+    payload,
+    target: globalThis.TARGETS.CONTENT,
+  });
+  if (response && response.ok) return { ok: true, data: response.data };
+  return {
+    ok: false,
+    error: response?.error
+      ? globalThis.normalizeError(response.error)
+      : globalThis.Errors.NO_CONTENT,
+  };
+}
+
+async function forwardToTab(type, payload, tabId, injectOnDemand = false) {
   let resolvedTabId = tabId;
   if (resolvedTabId == null) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -109,20 +134,25 @@ async function forwardToTab(type, payload, tabId) {
   }
 
   try {
-    const response = await chrome.tabs.sendMessage(resolvedTabId, {
-      type,
-      payload,
-      target: globalThis.TARGETS.CONTENT,
-    });
-    if (response && response.ok) return { ok: true, data: response.data };
-    return {
-      ok: false,
-      error: response?.error
-        ? globalThis.normalizeError(response.error)
-        : globalThis.Errors.NO_CONTENT,
-    };
+    return await sendToContent(resolvedTabId, type, payload);
   } catch (error) {
-    // content script 未注入（如 chrome:// 页面）时 sendMessage 会失败
+    if (!injectOnDemand) return { ok: false, error: globalThis.Errors.NO_CONTENT };
+  }
+
+  // 不缓存“已注入”状态：导航与 Service Worker 重启都会使缓存失真。
+  // 先发送探测，确认没有接收者后才申请当前 tab 的临时注入权限。
+  const bundle = CONTENT_BUNDLES[type];
+  try {
+    if (bundle.css) {
+      await chrome.scripting.insertCSS({ target: { tabId: resolvedTabId }, files: bundle.css });
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId: resolvedTabId },
+      files: bundle.files,
+    });
+    return await sendToContent(resolvedTabId, type, payload);
+  } catch {
+    // chrome://、Web Store 等受限页面无法注入，保持原有的明确失败。
     return { ok: false, error: globalThis.Errors.NO_CONTENT };
   }
 }
@@ -131,7 +161,7 @@ async function forwardToTab(type, payload, tabId) {
 async function handleFillText(payload) {
   const { text } = payload || {};
   if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
-  return forwardToTab(globalThis.MESSAGES.FILL_TEXT, { text });
+  return forwardToTab(globalThis.MESSAGES.FILL_TEXT, { text }, null, true);
 }
 
 // 转发字幕浮层消息（asr:subtitle-show / asr:subtitle-hide，见 content/subtitle.js）
@@ -141,7 +171,7 @@ async function handleSubtitleShow(payload) {
   return forwardToTab(globalThis.MESSAGES.SUBTITLE_SHOW, {
     text,
     done: !!payload?.done,
-  }, payload?.tabId);
+  }, payload?.tabId, true);
 }
 
 async function handleSubtitleHide(payload) {
