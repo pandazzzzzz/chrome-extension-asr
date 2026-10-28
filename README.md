@@ -57,7 +57,8 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 
 `npm test` runs the Node unit tests: `tests/streaming.test.js` (PCM helpers,
 provider contract, model metadata, active-close handling and post-handshake
-network errors), `tests/config.test.js` (merge semantics, apiKey boundaries,
+network errors), `tests/devices.test.js` (microphone permission errors map to
+actionable Chrome settings guidance), `tests/config.test.js` (merge semantics, apiKey boundaries,
 one-shot migration and write serialization), `tests/config-ui-sync.test.js`
 (popup/side-panel cross-page edit guards), `tests/options-config-sync.test.js`
 (options-page sync and unsaved-edit guards), `tests/offscreen-messaging.test.js`
@@ -95,12 +96,15 @@ only for local development.
 For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
 the real modules and checks crypto, config, messaging and error helpers; the
 cases live in `tests/p1-smoke-test.js` (external, so the page also runs under
-the extension CSP).
+the extension CSP). `tests/smoke-run.js` also checks that the diagnostic page
+can load a selected local audio file in a real Chrome media element.
 
 For streaming diagnostics, run `node tests/serve-debug.js` and open
 `http://localhost:18923/tests/stream-debug.html`. Telemetry requires this exact
-approved loopback origin/port; the static server can listen on another port for
-manual page testing, but the bridge intentionally will not subscribe there. The
+approved loopback origin/port, and the content bridge is injected only into
+that exact port/path and subscribes only from the top frame; the static server
+can listen on another port for manual page testing, but the bridge intentionally
+will not inject or subscribe there. The
 server binds to loopback only,
 serves only the diagnostic page and its redaction helper (so `.env.local`,
 `.git/`, `docs/`, `temp/`, local manual plans, exported logs, and local media

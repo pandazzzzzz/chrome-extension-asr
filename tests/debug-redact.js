@@ -8,6 +8,11 @@
 globalThis.redactDebugText = function redactDebugText(value) {
   let text = String(value ?? '');
 
+  // Diagnostic URLs never need their fragment. Treat the whole fragment as
+  // opaque because OAuth/session tokens are often placed there without a
+  // recognizable parameter name.
+  text = text.replace(/(#)([^\s"'#]+)/g, '$1<redacted>');
+
   // URL userinfo: wss://user:password@host/... — keep scheme/host, drop credentials.
   text = text.replace(/\b(https?|wss?):\/\/[^/\s@]+@/gi, '$1://<redacted>@');
 
@@ -28,12 +33,20 @@ globalThis.redactDebugText = function redactDebugText(value) {
 
   // JSON fields (including apiKey / accessToken camelCase variants).
   text = text.replace(
-    /("(?:api[_-]?key|apikey|access[_-]?token|accesstoken|token|key|authorization|client[_-]?secret|secret|password|credential|passwd|private[_-]?key)"\s*:\s*")([^"]*)(")/gi,
+    /("(?:api[_-]?key|apikey|access[_-]?token|accesstoken|token|key|authorization|cookie|session[_-]?id|client[_-]?secret|secret|password|credential|passwd|private[_-]?key)"\s*:\s*")([^"]*)(")/gi,
     '$1<redacted>$3',
   );
 
   // Authorization headers and bearer tokens.
   text = text.replace(/\b(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, '$1<redacted>');
+  text = text.replace(
+    /\b((?:Proxy-)?Authorization\s*:\s*Basic\s+)[^\s"',;]+/gi,
+    '$1<redacted>',
+  );
+  text = text.replace(
+    /\b((?:Set-)?Cookie\s*:\s*)[^\r\n"']+/gi,
+    '$1<redacted>',
+  );
 
   return text;
 };

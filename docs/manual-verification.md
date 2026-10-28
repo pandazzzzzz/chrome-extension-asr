@@ -83,6 +83,7 @@
 | 2b.6 | **失效回退**：选一个设备后把它拔掉/禁用 → 再录音 | 状态提示 `Selected microphone is unavailable — using system default.`，录音**照常开始**（用默认设备），下拉框回到 `System default` | 报 `Cannot start recording: ...` = 回退逻辑失效 |
 | 2b.7 | 热插拔：录音空闲时插入/拔出 USB 麦克风 | 下拉框自动重建且**保留当前选择**（若该设备仍在） | 列表不更新 = `devicechange` 监听未生效 |
 | 2b.8 | sidepanel 打开 | 同样有 **Microphone** 下拉框，选择与 popup 共享 | 侧栏无此控件 = 复用 `popup/app.js` 的 `#audioInput` 缺失 |
+| 2b.9 | 在 `chrome://settings/content/microphone` 阻止麦克风后，分别点 **Start Recording** 与 **Live Stream** | 两条路径都提示 `Microphone access is blocked. Allow microphone access in Chrome settings (chrome://settings/content/microphone), then try again.` | 只显示 `Permission dismissed` / `Permission denied` = 未经过 `microphoneErrorMessage` 映射 |
 
 ---
 

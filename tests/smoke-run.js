@@ -5,7 +5,8 @@
  *
  * Chain: serve-debug.js hosts tests/ (loopback only, exact allowlist extended
  * below) → puppeteer-core drives a real Chrome (WebCrypto/IndexedDB need it)
- * → read #summary ("N passed, M failed").
+ * → read #summary ("N passed, M failed"), then exercise the diagnostic page's
+ *    local-media picker in the same browser.
  *
  * Chrome discovery: SMOKE_CHROME_PATH env, then the platform defaults, then
  * puppeteer-core's own resolution (CI runners preinstall google-chrome).
@@ -85,6 +86,83 @@ function waitReady(server) {
   });
 }
 
+async function probeDebugLocalMedia(browser, port) {
+  const page = await browser.newPage();
+  const failures = [];
+  page.on('pageerror', (error) => failures.push(String(error)));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && !/404|favicon/i.test(msg.text())) {
+      failures.push(msg.text());
+    }
+  });
+  try {
+    await page.goto(`http://127.0.0.1:${port}/tests/stream-debug.html`, {
+      waitUntil: 'load',
+      timeout: 30000,
+    });
+    const result = await page.evaluate(async () => {
+      const input = document.getElementById('localMedia');
+      const video = document.getElementById('sampleVideo');
+
+      // Tiny valid PCM WAV: one second of a 440 Hz tone.
+      const sampleRate = 8000;
+      const sampleCount = sampleRate;
+      const wav = new ArrayBuffer(44 + sampleCount * 2);
+      const view = new DataView(wav);
+      const writeString = (offset, text) => {
+        for (let i = 0; i < text.length; i += 1) {
+          view.setUint8(offset + i, text.charCodeAt(i));
+        }
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + sampleCount * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, sampleCount * 2, true);
+      for (let i = 0; i < sampleCount; i += 1) {
+        const sample = Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 10000;
+        view.setInt16(44 + i * 2, sample, true);
+      }
+
+      const file = new File([wav], 'tone.wav', { type: 'audio/wav' });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        video.addEventListener('loadedmetadata', done, { once: true });
+        video.addEventListener('error', done, { once: true });
+      });
+
+      return {
+        currentSrc: video.currentSrc,
+        readyState: video.readyState,
+        error: video.error && { code: video.error.code, message: video.error.message },
+      };
+    });
+    if (result.readyState < 1 || result.error) {
+      failures.push(`local media did not load: ${JSON.stringify(result)}`);
+    }
+    return { failures, result };
+  } finally {
+    await page.close();
+  }
+}
+
 (async () => {
   // serve-debug 的白名单不含 smoke 页与其依赖脚本；runner 枚举 <script src> 后
   // 用环境开关请它临时追加（仅本进程、仍是精确文件列表）。
@@ -159,6 +237,12 @@ function waitReady(server) {
     const m = summaryText.match(/(\d+) passed, (\d+) failed/);
     if (!m) {
       console.error('✗ unrecognized summary format: ' + summaryText);
+      process.exit(1);
+    }
+    const mediaProbe = await probeDebugLocalMedia(browser, PORT);
+    console.log(`debug local media: ${JSON.stringify(mediaProbe.result)}`);
+    if (mediaProbe.failures.length) {
+      console.error('debug local media failures:\n  ' + mediaProbe.failures.slice(0, 10).join('\n  '));
       process.exit(1);
     }
     process.exit(Number(m[2]) > 0 ? 1 : 0);
