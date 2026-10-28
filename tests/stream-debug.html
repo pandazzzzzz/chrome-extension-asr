@@ -116,6 +116,7 @@
   'use strict';
   const video = document.getElementById('sampleVideo');
   const localMedia = document.getElementById('localMedia');
+  let localMediaUrl = '';
   const diag = document.getElementById('diag');
   const logEl = document.getElementById('log');
   const autoscroll = document.getElementById('autoscroll');
@@ -276,8 +277,15 @@
   localMedia.addEventListener('change', () => {
     const file = localMedia.files?.[0];
     if (!file) return;
-    video.srcObject = file;
+    // Chrome's srcObject accepts MediaStream/MediaSourceHandle, not a File.
+    // A Blob URL gives the media element a playable source for local files.
+    if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
+    localMediaUrl = URL.createObjectURL(file);
+    video.src = localMediaUrl;
     video.load();
+  });
+  window.addEventListener('pagehide', () => {
+    if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
   });
 
   // ---- 记日志 ----
