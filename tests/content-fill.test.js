@@ -6,6 +6,8 @@
 //
 // 运行：npm test（或 node tests/content-fill.test.js）
 const path = require('node:path');
+const vm = require('node:vm');
+const fs = require('node:fs');
 const assert = require('node:assert');
 
 const root = path.resolve(__dirname, '..');
@@ -70,6 +72,7 @@ function loadContent(activeElement, execCommand = () => false) {
   };
 
   delete require.cache[require.resolve(path.join(root, 'content/content.js'))];
+  delete globalThis.__asrFillTextInstalled; // 每次 loadContent 模拟一个全新的页面全局。
   require(path.join(root, 'content/content.js'));
   assert.strictEqual(typeof listener, 'function', 'content.js 应注册消息监听器');
   return listener;
@@ -142,6 +145,44 @@ t('fill: contenteditable 成功插入后返回 ok', () => {
   const res = sendFill(listener, 'inserted');
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.data, true);
+});
+
+t('fill: 重复按需注入只注册一个消息监听器', () => {
+  const listeners = [];
+  const sandbox = {
+    console: { log() {} },
+    document: { activeElement: null },
+    chrome: { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } },
+    TARGETS: { CONTENT: 'content' },
+    MESSAGES: { FILL_TEXT: 'asr:fill-text' },
+    Errors: { NO_FIELD: { code: 'NO_FIELD' } },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(root, 'content/content.js'), 'utf8');
+  vm.runInContext(source, sandbox);
+  vm.runInContext(source, sandbox);
+  assert.strictEqual(listeners.length, 1);
+});
+
+t('subtitles: 重复按需注入只注册一个消息监听器', () => {
+  const listeners = [];
+  const sandbox = {
+    document: {},
+    window: {},
+    setTimeout,
+    clearTimeout,
+    chrome: { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } },
+    TARGETS: { CONTENT: 'content' },
+    MESSAGES: { SUBTITLE_SHOW: 'asr:subtitle-show', SUBTITLE_HIDE: 'asr:subtitle-hide' },
+    Errors: {},
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(root, 'content/subtitle.js'), 'utf8');
+  vm.runInContext(source, sandbox);
+  vm.runInContext(source, sandbox);
+  assert.strictEqual(listeners.length, 1);
 });
 
 console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);

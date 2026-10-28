@@ -9,7 +9,7 @@
   "scripts": {
     "build": "echo 'No build step required for basic extension'",
     "pack": "node scripts/pack.js",
-    "test": "node tests/streaming.test.js && node tests/devices.test.js && node tests/config.test.js && node tests/config-ui-sync.test.js && node tests/options-config-sync.test.js && node tests/offscreen-messaging.test.js && node tests/popup-record-mutex.test.js && node tests/background-lifecycle.test.js && node tests/background-arbitration.test.js && node tests/history.test.js && node tests/recordings.test.js && node tests/content-fill.test.js && node tests/recorder.test.js && node tests/pcm-capture.test.js && node tests/debug-redact.test.js && node tests/serve-debug.test.js && node tests/lint-push.test.js && node tests/pack.test.js",
+    "test": "node tests/streaming.test.js && node tests/devices.test.js && node tests/config.test.js && node tests/config-ui-sync.test.js && node tests/options-config-sync.test.js && node tests/offscreen-messaging.test.js && node tests/popup-record-mutex.test.js && node tests/background-lifecycle.test.js && node tests/background-arbitration.test.js && node tests/history.test.js && node tests/recordings.test.js && node tests/content-fill.test.js && node tests/on-demand-injection.test.js && node tests/recorder.test.js && node tests/pcm-capture.test.js && node tests/debug-redact.test.js && node tests/serve-debug.test.js && node tests/lint-push.test.js && node tests/pack.test.js",
     "lint": "node scripts/lint.js",
     "prepare": "husky",
     "lint:commit": "commitlint --from origin/main --to HEAD"

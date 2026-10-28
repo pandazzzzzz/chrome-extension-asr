@@ -49,16 +49,6 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": [
-        "messaging/messages.js",
-        "shared/errors.js",
-        "content/content.js",
-        "content/subtitle.js"
-      ],
-      "css": ["content/content.css"]
-    },
-    {
       "matches": ["http://localhost/*", "http://127.0.0.1/*"],
       "include_globs": [
         "http://localhost:18923/tests/stream-debug.html*",
@@ -74,7 +64,9 @@
     "storage",
     "tabCapture",
     "sidePanel",
-    "offscreen"
+    "offscreen",
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": []
 }
