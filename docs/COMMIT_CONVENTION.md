@@ -303,7 +303,7 @@ footer 放在 body 之后，**空一行**，每行一条，格式 `Token: value`
 |---|---|
 | 本地提交 | `.husky/commit-msg` → 跑 `commitlint --edit`，不合规直接拒绝提交 |
 | CI（PR） | 校验该 PR 新增的提交**与 PR 标题**（squash 合并时标题会成为 commit subject） |
-| CI（push） | 校验本次推送新增的提交 |
+| CI（push） | 校验本次推送新增的完整提交；GitHub 自动生成的 squash 正文仅豁免长度限制，subject 仍完整校验 |
 
 规则配置在 [`commitlint.config.mjs`](../commitlint.config.mjs)，与本文档逐条对应。
 
@@ -314,6 +314,11 @@ npm run lint:commit      # 手动检查当前分支相对 origin/main 的提交
 
 **例外**：`Merge …`、`Revert …`、`fixup!`、`squash!` 与纯版本号消息由 commitlint 默认跳过
 （`defaultIgnores`），因为它们是 git 生成的，不适用本规范。
+
+GitHub 的 squash 合并会把 PR 内每个提交的 body 聚合成一个新的 commit body。聚合结果可能
+超过 280 字符，即使每个源提交单独都合规；在 PR CI 中这些源提交已经逐条完整校验。因此
+push CI 对可识别的 GitHub squash commit 只校验 subject，跳过聚合 body 的长度限制。
+本地创建或直接 push 的普通提交仍执行完整 body 校验。
 
 > 校验范围只覆盖 `feat`/`fix`/… 这类**格式**要求。§7 的写作约定（祈使语气、body 讲「为什么」）
 > 无法自动检测，仍由 code review 把关。
@@ -343,9 +348,10 @@ npm run lint:commit      # 手动检查当前分支相对 origin/main 的提交
 本仓库不鼓励在共享分支上保留临时提交。本地可用任意信息，
 **推送前**用 `git rebase -i` 整理为符合规范的提交。
 
-**Q：merge 提交需要遵守吗？**
+**Q：merge 或 squash 提交需要遵守吗？**
 GitHub 的 PR 合并提交（`Merge pull request #N from …`）由平台生成，属于例外。
-本地手动创建的 merge 提交同样不要求符合本规范。
+squash 提交的 subject 仍需合规；自动聚合的 body 只豁免长度限制，源提交已在 PR CI
+中完整校验。本地手动创建的 merge 提交同样不要求符合本规范。
 
 **Q：如何修改已提交的信息？**
 最近一次：`git commit --amend`。

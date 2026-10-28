@@ -98,7 +98,10 @@ jobs:
       # brand-new branch, in which case there is no range to walk.
       - name: Lint the pushed commits
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
-        run: npx commitlint --from ${{ github.event.before }} --to ${{ github.sha }} --verbose
+        env:
+          FROM_SHA: ${{ github.event.before }}
+          TO_SHA: ${{ github.sha }}
+        run: node scripts/lint-push.js "$FROM_SHA" "$TO_SHA"
 
   # Real-browser smoke: the page exercises WebCrypto + IndexedDB through the
   # actual script tags, so it needs a Chrome binary. ubuntu-latest preinstalls
