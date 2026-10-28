@@ -71,6 +71,7 @@
     #status { margin-top: 12px; padding: 8px 10px; border-radius: 8px; font-size: 12px; display: none; }
     #status.success { display: block; background: var(--ok-bg); color: var(--ok-text); }
     #status.error { display: block; background: var(--err-bg); color: var(--err-text); }
+    #status.info { display: block; background: var(--surface-2); color: var(--text); }
     .history-item {
       background: var(--card); border: 1px solid var(--border);
       border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
@@ -128,6 +129,7 @@
     </div>
 
     <div class="btn-row">
+      <button id="testModelBtn">Test model</button>
       <button id="saveBtn" class="primary">Save settings</button>
     </div>
 
@@ -147,7 +149,7 @@
       <tr><td>Cloud sync</td><td>disabled (all config is local)</td></tr>
     </table>
 
-    <div id="status"></div>
+    <div id="status" role="status"></div>
   </div>
 
   <script src="../shared/errors.js"></script>

@@ -13,6 +13,7 @@ No build step: load the directory unpacked and it runs.
 - **Microphone selection** — pick which input device to use; the choice is persisted and falls back to the system default if the device disappears
 - **Tab audio recording** — capture tab audio (meetings, videos) via `chrome.tabCapture` + an offscreen document
 - **Live Stream** — realtime transcription over a WebSocket; partial and final sentences appear as you speak
+- **Model connection test** — validate the current endpoint, API key and model with a task handshake, without recording or sending audio
 - **Floating subtitles** — mirror the live transcript into a draggable overlay on the page where streaming started (toggle with **Subtitles**; switching tabs does not move the overlay)
 - **Save audio** — download the last mic or tab recording
 - **Result actions** — copy to clipboard, or fill the focused input on the active page
@@ -28,6 +29,7 @@ No build step: load the directory unpacked and it runs.
 1. Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked** — select this directory.
 2. Click the extension icon in the toolbar.
 3. Select the provider (Qwen/DashScope) and enter your API key. It is stored encrypted, locally.
+   Click **Test model** to check unsaved settings before starting a stream.
 4. **Record**: click **Start Recording**, speak, then **Stop Recording** — or click **Record Tab** to capture the active tab's audio. **Save audio** downloads the result.
 5. **Transcribe live**: click **Live Stream**, speak, and watch text appear. Use **Copy text** or **Fill into page** to use it.
 6. **Floating subtitles**: click **Subtitles** to mirror the live transcript into a draggable overlay on the page where streaming started (useful when presenting from a window you are not looking at). The toggle is remembered; the overlay hides when streaming ends if no new text arrives.

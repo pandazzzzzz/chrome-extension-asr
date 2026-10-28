@@ -41,6 +41,8 @@
 | 1.8 | 停止后看 options 页 | 历史**新增一条**，内容与结果一致，provider/model 正确 | 无记录 = offscreen `finalizeSession` 的 `asr:history-add` 未送达 background |
 | 1.9 | 下拉选 `paraformer-realtime-8k-v2`（或 Custom 手填 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`ws-connecting` 的 `targetSampleRate` = **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |
 | 1.10 | 选 `Custom` → **清空** Endpoint → 点 **Live Stream** | 状态 `Custom region requires an endpoint URL.`，**麦克风不亮**、无 `ws-connecting` 事件、按钮仍是 `Live Stream` 可点 | 拨到 `dashscope.aliyuncs.com` = 守卫失效（静默回落北京，本 PR 修的就是它） |
+| 1.11 | 修改 Model/Endpoint 但不保存 → 点 **Test model** | 按钮暂时禁用，成功后显示 `Model test passed: <model>.`；不发音频、不写 Result/History、不显示 Subtitles | 测试用了旧配置 = 草稿读取错误；只连 WebSocket 不发 run-task = 无法验证模型 |
+| 1.12 | 分别用错误 Key、无效 Endpoint 和不可用 Model 点 **Test model** | 显示握手/地址/服务端的具体错误；约 10 秒超时后按钮恢复可点 | 一直停在 Testing = 超时或清理失效 |
 
 **已知失败模式（对照排查）**：
 

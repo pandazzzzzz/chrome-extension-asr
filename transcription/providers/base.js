@@ -185,6 +185,10 @@ class BaseProvider {
     throw new Error('Streaming not supported by this provider');
   }
 
+  static async testConnection() {
+    throw new Error('Connection testing not supported by this provider');
+  }
+
 }
 
 globalThis.BaseProvider = BaseProvider;

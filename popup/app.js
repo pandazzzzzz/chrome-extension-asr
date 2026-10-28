@@ -114,6 +114,7 @@ function gatherElements() {
   els.recordBtn = document.getElementById('recordBtn');
   els.tabRecordBtn = document.getElementById('tabRecordBtn');
   els.saveBtn = document.getElementById('saveBtn');
+  els.testModelBtn = document.getElementById('testModelBtn');
   els.streamBtn = document.getElementById('streamBtn');
   els.resultText = document.getElementById('result');
   els.copyBtn = document.getElementById('copyBtn');
@@ -346,6 +347,7 @@ function bindEvents() {
   els.recordBtn.addEventListener('click', toggleRecording);
   els.tabRecordBtn.addEventListener('click', toggleTabRecording);
   els.saveBtn.addEventListener('click', handleSaveAudio);
+  els.testModelBtn?.addEventListener('click', testModel);
   els.streamBtn.addEventListener('click', toggleStreaming);
   els.copyBtn.addEventListener('click', handleCopy);
   els.fillBtn.addEventListener('click', handleFillIntoPage);
@@ -353,6 +355,33 @@ function bindEvents() {
   els.optionsBtn?.addEventListener('click', handleOpenOptions);
   els.panelBtn?.addEventListener('click', handleOpenPanel);
   els.subtitleBtn?.addEventListener('click', toggleSubtitles);
+}
+
+async function testModel() {
+  if (els.testModelBtn.disabled) return;
+  const provider = getCurrentProvider();
+  if (!provider?.testConnection) {
+    showStatus('This provider does not support model testing.', 'error');
+    return;
+  }
+  els.testModelBtn.disabled = true;
+  els.testModelBtn.textContent = 'Testing…';
+  showStatus('Testing endpoint, API key, and model…', 'info');
+  try {
+    const result = await provider.testConnection({
+      apiKey: els.apiKeyInput.value.trim(),
+      model: resolveModel() || provider.defaultStreamModel,
+      endpoint: resolveEndpoint(provider),
+    });
+    showStatus(result.ok
+      ? `Model test passed: ${result.model}.`
+      : `Model test failed: ${result.error}`, result.ok ? 'success' : 'error');
+  } catch (error) {
+    showStatus(`Model test failed: ${error.message}`, 'error');
+  } finally {
+    els.testModelBtn.disabled = false;
+    els.testModelBtn.textContent = 'Test model';
+  }
 }
 
 // 会话宿主在 offscreen（#43 迁移）：popup 关闭不再断流，pagehide 无需任何收尾。
