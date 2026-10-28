@@ -220,7 +220,7 @@
 版本: main = <git rev-parse --short HEAD>（应 ≥ 094255b）
 Chrome: <chrome://version 首行>
 OS: <Windows 10 19045 / macOS xx>
-测试人: 
+测试人:
 日期: 开始 ____-__-__ 结束 ____-__-__
 Key 地域: Beijing / Singapore / Custom
 所用模型: <默认名 / 8k 名>   额度起点: <控制台截图>
