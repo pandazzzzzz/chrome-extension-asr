@@ -63,7 +63,8 @@ one-shot migration and write serialization), `tests/config-ui-sync.test.js`
 (popup/side-panel cross-page edit guards), `tests/options-config-sync.test.js`
 (options-page sync and unsaved-edit guards), `tests/offscreen-messaging.test.js`
 (stream lifecycle and message-family routing), `tests/popup-record-mutex.test.js`
-(recording UI mutex and mic lease), `tests/background-lifecycle.test.js` and
+(recording UI mutex, mic lease and OPFS tab-save flow), `tests/recordings.test.js`
+(tab recordings use a small OPFS reference instead of base64 messages), `tests/background-lifecycle.test.js` and
 `tests/background-arbitration.test.js` (stream generations and three-way audio
 ownership), `tests/history.test.js` (IndexedDB
 errors are not reported as empty/success, trim failures do not hide a
@@ -94,7 +95,7 @@ that proxy. Do not log the incoming query string, and trust the proxy certificat
 only for local development.
 
 For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
-the real modules and checks crypto, config, messaging and error helpers; the
+the real modules and checks crypto, config, OPFS recording storage, messaging and error helpers; the
 cases live in `tests/p1-smoke-test.js` (external, so the page also runs under
 the extension CSP). `tests/smoke-run.js` also checks that the diagnostic page
 can load a selected local audio file in a real Chrome media element.

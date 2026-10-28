@@ -200,29 +200,39 @@ async function runTests() {
     addResult('CryptoStore: connection cache', false, e.message);
   }
 
-  // --- 12. encodeAudio / decodeAudio roundtrip ---
+  // --- 12. RecordingStore: OPFS roundtrip (real browser storage) ---
   try {
-    const payload = new Uint8Array(1000).map((_, i) => i % 251);
-    const enc = await globalThis.encodeAudio(new Blob([payload], { type: 'audio/mp4' }));
-    const dec = globalThis.decodeAudio(enc);
-    const back = new Uint8Array(await dec.arrayBuffer());
-    const ok = back.length === payload.length
-      && back.every((v, i) => v === payload[i])
-      && enc.mime === 'audio/mp4';
-    addResult('encodeAudio/decodeAudio: roundtrip + mime', ok,
-      `bytes=${back.length}, mime=${enc.mime}`);
+    if (!navigator.storage?.getDirectory) {
+      addResult('RecordingStore: OPFS roundtrip', true, 'skipped — OPFS unavailable in this context');
+    } else {
+      const payload = new Uint8Array(1000).map((_, i) => i % 251);
+      const ref = await globalThis.RecordingStore.save(new Blob([payload], { type: 'audio/mp4' }));
+      const file = await globalThis.RecordingStore.read(ref);
+      const back = new Uint8Array(await file.arrayBuffer());
+      const ok = globalThis.RecordingStore.isRef(ref)
+        && back.length === payload.length
+        && back.every((v, i) => v === payload[i])
+        && ref.mime === 'audio/mp4';
+      addResult('RecordingStore: OPFS roundtrip', ok,
+        `bytes=${back.length}, mime=${ref.mime}, ref=${ref.file}`);
+      await globalThis.RecordingStore.remove(ref);
+    }
   } catch (e) {
-    addResult('encodeAudio/decodeAudio roundtrip', false, e.message);
+    addResult('RecordingStore: OPFS roundtrip', false, e.message);
   }
 
-  // --- 13. decodeAudio: 非法输入返回 null ---
+  // --- 13. RecordingStore: save/remove lifecycle ---
   try {
-    const ok = globalThis.decodeAudio(null) === null
-      && globalThis.decodeAudio({ b64: 123 }) === null
-      && globalThis.decodeAudio({ b64: 'not@valid!!' }) === null;
-    addResult('decodeAudio: invalid input → null', ok);
+    if (!navigator.storage?.getDirectory) {
+      addResult('RecordingStore: save/remove lifecycle', true, 'skipped — OPFS unavailable in this context');
+    } else {
+      const ref = await globalThis.RecordingStore.save(new Blob(['x'], { type: 'audio/webm' }));
+      const removed = await globalThis.RecordingStore.remove(ref);
+      const removedAgain = await globalThis.RecordingStore.remove(ref);
+      addResult('RecordingStore: save/remove lifecycle', removed === true && removedAgain === false);
+    }
   } catch (e) {
-    addResult('decodeAudio invalid input', false, e.message);
+    addResult('RecordingStore: save/remove lifecycle', false, e.message);
   }
 
   // --- 14. floatToInt16: clamp + 端点 ---

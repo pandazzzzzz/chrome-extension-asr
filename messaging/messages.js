@@ -52,10 +52,9 @@
  *                         payload: {}
  *                         data:    none（fire-and-forget）
  *
- * 音频为什么编码传输：runtime 消息通道是 JSON 序列化（不是 structured clone），
- * Blob / ArrayBuffer / Uint8Array 都会丢失（Blob 变成 {}），所以音频统一走
- * encodeAudio → { b64, mime }（base64 字符串可无损穿过消息通道），接收端用
- * decodeAudio 还原成 Blob。请求与响应两个方向都要编码。
+ * 音频不走 runtime 消息通道：runtime 消息是 JSON 序列化，Blob/ArrayBuffer
+ * 无法无损传递。标签页录音写入同源 OPFS，消息里只传
+ * { file, mime, size } 元数据；popup/sidepanel 保存时再按引用读取。
  */
 globalThis.MESSAGES = Object.freeze({
   SUBTITLE_SHOW: 'asr:subtitle-show',
@@ -111,38 +110,5 @@ globalThis.isApprovedDebugPageUrl = function isApprovedDebugPageUrl(value) {
       && url.pathname === globalThis.DEBUG_PAGE.path;
   } catch {
     return false;
-  }
-};
-
-/**
- * Blob → 消息可传的 { b64, mime }（见文件头「音频为什么编码传输」）。
- * 分块转 base64，避免大音频一次 String.fromCharCode 栈溢出。
- * @param {Blob} blob
- * @returns {Promise<{b64: string, mime: string}>}
- */
-globalThis.encodeAudio = async function encodeAudio(blob) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return { b64: btoa(binary), mime: blob.type || 'audio/webm' };
-};
-
-/**
- * encodeAudio 的逆操作。
- * @param {{b64: string, mime?: string}} enc
- * @returns {Blob|null} 形状不合法时返回 null（调用方需自行判空/报错）
- */
-globalThis.decodeAudio = function decodeAudio(enc) {
-  if (!enc || typeof enc.b64 !== 'string') return null;
-  try {
-    const binary = atob(enc.b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return new Blob([bytes], { type: enc.mime || 'audio/webm' });
-  } catch {
-    return null;
   }
 };

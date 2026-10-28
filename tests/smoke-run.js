@@ -163,6 +163,33 @@ async function probeDebugLocalMedia(browser, port) {
   }
 }
 
+async function probeOpfsHandoff(browser, port) {
+  const writer = await browser.newPage();
+  const reader = await browser.newPage();
+  try {
+    await writer.goto(`http://localhost:${port}/tests/p1-smoke-test.html`, { waitUntil: 'load', timeout: 30000 });
+    const ref = await writer.evaluate(async () => {
+      const blob = new Blob(['opfs-handoff'], { type: 'audio/webm' });
+      return globalThis.RecordingStore.save(blob);
+    });
+
+    await reader.goto(`http://localhost:${port}/tests/p1-smoke-test.html`, { waitUntil: 'load', timeout: 30000 });
+    const result = await reader.evaluate(async (recording) => {
+      const file = await globalThis.RecordingStore.read(recording);
+      const text = await file.text();
+      const removed = await globalThis.RecordingStore.remove(recording);
+      return { text, removed };
+    }, ref);
+    if (result.text !== 'opfs-handoff' || result.removed !== true) {
+      throw new Error(`OPFS cross-page handoff failed: ${JSON.stringify(result)}`);
+    }
+    return { ref, result };
+  } finally {
+    await writer.close().catch(() => {});
+    await reader.close().catch(() => {});
+  }
+}
+
 (async () => {
   // serve-debug 的白名单不含 smoke 页与其依赖脚本；runner 枚举 <script src> 后
   // 用环境开关请它临时追加（仅本进程、仍是精确文件列表）。
@@ -245,6 +272,8 @@ async function probeDebugLocalMedia(browser, port) {
       console.error('debug local media failures:\n  ' + mediaProbe.failures.slice(0, 10).join('\n  '));
       process.exit(1);
     }
+    const opfsProbe = await probeOpfsHandoff(browser, PORT);
+    console.log(`OPFS cross-page handoff: ${JSON.stringify(opfsProbe.result)}`);
     process.exit(Number(m[2]) > 0 ? 1 : 0);
   } finally {
     await browser.close();

@@ -12,6 +12,7 @@
 // State
 let recorder = null;          // AudioRecorder 实例（麦克风）
 let audioBlob = null;         // 录音结果（由 Save audio 落盘）
+let audioRecording = null;    // 标签页录音的 OPFS 引用 { file, mime, size }
 let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
 let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await），防重入
@@ -505,6 +506,15 @@ async function toggleRecording() {
   }
 }
 
+function discardAudioResult() {
+  const stale = audioRecording;
+  audioBlob = null;
+  audioRecording = null;
+  if (stale) {
+    void globalThis.RecordingStore.remove(stale).catch(() => {});
+  }
+}
+
 async function startRecording() {
   // 防重入：isRecording 要等 await getUserMedia 之后才置位，且按钮在这段窗口内仍可点。
   // 双击会开两条麦克风流，后到者覆盖 recorder → 第一条流无人停轨，麦克风常驻占用。
@@ -514,7 +524,7 @@ async function startRecording() {
 
   let stream = null;
   try {
-    audioBlob = null;
+    discardAudioResult();
 
     // 先领租约，再打开麦克风：否则两个 UI 可以同时通过本地检查。
     await acquireMicRecordingLease();
@@ -574,6 +584,7 @@ async function stopRecording() {
   isRecording = false;
   try {
     audioBlob = await recorder.stop();
+    audioRecording = null;
     recorder.release();
     recorder = null;
     debugEvt('record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
@@ -587,6 +598,7 @@ async function stopRecording() {
     recorder = null;
     if (partial && partial.size > 0) {
       audioBlob = partial;
+      audioRecording = null;
       showStatus(`Recording failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
     } else {
       showStatus(`Recording failed: ${error.message}`, 'error');
@@ -645,7 +657,7 @@ async function startTabRecording() {
   isTabRecordingBusy = true;
 
   try {
-    audioBlob = null;
+    discardAudioResult();
 
     // background 取 tabCapture streamId → 创建 offscreen → offscreen 开始录
     await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_START, {});
@@ -679,30 +691,32 @@ async function stopTabRecording() {
   isTabRecording = false;
   els.tabRecordBtn.textContent = 'Record Tab';
   try {
-    // offscreen 返回 { b64, mime }（JSON 消息通道无法传 Blob），这里还原。
-    // 超时放宽到 20s：链路 = background relay + offscreen recorder.stop()（内部
-    // 已有 5s 兜底）+ 大 blob 的 base64 编码，默认 10s 对长录音偏紧。
-    audioBlob = globalThis.decodeAudio(
-      await globalThis.MessageClient.send(
-        globalThis.MESSAGES.TAB_RECORD_STOP,
-        {},
-        globalThis.TARGETS.BACKGROUND,
-        20000,
-      ),
+    // offscreen 返回 { file, mime, size }；音频留在同源 OPFS，消息通道只传引用。
+    // 超时仍放宽，覆盖 recorder.stop() 的 5s 兜底和后台 relay。
+    const recording = await globalThis.MessageClient.send(
+      globalThis.MESSAGES.TAB_RECORD_STOP,
+      {},
+      globalThis.TARGETS.BACKGROUND,
+      20000,
     );
-    debugEvt('tab-record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
+    if (!globalThis.RecordingStore.isRef(recording)) {
+      throw new Error('Offscreen returned an invalid recording reference');
+    }
+    audioBlob = null;
+    audioRecording = recording;
+    debugEvt('tab-record-stopped', { size: recording.size, mime: recording.mime });
     showStatus(recordingCompleteMessage('tab'), 'success');
   } catch (error) {
     debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
     // offscreen 失败响应可携带部分已录音频（recorder 超时路径）；对账说已不在录时
     // 才能确定录音确实停了，此时恢复部分音频供 Save，避免用户几分钟音频全丢。
-    const partialEnc = error.partialData;
-    if (partialEnc?.b64 && (await syncTabRecordingState()) && !isTabRecording) {
-      const partialBlob = globalThis.decodeAudio(partialEnc);
-      if (!partialBlob) return; // 形状不合法：走下面的常规失败处理
-      audioBlob = partialBlob;
-      debugEvt('tab-record-partial', { size: audioBlob.size, mime: audioBlob.type });
+    const partial = error.partialData;
+    if (globalThis.RecordingStore.isRef(partial) && (await syncTabRecordingState()) && !isTabRecording) {
+      audioBlob = null;
+      audioRecording = partial;
+      debugEvt('tab-record-partial', { size: partial.size, mime: partial.mime });
       showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
+      return;
     }
     // 停止失败（超时/offscreen 失联）时录音**可能还在跑** —— 乐观复位成空闲会再次
     // 制造"停不掉的录音"。与 start 同样处理：以 background 为准重新对齐。
@@ -719,23 +733,51 @@ async function stopTabRecording() {
 
 // ---------- Save recording ----------
 
-// 麦克风与 Tab 录音的结果都落到 audioBlob（批量转录已删，先落盘）
-// （createObjectURL + a[download]，无需 downloads 权限）。
-function handleSaveAudio() {
-  if (!audioBlob || !audioBlob.size) {
+// 麦克风结果在内存 Blob，Tab 结果在 OPFS；两者都通过 createObjectURL +
+// a[download] 落盘（无需 downloads 权限）。Tab 文件下载触发后即可删除。
+async function handleSaveAudio() {
+  if ((!audioBlob || !audioBlob.size) && !audioRecording) {
     showStatus('No recording yet. Record something first.', 'error');
     return;
   }
-  const url = URL.createObjectURL(audioBlob);
+  const tabRef = audioRecording;
+  let blob = audioBlob;
+  let mime = blob?.type || '';
+  if (tabRef) {
+    try {
+      blob = await globalThis.RecordingStore.read(tabRef);
+      mime = tabRef.mime;
+    } catch (error) {
+      showStatus(`Cannot read tab recording: ${error.message}`, 'error');
+      return;
+    }
+  }
+  if (!blob || !blob.size) {
+    showStatus('No recording yet. Record something first.', 'error');
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `recording-${globalThis.Format.timestampForFile()}.${extensionForMime(audioBlob.type)}`;
+  a.download = `recording-${globalThis.Format.timestampForFile()}.${extensionForMime(mime)}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000); // 下载触发后再回收
-  debugEvt('audio-saved', { size: audioBlob.size, mime: audioBlob.type });
-  showStatus(`Saved recording (${Math.max(1, Math.round(audioBlob.size / 1024))} KB).`, 'success');
+  if (tabRef) {
+    if (audioRecording === tabRef) {
+      audioBlob = null;
+      audioRecording = null;
+    }
+    try {
+      await globalThis.RecordingStore.remove(tabRef);
+    } catch (error) {
+      console.warn('Failed to remove saved tab recording:', error);
+    }
+  }
+  debugEvt('audio-saved', { size: blob.size, mime });
+  showStatus(`Saved recording (${Math.max(1, Math.round(blob.size / 1024))} KB).`, 'success');
 }
 
 function extensionForMime(mime) {

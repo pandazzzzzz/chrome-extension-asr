@@ -53,7 +53,7 @@ globalThis.MessageClient = (() => {
         } else {
           const err = new Error(response.error?.message || 'Unknown error');
           err.code = response.error?.code;
-          // 失败响应可携带部分产物（如录音超时后已收的音频分片），供调用方恢复。
+          // 失败响应可携带部分产物（如录音超时后已收音频的 OPFS 引用），供调用方恢复。
           err.partialData = response.data;
           reject(err);
         }

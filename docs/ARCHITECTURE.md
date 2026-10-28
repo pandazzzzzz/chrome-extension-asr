@@ -19,12 +19,13 @@
 |---|---|---|
 | `popup/app.js` + `sidepanel` + `options` | mic/Tab 录音 UI + **Live Stream UI 镜像**（会话宿主在 offscreen） + 配置表单（Provider 为下拉框，API Key 加密） | — |
 | `background/background.js` | 消息路由 + offscreen 协调 + fill-text/字幕转发 + **三路录音仲裁/标签页录音状态持有者**（`storage.session` 的 `tabRecording`；录音活在 offscreen，跨 popup 生命周期） | Live Stream START 会经内存转发明文 API Key，但不持久化；无 API 代理/转录（已删，设计取舍） |
+| `offscreen/` | 标签页采集与 Live Stream 宿主；标签页录音写入同源 OPFS，只向 UI 返回 `{ file, mime, size }` | 依赖 Chrome OPFS（最低版本 116 已满足） |
 | `content/content.js` + `.css` | 页面听写注入（`asr:fill-text`），兼容受控组件 | — |
 | `content/subtitle.js` | 浮动字幕浮层（`asr:subtitle-show` / `-hide`）：closed Shadow DOM 渲染，可拖动、会话结束自动淡出；流式会话绑定开始时的 tab，不跟随切 tab | 宿主节点仍在 light DOM，页面可主动隐藏/移除整层 |
 | `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式；帧长是调优常量，基准数据见 `offscreen/offscreen-streaming.js` 的 `FRAME_SIZE` 注释） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
-| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` 覆盖 PCM/provider 契约、麦克风权限错误映射、配置合并与跨页同步（popup/sidepanel/options）、offscreen 流式生命周期、三路录音仲裁、IndexedDB 历史、内容注入、MediaRecorder、诊断脱敏与静态服务器边界、打包规则；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome，已入 CI（`smoke` job） | 依赖脚本加载顺序；无类型契约 |
+| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` 覆盖 PCM/provider 契约、麦克风权限错误映射、配置合并与跨页同步（popup/sidepanel/options）、offscreen 流式生命周期、三路录音仲裁、IndexedDB 历史、OPFS 录音引用、内容注入、MediaRecorder、诊断脱敏与静态服务器边界、打包规则；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome，已入 CI（`smoke` job） | 依赖脚本加载顺序；无类型契约 |
 | `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen` + **`commands` 3 条**（popup / side panel / options）+ `minimum_chrome_version: 116`（`getContexts` / SW 中的 `getMediaStreamId`）。**无 `activeTab`**（2026-10-11 移除，实测不承载功能：content 的 host 访问来自 `content_scripts` 的 `<all_urls>`，tabCapture 授权只看 `tabCapture`）；**host_permissions 为空**（WebSocket 不受其约束，扩展也无 `fetch()`）；诊断桥 `debug/bridge.js` **只注入回环主机**，并用 `include_globs` 精确限定 `18923` 端口与诊断页路径；background 只接受 top-frame 订阅（issue #32 / #89 收窄） | 功能 content script 的 `<all_urls>` 注入面仍然偏宽（fill/字幕需要）；`[::1]` 诊断页无法用 match pattern 表达，属已知取舍 |
 
 ### 1.2 目标能力
@@ -129,7 +130,7 @@
 ├── content/                 # 〔已有〕页面听写注入（asr:fill-text）+ 浮动字幕（asr:subtitle-*）
 │   ├── content.js / content.css
 │   └── subtitle.js         # 浮动字幕浮层（closed Shadow DOM，可拖动）
-├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder）
+├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder + OPFS 写入）
 │   └── offscreen.html / offscreen.js
 ├── background/
 │   └── background.js        # 〔已有〕消息路由 + offscreen 协调 + fill-text/字幕转发
@@ -155,6 +156,7 @@
 │   ├── config.js           #  〔已有〕配置读写（全部存 storage.local，apiKey 经 WebCrypto 加密）
 │   ├── crypto.js           #  〔已有〕WebCrypto AES-GCM 加解密（密钥存 IndexedDB）
 │   ├── history.js          #  〔已有〕转录历史（IndexedDB，上限 50 条自动裁剪；options 可导出 JSON）
+│   ├── recordings.js       #  〔已有〕标签页录音 OPFS 文件（消息只传 { file, mime, size }）
 │   └── model-cache.js      #  〔新增〕本地模型缓存（Cache API / IDB）
 │
 # ── 契约与共享层 ─────────────────────────────────────────

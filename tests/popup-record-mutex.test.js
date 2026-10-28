@@ -73,6 +73,7 @@ async function makePopup(options = {}) {
       getElementById: (id) => Object.prototype.hasOwnProperty.call(els, id) ? els[id] : null,
       addEventListener: (ev, fn) => { if (ev === 'DOMContentLoaded') listeners.domready.push(fn); },
       createElement: () => ({ style: {}, click() {}, remove() {} }),
+      body: { appendChild() {} },
     },
     chrome: {
       runtime: {
@@ -117,6 +118,8 @@ async function makePopup(options = {}) {
     MESSAGES: {
       STREAM_UPDATE: 'asr:stream-update',
       STREAM_STATE: 'asr:stream-state',
+      TAB_RECORD_STATE: 'asr:tab-record-state',
+      TAB_RECORD_STOP: 'asr:tab-record-stop',
       MIC_RECORD_PORT: 'asr:mic-record',
       MIC_RECORD_ACQUIRE: 'asr:mic-record-acquire',
       MIC_RECORD_RELEASE: 'asr:mic-record-release',
@@ -131,6 +134,7 @@ async function makePopup(options = {}) {
       populateModelOptions() {},
     },
     Format: { timestampForFile: () => 'x' },
+    RecordingStore: { isRef: () => false, read: async () => null, remove: async () => false },
     PROVIDERS: [],
     emitDebug() {},
     AudioRecorder: class {
@@ -219,6 +223,84 @@ async function makePopup(options = {}) {
     assert.strictEqual(granted.micAcquisitions, 1, 'granted lease should allow microphone acquisition once');
     console.log('PASS | microphone recording acquires the shared background lease');
   }
+  {
+    const { sandbox } = await makePopup();
+    const ref = { file: 'tab-test.audio', mime: 'audio/webm', size: 4 };
+    let reads = 0;
+    let removals = 0;
+    let clicks = 0;
+    sandbox.MessageClient.send = async (type) => {
+      if (type === 'asr:tab-record-stop') return ref;
+      if (type === 'asr:tab-record-state') return { recording: false };
+      return { streaming: false };
+    };
+    sandbox.RecordingStore = {
+      isRef: (value) => value === ref,
+      read: async () => { reads += 1; return { size: 4, type: 'audio/webm' }; },
+      remove: async () => { removals += 1; return true; },
+    };
+    sandbox.document.createElement = () => ({ style: {}, click() { clicks += 1; }, remove() {} });
+
+    await vm.runInContext('isTabRecording = true; stopTabRecording()', sandbox);
+    await flushAsync();
+    const stored = await vm.runInContext('audioRecording', sandbox);
+    assert.strictEqual(stored.file, ref.file, 'tab stop must keep the OPFS ref');
+
+    await vm.runInContext('handleSaveAudio()', sandbox);
+    await flushAsync();
+    assert.strictEqual(reads, 1, 'Save audio must read the OPFS-backed recording');
+    assert.strictEqual(clicks, 1, 'Save audio must trigger one download');
+    assert.strictEqual(removals, 1, 'Save audio must delete the OPFS file after download');
+    assert.strictEqual(await vm.runInContext('audioRecording', sandbox), null);
+    console.log('PASS | tab recording saves through OPFS metadata');
+  }
+  {
+    const { sandbox } = await makePopup();
+    const ref = { file: 'tab-partial.audio', mime: 'audio/webm', size: 2 };
+    sandbox.MessageClient.send = async (type) => {
+      if (type === 'asr:tab-record-stop') {
+        const error = new Error('stop timed out');
+        error.partialData = ref;
+        throw error;
+      }
+      if (type === 'asr:tab-record-state') return { recording: false };
+      return { streaming: false };
+    };
+    sandbox.RecordingStore.isRef = (value) => value === ref;
+
+    await vm.runInContext('isTabRecording = true; stopTabRecording()', sandbox);
+    await flushAsync();
+    const stored = await vm.runInContext('audioRecording', sandbox);
+    assert.strictEqual(stored.file, ref.file, 'partial stop must retain the OPFS ref');
+    console.log('PASS | partial tab recording keeps its OPFS reference');
+  }
+  {
+    const { sandbox } = await makePopup();
+    const oldRef = { file: 'tab-old.audio', mime: 'audio/webm', size: 4 };
+    const newRef = { file: 'tab-new.audio', mime: 'audio/webm', size: 5 };
+    let releaseRead;
+    let readStarted = false;
+    sandbox.RecordingStore = {
+      isRef: () => false,
+      read: async () => {
+        readStarted = true;
+        await new Promise((resolve) => { releaseRead = resolve; });
+        return { size: 4, type: 'audio/webm' };
+      },
+      remove: async () => true,
+    };
+    sandbox.document.createElement = () => ({ style: {}, click() {}, remove() {} });
+    await vm.runInContext(`audioRecording = ${JSON.stringify(oldRef)}`, sandbox);
+    const saving = vm.runInContext('handleSaveAudio()', sandbox);
+    while (!readStarted) await flushAsync();
+    await vm.runInContext(`audioRecording = ${JSON.stringify(newRef)}`, sandbox);
+    releaseRead();
+    await saving;
+    const stored = await vm.runInContext('audioRecording', sandbox);
+    assert.strictEqual(stored.file, newRef.file, 'a slow Save must not clear a newer recording');
+    console.log('PASS | slow tab save preserves a newer OPFS reference');
+  }
+  process.exit(0);
 })().catch((e) => {
   console.error(e);
   process.exit(1);
