@@ -18,8 +18,8 @@ let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await）�
 let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await），防重入
 let isStreaming = false;      // 真流式转录中（UI 镜像；真相在 background + offscreen）
 let isStreamingBusy = false;  // start/stop 消息往返进行中，防重入
+let micLeasePort = null;      // background 发放的麦克风录音所有权（长连接）
 let lastSavedConfigSnapshot = null; // 本页 persistConfig 成功后的字段快照（识别 storage 回声；null = 尚未初始化）
-let pendingConfigEchoes = 0; // 本页已保存、尚未收到对应 onChanged 回声的次数（精确回声识别，见 persistConfig）
 
 // 流式会话的宿主已迁至 offscreen（offscreen-streaming.js），本页只是 UI 镜像：
 // 发 start/stop、收 STREAM_UPDATE 广播刷新结果区、装载时按 STREAM_STATE 对账。
@@ -388,6 +388,86 @@ function enableAllRecordButtons() {
 
 // ---------- Recording (microphone) ----------
 
+// 麦克风录音跨 UI 互斥：真正的 MediaRecorder 仍在当前页面，但开始前必须先向
+// background 领取租约。长连接在 popup/sidepanel 关闭时自动断开，不会留下死锁。
+function acquireMicRecordingLease() {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = null;
+    let port;
+    try {
+      port = globalThis.chrome.runtime.connect({
+        name: globalThis.MESSAGES.MIC_RECORD_PORT,
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (error) {
+        try { port.disconnect(); } catch { /* already closed */ }
+        reject(error);
+      } else {
+        micLeasePort = port;
+        resolve();
+      }
+    };
+
+    port.onMessage.addListener((message) => {
+      if (settled) return;
+      if (message?.ok) {
+        finish();
+        return;
+      }
+      const error = new Error(message?.error?.message || 'Another audio recording is already active.');
+      error.code = message?.error?.code || globalThis.Errors.ALREADY_RECORDING.code;
+      finish(error);
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (!settled) {
+        finish(new Error('Background recording lease connection closed.'));
+        return;
+      }
+      if (micLeasePort !== port) return;
+      micLeasePort = null;
+      if (isRecording || isRecordingBusy) {
+        debugEvt('record-lease-lost', {});
+        showStatus('Recording stopped because the background connection was lost.', 'error');
+        void stopRecording();
+      }
+    });
+
+    timer = setTimeout(() => {
+      const error = new Error('Timed out acquiring the recording lease.');
+      error.code = globalThis.Errors.TIMEOUT?.code || 'TIMEOUT';
+      finish(error);
+    }, 5000);
+
+    try {
+      port.postMessage({ type: globalThis.MESSAGES.MIC_RECORD_ACQUIRE });
+    } catch (error) {
+      finish(error);
+    }
+  });
+}
+
+function releaseMicRecordingLease() {
+  const port = micLeasePort;
+  micLeasePort = null;
+  if (!port) return;
+  try {
+    port.postMessage({ type: globalThis.MESSAGES.MIC_RECORD_RELEASE });
+  } catch { /* background already gone */ }
+  try {
+    port.disconnect();
+  } catch { /* already closed */ }
+}
+
 async function toggleRecording() {
   if (!isRecording) {
     await startRecording();
@@ -407,6 +487,8 @@ async function startRecording() {
   try {
     audioBlob = null;
 
+    // 先领租约，再打开麦克风：否则两个 UI 可以同时通过本地检查。
+    await acquireMicRecordingLease();
     // 按 #audioInput 选择打开麦克风；授权成功后设备名才可见 → 刷新下拉框
     stream = await acquireMicrophone();
     void refreshAudioInputs();
@@ -414,6 +496,7 @@ async function startRecording() {
     recorder = new AudioRecorder({ mimeType: els.audioTypeSelect.value });
     recorder.attach(stream);
     recorder.start();
+    if (!micLeasePort) throw new Error('Recording ownership was lost before capture started.');
     const requestedMime = els.audioTypeSelect.value;
     const actualMime = recorder.actualMimeType();
     const formatChanged = !!requestedMime && !!actualMime
@@ -442,11 +525,12 @@ async function startRecording() {
     recorder?.release();
     recorder = null;
     stream?.getTracks().forEach((t) => t.stop());
+    releaseMicRecordingLease();
     isRecording = false;
     els.recordBtn.textContent = 'Start Recording';
-    enableAllRecordButtons();
   } finally {
     isRecordingBusy = false;
+    enableAllRecordButtons();
   }
 }
 
@@ -479,6 +563,7 @@ async function stopRecording() {
       showStatus(`Recording failed: ${error.message}`, 'error');
     }
   } finally {
+    if (!isRecording) releaseMicRecordingLease();
     isRecordingBusy = false;
     enableAllRecordButtons();
   }
@@ -1000,9 +1085,11 @@ async function persistConfig() {
     audioInput: selectedAudioInput,
   };
   try {
-    pendingConfigEchoes += 1;
     await globalThis.ConfigStore.save(config);
-    lastSavedConfigSnapshot = snapshotCurrentConfig();
+    // 只把本次提交的字段记为落盘基线。等待 save 期间用户可能又改了别的
+    // 字段；若改用 snapshotCurrentConfig()，这些尚未保存的新编辑会被误认成
+    // 已落盘，紧随其后的 storage.onChanged 就能把它们覆盖掉。
+    lastSavedConfigSnapshot = JSON.stringify(config);
     debugEvt('config-saved', {
       provider: config.provider,
       model: config.model,
@@ -1013,7 +1100,6 @@ async function persistConfig() {
       hasKey: !!config.apiKey,
     });
   } catch (error) {
-    pendingConfigEchoes = 0; // 保存失败不会有回声；清零避免吞掉下一次外部变更
     debugEvt('config-save-error', { message: error?.message || String(error) });
     showStatus(`Cannot save settings: ${error.message}`, 'error');
   }
@@ -1023,9 +1109,9 @@ async function persistConfig() {
 // 两边只在 DOMContentLoaded 各 load 一次，此后互不感知。persistConfig 是全量 8 字段
 // 提交，会把本页 UI 里的**旧** apiKey/model 写回 storage，静默回滚 options 刚保存的
 // 值（ConfigStore.merge 只保护未提交字段，保护不了已提交但过期的值）。监听 onChanged
-// 把外部修改刷回 UI 才能堵住这个窗口。自己的写入会触发同一事件 —— 用
-// pendingConfigEchoes 计数精确识别回声（保存前置 +1，事件消费 -1）。不能只比较
-//「UI == 上次快照」：初始化基线也一样相等，会把首次外部变更误判成回声吞掉。
+// 把外部修改刷回 UI 才能堵住这个窗口。自己的写入回声会重新读取同一份已保存
+// 配置，因此不必猜测事件来源；无条件交给未保存编辑守卫处理，才能避免把紧随
+// 其后的外部保存误当成回声吞掉。
 function snapshotCurrentConfig() {
   return JSON.stringify({
     provider: els.providerSelect.value,
@@ -1051,11 +1137,6 @@ globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
   // 直接套进 UI 会把密文写进输入框，本页下一次保存再把它加密一次就永久损坏
   // 密钥（#59）。
   (async () => {
-    if (pendingConfigEchoes > 0) {
-      pendingConfigEchoes -= 1;
-      debugEvt('config-echo-ignored', {});
-      return;
-    }
     // 本页存在未保存编辑（当前 UI 与上次落盘快照不一致）时不得整体重渲染：
     // applyConfigToUI 会覆写正在输入的 custom model / API key 等字段并隐藏
     // Custom 行（issue #54 手测：11 秒内三次把用户输入清成 model:""）。有未保存
@@ -1071,7 +1152,14 @@ globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
     });
     try {
       const decrypted = await globalThis.ConfigStore.load();
+      // load() 期间用户仍可能开始编辑。进入函数时的检查已经过期，必须在
+      // 应用前按当前 UI 再判定一次（issue #66）。
+      if (hasUnsavedConfigEdits()) {
+        debugEvt('config-external-deferred', { phase: 'post-load' });
+        return;
+      }
       applyConfigToUI({ ...getDefaultConfig(), ...decrypted });
+      lastSavedConfigSnapshot = snapshotCurrentConfig();
     } catch (error) {
       debugEvt('config-external-load-error', { message: error?.message || String(error) });
     }

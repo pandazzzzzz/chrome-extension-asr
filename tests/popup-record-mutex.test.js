@@ -27,7 +27,9 @@ function makeField(value = '', extra = {}) {
   };
 }
 
-async function makePopup() {
+async function makePopup(options = {}) {
+  let micAcquisitions = 0;
+  let leaseRequests = 0;
   const els = {
     provider: makeField('qwen'),
     apiKey: makeField('sk-test'),
@@ -76,6 +78,28 @@ async function makePopup() {
       runtime: {
         onMessage: { addListener: (fn) => listeners.runtime.push(fn) },
         sendMessage: async () => ({}),
+        connect: () => {
+          const messageListeners = [];
+          const disconnectListeners = [];
+          return {
+            onMessage: { addListener: (fn) => messageListeners.push(fn) },
+            onDisconnect: { addListener: (fn) => disconnectListeners.push(fn) },
+            postMessage(msg) {
+              if (msg?.type !== 'asr:mic-record-acquire') return;
+              leaseRequests += 1;
+              setTimeout(() => {
+                for (const fn of messageListeners) {
+                  fn(options.leaseAccepted === false
+                    ? { ok: false, error: { code: 'ALREADY_RECORDING', message: 'Already recording' } }
+                    : { ok: true, data: { recording: true } });
+                }
+              }, 0);
+            },
+            disconnect() {
+              for (const fn of disconnectListeners) fn();
+            },
+          };
+        },
         getURL: (p) => 'chrome-extension://test/' + p,
         getContexts: async () => [],
       },
@@ -93,6 +117,9 @@ async function makePopup() {
     MESSAGES: {
       STREAM_UPDATE: 'asr:stream-update',
       STREAM_STATE: 'asr:stream-state',
+      MIC_RECORD_PORT: 'asr:mic-record',
+      MIC_RECORD_ACQUIRE: 'asr:mic-record-acquire',
+      MIC_RECORD_RELEASE: 'asr:mic-record-release',
     },
     TARGETS: { BACKGROUND: 'background', UI: 'ui' },
     Errors: { TIMEOUT: { code: 'TIMEOUT' } },
@@ -113,7 +140,10 @@ async function makePopup() {
       static sameMimeType() { return true; }
       static baseMimeType(x) { return x; }
     },
-    openMicrophone: async () => ({ stream: { getTracks: () => [] } }),
+    openMicrophone: async () => {
+      micAcquisitions += 1;
+      return { stream: { getTracks: () => [] } };
+    },
     createPcmCapture() { return {}; },
   };
   sandbox.globalThis = sandbox;
@@ -121,7 +151,13 @@ async function makePopup() {
   vm.runInContext(fs.readFileSync(path.join(root, 'popup/app.js'), 'utf8'), sandbox, { filename: 'popup/app.js' });
   await listeners.domready[0]();
   await flushAsync();
-  return { sandbox, els, listeners };
+  return {
+    sandbox,
+    els,
+    listeners,
+    get micAcquisitions() { return micAcquisitions; },
+    get leaseRequests() { return leaseRequests; },
+  };
 }
 
 (async () => {
@@ -165,6 +201,23 @@ async function makePopup() {
     assert.strictEqual(els.tabRecordBtn.disabled, false, 'tab path re-enables after tab stop');
     assert.strictEqual(els.streamBtn.disabled, false, 'stream path re-enables after tab stop');
     console.log('PASS | successful tab stop unlocks all paths (#81)');
+  }
+  {
+    const denied = await makePopup({ leaseAccepted: false });
+    await vm.runInContext('startRecording()', denied.sandbox);
+    await flushAsync();
+    assert.strictEqual(denied.leaseRequests, 1, 'mic start must request the background recording lease');
+    assert.strictEqual(denied.micAcquisitions, 0, 'denied lease must not open a microphone');
+    assert.strictEqual(denied.els.recordBtn.disabled, false, 'failed mic start must unlock the mic button');
+    assert.strictEqual(denied.els.tabRecordBtn.disabled, false, 'failed mic start must unlock Tab');
+    assert.strictEqual(denied.els.streamBtn.disabled, false, 'failed mic start must unlock Stream');
+
+    const granted = await makePopup();
+    await vm.runInContext('startRecording()', granted.sandbox);
+    await flushAsync();
+    assert.strictEqual(granted.leaseRequests, 1, 'mic start must acquire before getUserMedia');
+    assert.strictEqual(granted.micAcquisitions, 1, 'granted lease should allow microphone acquisition once');
+    console.log('PASS | microphone recording acquires the shared background lease');
   }
 })().catch((e) => {
   console.error(e);

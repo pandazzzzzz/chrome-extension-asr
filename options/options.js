@@ -7,7 +7,7 @@
 
 const els = {};
 let statusTimer = null;
-let lastSavedConfigSnapshot = ''; // 本页 save 成功后的字段快照（识别 storage 回声）
+let lastSavedConfigSnapshot = null; // 最近一次已知落盘状态的字段快照
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const config = await globalThis.ConfigStore.load();
     applyToUI(config);
+    lastSavedConfigSnapshot = snapshotCurrentConfig();
 
     bindEvents();
     await refreshHistory();
@@ -158,15 +159,18 @@ async function save() {
     // 只提交本页实际编辑的字段。`subtitles` / `audioInput` 在本页无控件，故不提交 ——
     // ConfigStore.save 是 merge 语义（issue #19），未传字段保持原值，不会被这次保存抹掉。
     // `audioType` 本页有控件（applyToUI 回填过），故读它一并提交，用户在此改的格式能落盘。
-    await globalThis.ConfigStore.save({
+    const config = {
       provider: els.provider.value,
       apiKey: els.apiKey.value.trim(),
       region,
       endpoint,
       model: resolveModel(),
       audioType: els.audioType.value,
-    });
-    lastSavedConfigSnapshot = snapshotCurrentConfig();
+    };
+    await globalThis.ConfigStore.save(config);
+    // 只记录本次提交值；若保存期间又产生了新编辑，后续外部变更仍应被
+    // hasUnsavedConfigEdits() 拦住，不能被误当成"本页已保存"。
+    lastSavedConfigSnapshot = JSON.stringify(config);
     show('Settings saved.', 'success');
     await refreshStorageStatus();
   } catch (e) {
@@ -177,9 +181,9 @@ async function save() {
 // 跨入口页同步：popup/sidepanel 与本页可同屏共存，两边只在 DOMContentLoaded 各 load
 // 一次。popup 的 persistConfig 是全量 8 字段提交，本页保存后若不同步，本页 UI 里
 // 持有的旧值会在下一次 popup 保存时被写回 storage（静默回滚本页的修改）。监听
-// onChanged 重新套用外部修改；自己的写入用保存后的快照识别回声并跳过。本页是显式
-// Save 模式（无逐字段 change 保存），直接整体 applyToUI 不会冲掉未保存的编辑 ——
-// 那是本页 "revert to stored" 的既有语义。
+// onChanged 重新套用外部修改；本页有未保存编辑时跳过，避免覆盖用户正在输入
+// 的内容。自己的写入回声会重新读取同一份已保存配置，因此无需用计数猜测
+// 事件来源；这样也不会吞掉紧接着到达的外部保存。
 function snapshotCurrentConfig() {
   return JSON.stringify({
     provider: els.provider.value,
@@ -193,19 +197,27 @@ function snapshotCurrentConfig() {
 
 globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
   if (areaName !== 'local' || !changes.asrConfig) return;
-  if (lastSavedConfigSnapshot === snapshotCurrentConfig()) return;
-  // 同步必须走 load() 解密：newValue 里 apiKey 是 AES-GCM 密文，直接套 UI
-  // 会在下一次 Save 时被再加密一次，密钥永久损坏（#59）。
   (async () => {
+    if (hasUnsavedConfigEdits()) return;
+    // 同步必须走 load() 解密：newValue 里 apiKey 是 AES-GCM 密文，直接套 UI
+    // 会在下一次 Save 时被再加密一次，密钥永久损坏（#59）。
     try {
       const decrypted = await globalThis.ConfigStore.load();
+      // load() 期间用户仍可能开始编辑，应用前必须按最新 UI 再判定一次（#66）。
+      if (hasUnsavedConfigEdits()) return;
       // applyToUI 会重建 provider 下拉并级联重建 region/model 选项
       applyToUI(decrypted);
+      lastSavedConfigSnapshot = snapshotCurrentConfig();
     } catch (e) {
       show(`Cannot sync settings: ${e.message}`, 'error');
     }
   })();
 });
+
+function hasUnsavedConfigEdits() {
+  return lastSavedConfigSnapshot !== null
+    && lastSavedConfigSnapshot !== snapshotCurrentConfig();
+}
 
 async function refreshHistory() {
   let items;

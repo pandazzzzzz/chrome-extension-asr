@@ -420,7 +420,7 @@
       return `${e.ts}  ${atMs}${src}${seq}[${e.phase}]  ${redactDebugText(JSON.stringify(e.detail ?? {}))}`;
     });
     const fillCount = merged.filter((m) => m.kind === 'fill').length;
-    const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${location.href}\n`
+    const text = `ASR 扩展诊断日志\n导出时间：${now()}\n页面：${redactDebugText(location.href)}\n`
       + `来源标记：{ui}=popup/sidepanel {offscreen}=会话宿主 {background}=仲裁层 {page}=本页注入日志；@=epoch(ms)\n\n`
       + `==== 统一时间线（${evtLines.length} 条：遥测 ${evtLines.length - fillCount} + 注入 ${fillCount}${evtEntries.length >= EVT_MAX ? '；遥测已达上限 2000，更早的已丢弃' : ''}；pcm-stats/heartbeat 各只保留最近 200 条）====\n${evtLines.join('\n') || '(无 —— 若确认操作过扩展，检查页面是否 http:// 打开、事件面板是否显示已连接)'}`;
     const a = document.createElement('a');

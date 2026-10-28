@@ -8,15 +8,27 @@
 globalThis.redactDebugText = function redactDebugText(value) {
   let text = String(value ?? '');
 
-  // URL query parameters: api_key, api-key, apikey, access_token, token, key.
+  // URL userinfo: wss://user:password@host/... — keep scheme/host, drop credentials.
+  text = text.replace(/\b(https?|wss?):\/\/[^/\s@]+@/gi, '$1://<redacted>@');
+
+  // Redact unknown URL query values, including provider-specific or user-chosen
+  // parameter names that the secret-name allowlist cannot know in advance. Keep
+  // a few non-sensitive routing/format parameters useful for diagnostics.
   text = text.replace(
-    /\b(api[_-]?key|apikey|access[_-]?token|token|key)=([^&\s"'#]+)/gi,
+    /([?&])(?!(?:model|version|v|region|format|sample_rate)=)([^=&\s"'#]+)=([^&\s"'#]*)/gi,
+    '$1$2=<redacted>',
+  );
+
+  // URL query parameters: API keys, tokens, and common secret field names.
+  const secretName = '(?:api[_-]?key|apikey|access[_-]?token|token|key|client[_-]?secret|secret|password|credential|passwd|private[_-]?key)';
+  text = text.replace(
+    new RegExp(`\\b(${secretName})=([^&\\s"'#]+)`, 'gi'),
     '$1=<redacted>',
   );
 
   // JSON fields (including apiKey / accessToken camelCase variants).
   text = text.replace(
-    /("(?:api[_-]?key|apikey|access[_-]?token|accesstoken|token|key|authorization)"\s*:\s*")([^"]*)(")/gi,
+    /("(?:api[_-]?key|apikey|access[_-]?token|accesstoken|token|key|authorization|client[_-]?secret|secret|password|credential|passwd|private[_-]?key)"\s*:\s*")([^"]*)(")/gi,
     '$1<redacted>$3',
   );
 

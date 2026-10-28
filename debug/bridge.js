@@ -50,10 +50,8 @@
   // 在 localhost 托管，路径名 + 主机名双重限定即可。
   // location.hostname 把 IPv6 回环带括号序列化为 '[::1]'（WHATWG URL 规范），
   // 裸 '::1' 永远不会匹配，故只列带括号形式。
-  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-  // 锚定到"路径段末尾是 stream-debug.html"：避免 my-stream-debug.html / stream-debug.html.bak
-  // 之类含子串的本地页也装上监听并收遥测（主机名虽已限 localhost，路径仍应精确）。
-  const isDiagnosticPage = isLocalHost && /(^|\/)stream-debug\.html$/.test(location.pathname);
+  const isDiagnosticPage = typeof globalThis.isApprovedDebugPageUrl === 'function'
+    && globalThis.isApprovedDebugPageUrl(location.href);
   if (!isDiagnosticPage) return;
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
 

@@ -122,7 +122,8 @@ class QwenProvider extends BaseProvider {
    * 采样率：**按模型自适应** —— `sample_rate` 取自 `sampleRateFor(streamModel)`，
    * 8k 电话模型（`fun-asr-flash-8k-realtime` / `paraformer-realtime-8k-v2`）发 8000，
    * 其余发 `defaultSampleRate`（16000）。调用方必须用**同一个** `sampleRateFor()` 结果
-   * 建 AudioContext 并作为逐帧重采样的目标率（见 popup/app.js 的 startStreaming），
+   * 建 AudioContext 并作为逐帧重采样的目标率（见 offscreen/offscreen-streaming.js
+   * 的 startStreaming），
    * 否则发出去的 PCM 与声明的采样率不符，服务端会按错误速率解析音频。
    *
    * endpoint：**空串是错误**（NO_ENDPOINT），不是"未指定"。只有 `undefined`/省略才回落
@@ -132,8 +133,9 @@ class QwenProvider extends BaseProvider {
    * ⚠️ `?api_key=` **未见于官方文档**（文档只写握手请求头 `Authorization: Bearer <key>`）；
    * 实测服务端接受该 query 参数（无参 → "No API-key provided."，带无效值 → "Invalid API-key
    * provided."），属未公开的兼容行为，可能随时失效，届时需重新评估浏览器侧的鉴权方案。
-   * 安全边界：本方法在 popup/sidepanel 调用，apiKey 进入页面 JS —— MV3 service
-   * worker 无法持长连接，这是浏览器扩展的固有取舍（密钥仍只来自本地加密存储）。
+   * 安全边界：本方法由 offscreen document 调用；启动消息会经 background 内存
+   * 转发一次，并在 offscreen 会话期间驻留。密钥不写入 storage，MV3 service
+   * worker 也无法持长连接，这是浏览器扩展的固有取舍（密钥仍只来自本地加密存储）。
    *
    * @param {Object} opts 见 BaseProvider.createStreamSession 约定
    * @returns {{ ready: Promise<void>, sendAudio, stop, close }}
@@ -183,10 +185,10 @@ class QwenProvider extends BaseProvider {
     }
 
     const base = endpoint || this.getDefaultStreamEndpoint();
-    // 只接受 ws(s):// 的 WebSocket URL。endpoint 字段占位符是 https://...，批量时代的配置
+    // 只接受 wss:// 的 WebSocket URL。endpoint 字段占位符是 https://...，批量时代的配置
     // 可能留了 https REST URL（如 https://dashscope.aliyuncs.com/api/v1/...）—— 直接喂给
     // new WebSocket('https://…') 会抛 SyntaxError，且每次 Live Stream 都起不来。这里提前报错。
-    if (!/^wss?:\/\//i.test(base)) {
+    if (!/^wss:\/\//i.test(base)) {
       throw globalThis.createError(
         globalThis.Errors.UNKNOWN,
         `"${base}" is not a WebSocket URL; streaming requires wss:// (e.g. ${this.getDefaultStreamEndpoint()})`,
@@ -244,7 +246,7 @@ class QwenProvider extends BaseProvider {
       resolveFinished();
       track('session-end', { started, message: error ? error.message : null });
       if (error) onError?.(error);
-      onEnd?.();
+      onEnd?.('error');
     }
 
     // 调用方主动 close（用户 Stop、启动失败回滚、stop 超时后的 teardown）不是
@@ -260,7 +262,7 @@ class QwenProvider extends BaseProvider {
       }
       resolveFinished();
       track('session-end', { started, message: null, closeRequested: true });
-      onEnd?.();
+      onEnd?.('closed');
     }
 
     socket.onopen = () => {
@@ -307,7 +309,7 @@ class QwenProvider extends BaseProvider {
           resolveFinished();
           track('task-finished', { taskId });
           onComplete?.();
-          onEnd?.();
+          onEnd?.('complete');
           socket.close();
           break;
         case 'task-failed':

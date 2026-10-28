@@ -64,6 +64,9 @@ globalThis.MESSAGES = Object.freeze({
   TAB_RECORD_START: 'asr:tab-record-start',
   TAB_RECORD_STOP: 'asr:tab-record-stop',
   TAB_RECORD_STATE: 'asr:tab-record-state', // 查询标签页录音是否在进行（popup 装载时对齐）
+  MIC_RECORD_PORT: 'asr:mic-record',          // popup/sidepanel → background 长连接租约
+  MIC_RECORD_ACQUIRE: 'asr:mic-record-acquire',
+  MIC_RECORD_RELEASE: 'asr:mic-record-release',
   STREAM_START: 'asr:stream-start',         // Live Stream 会话（宿主在 offscreen，跨 popup 生命周期）
   STREAM_STOP: 'asr:stream-stop',
   STREAM_STATE: 'asr:stream-state',         // popup 装载时对账（同 tab-record-state 模式）
@@ -88,6 +91,28 @@ globalThis.TARGETS = Object.freeze({
                 // background / offscreen / content 的 target 过滤都会忽略它；只有
                 // popup/app.js 显式监听 target === TARGETS.UI 的消息。
 });
+
+// 诊断遥测只允许来自仓库自带的本地诊断页，且限定默认开发端口。任意
+// localhost 服务都能拿到 content script 注入；仅凭 hostname/path 后缀会让
+// 另一个本地进程冒充诊断页订阅模型、设备与错误遥测。
+globalThis.DEBUG_PAGE = Object.freeze({
+  host: 'localhost',
+  port: '18923',
+  path: '/tests/stream-debug.html',
+  hosts: Object.freeze(['localhost', '127.0.0.1', '[::1]']),
+});
+
+globalThis.isApprovedDebugPageUrl = function isApprovedDebugPageUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:'
+      && globalThis.DEBUG_PAGE.hosts.includes(url.hostname)
+      && url.port === globalThis.DEBUG_PAGE.port
+      && url.pathname === globalThis.DEBUG_PAGE.path;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Blob → 消息可传的 { b64, mime }（见文件头「音频为什么编码传输」）。

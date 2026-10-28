@@ -45,14 +45,24 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 - `tabCapture` — capture tab audio (pairs with an offscreen document)
 - `sidePanel` — open the persistent side panel
 - `offscreen` — create the offscreen document that hosts tab capture (MV3 service workers have no DOM)
-- Host permissions: none. The streaming path uses `new WebSocket(...)` from the popup/side-panel page; extension pages are **not** subject to `host_permissions` for WebSocket connections (verified: a `wss://` connection to an undeclared host still reaches the server). `wss://` is not a valid Chrome match pattern, and the extension makes no `fetch()` calls.
+- Host permissions: none. Live Stream opens its WebSocket from the offscreen document
+  (`offscreen/offscreen-streaming.js`), so recording survives popup/side-panel closure.
+  Extension pages are **not** subject to `host_permissions` for WebSocket connections;
+  only `wss://` endpoints are accepted. `wss://` is not a valid Chrome match pattern, and
+  the extension makes no `fetch()` calls.
 
 ## Tests
 
 `npm test` runs the Node unit tests: `tests/streaming.test.js` (PCM helpers,
 provider contract, model metadata, active-close handling and post-handshake
 network errors), `tests/config.test.js` (merge semantics, apiKey boundaries,
-one-shot migration and write serialization), `tests/history.test.js` (IndexedDB
+one-shot migration and write serialization), `tests/config-ui-sync.test.js`
+(popup/side-panel cross-page edit guards), `tests/options-config-sync.test.js`
+(options-page sync and unsaved-edit guards), `tests/offscreen-messaging.test.js`
+(stream lifecycle and message-family routing), `tests/popup-record-mutex.test.js`
+(recording UI mutex and mic lease), `tests/background-lifecycle.test.js` and
+`tests/background-arbitration.test.js` (stream generations and three-way audio
+ownership), `tests/history.test.js` (IndexedDB
 errors are not reported as empty/success, trim failures do not hide a
 successful write, and trimming follows createdAt), `tests/content-fill.test.js`
 (fill-text cannot report false success; open Shadow DOM is supported),
@@ -67,14 +77,29 @@ path traversal, rejects a non-loopback `Host` header, and exits cleanly when
 its port is taken).
 No browser or network needed.
 
+## WebSocket authentication note
+
+Browsers cannot set an `Authorization` header on a WebSocket handshake. The Qwen
+provider therefore uses the service's observed `?api_key=...` query fallback,
+even though the public protocol documentation describes a Bearer header. Only
+`wss://` endpoints are accepted. Treat URLs, browser diagnostics, and any proxy
+logs as credential-bearing when debugging Live Stream, and use a dedicated,
+least-privilege API key for this extension. If the provider removes query-string
+authentication, run a loopback-only TLS proxy that adds the documented
+`Authorization: Bearer ...` header, then point the **Custom** region endpoint at
+that proxy. Do not log the incoming query string, and trust the proxy certificate
+only for local development.
+
 For the browser smoke tests, open `tests/p1-smoke-test.html` in Chrome. It loads
 the real modules and checks crypto, config, messaging and error helpers; the
 cases live in `tests/p1-smoke-test.js` (external, so the page also runs under
 the extension CSP).
 
 For streaming diagnostics, run `node tests/serve-debug.js` and open
-`http://localhost:18923/tests/stream-debug.html`. Pass a port to override the
-default: `node tests/serve-debug.js 19150`. The server binds to loopback only,
+`http://localhost:18923/tests/stream-debug.html`. Telemetry requires this exact
+approved loopback origin/port; the static server can listen on another port for
+manual page testing, but the bridge intentionally will not subscribe there. The
+server binds to loopback only,
 serves only the diagnostic page and its redaction helper (so `.env.local`,
 `.git/`, `docs/`, `temp/`, local manual plans, exported logs, and local media
 are never reachable over HTTP), and rejects any non-loopback `Host` header.

@@ -56,6 +56,7 @@ function makeSandbox() {
     TARGETS: { BACKGROUND: 'background', OFFSCREEN: 'offscreen', CONTENT: 'content', DEBUG: 'debug', UI: 'ui' },
     Errors: { ALREADY_RECORDING: { code: 'ALREADY_RECORDING' }, API_ERROR: { code: 'API_ERROR' }, RECORD_ERROR: { code: 'RECORD_ERROR' }, OFFSCREEN_ERROR: { code: 'OFFSCREEN_ERROR' }, NOT_RECORDING: { code: 'NOT_RECORDING' }, UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION' } },
     createError: (e, message) => ({ ...e, message: message || e.message }),
+    withTimeout: (promise) => Promise.resolve(promise),
     PROVIDERS: [],
     openMicrophone: async () => ({ stream: { getTracks: () => [] }, fellBack: false }),
   };
@@ -154,6 +155,50 @@ async function run() {
     assert.ok(!sent.some((m) => m.payload?.ev === 'model-fallback'));
   });
 
+  await t('concurrent starts: only one microphone is acquired and one start succeeds', async () => {
+    const { sandbox, listeners } = makeSandbox();
+    let resolveMic;
+    let acquisitions = 0;
+    sandbox.openMicrophone = () => {
+      acquisitions += 1;
+      return new Promise((resolve) => {
+        resolveMic = () => resolve({ stream: { getTracks: () => [] }, fellBack: false });
+      });
+    };
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: () => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        stop: async () => {},
+        close() {},
+      }),
+    });
+
+    const first = dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    });
+    const second = dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    resolveMic();
+    const [firstResult, secondResult] = await Promise.all([withTimeout(first), withTimeout(second)]);
+    const results = [firstResult, secondResult];
+
+    assert.strictEqual(acquisitions, 1, 'concurrent starts must acquire exactly one microphone');
+    assert.strictEqual(results.filter((r) => r?.ok).length, 1, 'exactly one start must succeed');
+    assert.strictEqual(
+      results.find((r) => !r?.ok)?.error?.code,
+      'ALREADY_RECORDING',
+      'the losing start must fail with ALREADY_RECORDING',
+    );
+  });
+
   await t('STREAM_STATE: responds even with the tab-record listener registered first (#58)', async () => {
     const { sandbox, listeners } = makeCoexistenceSandbox();
     await startSession(sandbox, listeners);
@@ -201,7 +246,7 @@ async function run() {
 
   await t('setSubtitles(false): sends SUBTITLE_HIDE so the overlay is removed (#57)', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
-    await startSession(sandbox, listeners, { subtitles: true });
+    await startSession(sandbox, listeners, { payload: { subtitles: true } });
     sent.length = 0; // 丢弃启动期广播，只看开关动作
     const resp = await setSubtitles(listeners, false);
     assert.ok(resp?.ok, 'STREAM_SET_SUBTITLES got no response');
@@ -213,7 +258,7 @@ async function run() {
 
   await t('setSubtitles(true): immediately mirrors current text via SUBTITLE_SHOW (#57)', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
-    await startSession(sandbox, listeners, { subtitles: false });
+    await startSession(sandbox, listeners, { payload: { subtitles: false } });
     // 让会话产生已确认文本（provider onResult 驱动）。
     const provider = sandbox.PROVIDERS[0];
     provider.emitResult?.({ text: 'hello', sentenceEnd: true });
@@ -229,7 +274,7 @@ async function run() {
   // ---- #60：STREAM_UPDATE 的 ended 广播 ----
   await t('endSession: broadcasts STREAM_UPDATE ended so the popup resets (#60)', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
-    await startSession(sandbox, listeners, { subtitles: false });
+    await startSession(sandbox, listeners, { payload: { subtitles: false } });
     sent.length = 0;
     const resp = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
     assert.ok(resp?.ok, 'STREAM_STOP got no response');
@@ -266,6 +311,123 @@ async function run() {
     const ended = sent.find((m) => m.type === 'asr:stream-ended');
     assert.ok(ended, 'STREAM_ENDED must be sent (fire-and-forget) during stop');
     assert.strictEqual(typeof ended.payload.streamGeneration, 'number', 'STREAM_ENDED must carry a stream-scoped generation for background stale filtering (#72)');
+  });
+
+  await t('STREAM_ENDED echoes the generation supplied by background', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    await startSession(sandbox, listeners, { payload: { streamGeneration: 7 } });
+    sent.length = 0;
+    const resp = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(resp?.ok, 'STREAM_STOP got no response');
+    const ended = sent.find((m) => m.type === 'asr:stream-ended');
+    assert.strictEqual(ended?.payload?.streamGeneration, 7);
+  });
+
+  await t('stopStreaming: awaits provider.stop() so final results reach history', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    let stopCalls = 0;
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: (opts) => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        async stop() {
+          stopCalls += 1;
+          // A provider may emit the last sentence while finish-task is settling.
+          opts.onResult({ text: 'final words', sentenceEnd: true });
+        },
+        close() {},
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    sent.length = 0;
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream did not stop');
+    assert.strictEqual(stopCalls, 1, 'provider.stop() must be awaited during normal teardown');
+    const history = sent.find((m) => m.type === 'asr:history-add');
+    assert.match(history?.payload?.text || '', /final words/);
+  });
+
+  await t('graceful task-finished onEnd does not surface a network error', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    let callbacks;
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: (opts) => {
+        callbacks = opts;
+        return {
+          ready: Promise.resolve(),
+          sendAudio() {},
+          async stop() {
+            opts.onResult({ text: 'complete final', sentenceEnd: true });
+            opts.onComplete?.();
+            opts.onEnd?.('complete');
+          },
+          close() {},
+        };
+      },
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    sent.length = 0;
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream did not stop');
+    assert.ok(callbacks, 'provider callbacks were not captured');
+    assert.ok(
+      !sent.some((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'error-status'),
+      'graceful task-finished must not be reported as a network error',
+    );
+    const history = sent.find((m) => m.type === 'asr:history-add');
+    assert.match(history?.payload?.text || '', /complete final/);
+  });
+
+  await t('local provider close during stop does not surface a network error', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: (opts) => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        async stop() {
+          opts.onEnd?.('closed');
+        },
+        close() {},
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    sent.length = 0;
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream did not stop');
+    assert.ok(
+      !sent.some((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'error-status'),
+      'local close() must not be reported as a server/network failure',
+    );
   });
 
   console.log(`${pass} passed, ${fail} failed`);

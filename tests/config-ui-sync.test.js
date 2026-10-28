@@ -92,6 +92,8 @@ async function makePage() {
   const page = {
     // onChanged 同步路径必须走 ConfigStore.load()（解密），不能直接套 storage 密文。
     configStoreLoads: 0,
+    nextConfigStoreLoad: null,
+    nextConfigStoreSave: null,
     // 初始 load 返回与 els 初始值一致的配置，建立"UI=基线快照"的干净起点
     //（否则首个 onChanged 会被当成回声/未保存编辑跳过）。
     configStoreLoadResult: {
@@ -130,8 +132,22 @@ async function makePage() {
     TARGETS: { BACKGROUND: 'background', OFFSCREEN: 'offscreen', UI: 'ui' },
     Errors: { TIMEOUT: { code: 'TIMEOUT' } },
     ConfigStore: {
-      load: async () => { page.configStoreLoads += 1; return page.configStoreLoadResult; },
-      save: async () => {},
+      load: async () => {
+        page.configStoreLoads += 1;
+        if (page.nextConfigStoreLoad) {
+          const pending = page.nextConfigStoreLoad;
+          page.nextConfigStoreLoad = null;
+          return pending;
+        }
+        return page.configStoreLoadResult;
+      },
+      save: async () => {
+        if (page.nextConfigStoreSave) {
+          const pending = page.nextConfigStoreSave;
+          page.nextConfigStoreSave = null;
+          await pending;
+        }
+      },
     },
     Format: { timestampForFile: () => 'x' },
     PROVIDERS: [{
@@ -248,6 +264,79 @@ async function makePage() {
     await new Promise((r) => setTimeout(r, 10));
     assert.ok(page.configStoreLoads >= 2, '同步路径没有走 ConfigStore.load()（issue #59：会把密文写进 UI），实际 load 次数: ' + page.configStoreLoads);
     assert.strictEqual(els.apiKeyInput.value, 'sk-plaintext-again');
+  });
+
+  await t('onChanged: 延迟 load 期间开始的编辑不得在 load 完成后被覆盖（issue #66）', async () => {
+    const { els, listeners, page } = await makePage();
+    let resolveLoad;
+    page.nextConfigStoreLoad = new Promise((resolve) => { resolveLoad = resolve; });
+
+    listeners.changed[0](
+      { asrConfig: { newValue: {
+        provider: 'qwen', apiKey: 'enc:EXTERNAL-CIPHERTEXT', region: 'cn-beijing',
+        endpoint: '', model: 'fun-asr-realtime', audioType: 'audio/webm',
+        subtitles: true, audioInput: '',
+      } } },
+      'local',
+    );
+    await flushAsync();
+
+    // load 尚未返回时，用户切到 Custom 并开始输入。
+    els.modelInput.value = '';
+    els.modelCustomInput.value = 'qwen3-asr-flash-realtime';
+
+    resolveLoad({
+      provider: 'qwen', apiKey: 'sk-external', region: 'cn-beijing',
+      endpoint: '', model: 'fun-asr-realtime', audioType: 'audio/webm',
+      subtitles: true, audioInput: '',
+    });
+    await flushAsync();
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.strictEqual(
+      els.modelCustomInput.value,
+      'qwen3-asr-flash-realtime',
+      '异步 load 返回后覆盖了等待期间产生的未保存编辑（issue #66）',
+    );
+    assert.strictEqual(els.apiKeyInput.value, 'sk-test', 'API Key 在 load 返回后也不应被外部值覆盖');
+  });
+
+  await t('persistConfig: save 期间的新编辑不得被后续外部同步覆盖', async () => {
+    const { sandbox, els, listeners, page } = await makePage();
+    let resolveSave;
+    page.nextConfigStoreSave = new Promise((resolve) => { resolveSave = resolve; });
+
+    els.apiKeyInput.value = 'sk-being-saved';
+    const saving = vm.runInContext('persistConfig()', sandbox);
+    await flushAsync();
+
+    // save 尚未返回，用户继续输入新的 Custom 模型。
+    els.modelInput.value = '';
+    els.modelCustomInput.value = 'qwen3-asr-flash-realtime';
+    resolveSave();
+    await saving;
+    await flushAsync();
+
+    page.configStoreLoadResult = {
+      provider: 'qwen', apiKey: 'sk-external', region: 'cn-beijing',
+      endpoint: '', model: 'fun-asr-realtime', audioType: 'audio/webm',
+    };
+    listeners.changed[0](
+      { asrConfig: { newValue: {
+        provider: 'qwen', apiKey: 'enc:EXTERNAL-CIPHERTEXT', region: 'cn-beijing',
+        endpoint: '', model: 'fun-asr-realtime', audioType: 'audio/webm',
+        subtitles: true, audioInput: '',
+      } } },
+      'local',
+    );
+    await flushAsync();
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.strictEqual(
+      els.modelCustomInput.value,
+      'qwen3-asr-flash-realtime',
+      'save 期间产生的编辑被误记为已保存，随后被外部变更覆盖',
+    );
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

@@ -187,6 +187,17 @@ t('Qwen.createStreamSession: 非 wss:// endpoint 提前报错（不喂给 new We
     apiKey: 'k', model: 'fun-asr-realtime', endpoint: 'https://dashscope.aliyuncs.com/api/v1', onResult() {},
   }), (e) => e.code === 'UNKNOWN' && /not a WebSocket URL/.test(e.message));
 });
+t('Qwen.createStreamSession: 拒绝明文 ws:// endpoint，且不创建 socket', () => {
+  withFakeSocket((sockets) => {
+    assert.throws(() => Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      endpoint: 'ws://dashscope.aliyuncs.com/api-ws/v1/inference',
+      onResult() {},
+    }), (e) => e.code === 'UNKNOWN' && /wss:\/\//.test(e.message));
+    assert.strictEqual(sockets.length, 0, '明文 ws:// 不应创建 socket');
+  });
+});
 t('Qwen.createStreamSession: endpoint 为空串报 NO_ENDPOINT（不静默回落默认端点）', () => {
   // Custom 地域没填 URL 时 resolveEndpoint 返回 ''。若被 `endpoint || default` 吞掉，
   // 就会静默拨公共北京端点 —— 用户明明选了 Custom，而地域与 API Key 强绑定，必然 401。

@@ -25,6 +25,8 @@
 
   let session = null; // 会话真身：null = 空闲
   let streamSeq = 0;  // 每次自增，跨会话竞态防护（延迟回调归属判断）
+  let starting = false; // START 占用麦克风期间的并发防护
+  let ending = null;  // 收尾去重：graceful stop 期间 onEnd 可能重入
 
   function broadcastUpdate(kind, extra) {
     chrome.runtime.sendMessage({
@@ -83,16 +85,35 @@
     }
   }
 
-  async function teardownSession() {
+  async function drainSession() {
     if (!session) return;
     const s = session;
-    session = null;
     stopPcmStats();
     try {
       s.capture?.stop();
     } catch {
       /* ignore */
     }
+    // 先停采音，再等服务端确认 finish-task；会话仍保持 current，收尾前到达的
+    // 最后一句才能进入 finalText / history。provider 自身有 5s 超时，这里再加
+    // 一层总预算，防第三方实现永不 settle。
+    if (typeof s.wsSession?.stop === 'function') {
+      try {
+        await globalThis.withTimeout(
+          Promise.resolve().then(() => s.wsSession.stop()),
+          6000,
+          'stream provider stop',
+        );
+      } catch (e) {
+        debugEvt('ws-stop-error', { message: e?.message || String(e) });
+      }
+    }
+  }
+
+  async function teardownSession() {
+    if (!session) return;
+    const s = session;
+    session = null;
     try {
       s.wsSession?.close();
     } catch {
@@ -132,8 +153,16 @@
   }
 
   // 服务端/网络终止：offscreen 自行收尾（popup 可能已经不在了，等它救场只会丢历史）
-  function handleRemoteEnd() {
+  function handleRemoteEnd(reason) {
     if (!session) return;
+    if (reason === 'complete') {
+      void endSession('complete');
+      return;
+    }
+    // close() 是本地主动终止（用户 Stop、启动失败回滚、stop() 超时后的 teardown），
+    // 不应误报成服务端/网络中断。stop() 正在收尾时 endSession 已负责后续流程；
+    // 启动失败时 startStreamingLocked 的 catch 也会走统一 endSession。
+    if (reason === 'closed') return;
     session.endedRemotely = true;
     broadcastUpdate('error-status', { message: 'Stream ended by the server or network.' });
     void endSession('remote');
@@ -142,26 +171,45 @@
   // 唯一收尾路径：finalize → teardown → 通知 background 清状态（它决定是否回收文档）
   async function endSession(reason) {
     if (!session) return;
-    const endedRemotely = reason === 'remote' || session.endedRemotely;
-    const streamGeneration = session.streamSeq;
-    await finalizeSession(reason);
-    await teardownSession();
-    // fire-and-forget：先发消息让 background 收到并返回，stopStreaming 才能发
-    // STREAM_STOP response；否则 closeDocument 在消息到达前杀死文档。
-    void chrome.runtime.sendMessage({
-      type: MESSAGES.STREAM_ENDED,
-      payload: { reason: endedRemotely ? 'remote' : 'user', streamGeneration },
-      target: TARGETS.BACKGROUND,
-    }).catch(() => {});
-    // 正常收尾也要广播 ended：popup 的按钮复位分支（applyStreamingState(false)）
-    // 依赖它；此前只靠 error-status 兜底，正常停止路径的 UI 复位无人驱动（#60）。
-    broadcastUpdate('ended', {});
-    // fire-and-forget：background 处理这个消息时会 closeDocument。若在这里
-    // await 它，STREAM_STOP 的 sendResponse 还没发出文档就被杀，popup 拿到
-    // 超时/断连；不 await 让 stopStreaming 先返回，文档自然由 background 收。
+    if (ending) return ending;
+    ending = (async () => {
+      const endedRemotely = reason === 'remote' || session.endedRemotely;
+      const streamGeneration = session.streamGeneration;
+      await drainSession();
+      await finalizeSession(reason);
+      await teardownSession();
+      // fire-and-forget：先发消息让 background 收到并返回，stopStreaming 才能发
+      // STREAM_STOP response；否则 closeDocument 在消息到达前杀死文档。
+      void chrome.runtime.sendMessage({
+        type: MESSAGES.STREAM_ENDED,
+        payload: { reason: endedRemotely ? 'remote' : 'user', streamGeneration },
+        target: TARGETS.BACKGROUND,
+      }).catch(() => {});
+      // 正常收尾也要广播 ended：popup 的按钮复位分支（applyStreamingState(false)）
+      // 依赖它；此前只靠 error-status 兜底，正常停止路径的 UI 复位无人驱动（#60）。
+      broadcastUpdate('ended', {});
+      // fire-and-forget：background 处理这个消息时会 closeDocument。若在这里
+      // await 它，STREAM_STOP 的 sendResponse 还没发出文档就被杀，popup 拿到
+      // 超时/断连；不 await 让 stopStreaming 先返回，文档自然由 background 收。
+    })();
+    try {
+      await ending;
+    } finally {
+      ending = null;
+    }
   }
 
   async function startStreaming(payload) {
+    if (session || starting) return { ok: false, error: Errors.ALREADY_RECORDING };
+    starting = true;
+    try {
+      return await startStreamingLocked(payload);
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function startStreamingLocked(payload) {
     if (session) return { ok: false, error: Errors.ALREADY_RECORDING };
 
     const provider = (globalThis.PROVIDERS || []).find((p) => p.id === payload?.providerId);
@@ -182,8 +230,12 @@
     if (fellBack) broadcastUpdate('status', { text: 'Selected microphone is unavailable — using system default.', type: 'error' });
 
     const myStreamSeq = ++streamSeq;
+    const streamGeneration = Number.isInteger(payload?.streamGeneration)
+      ? payload.streamGeneration
+      : myStreamSeq;
     const s = {
       streamSeq: myStreamSeq,
+      streamGeneration,
       stream: micStream,
       context: null,
       capture: null,
@@ -242,13 +294,13 @@
           debugEvt('ws-complete', {});
         },
         // 服务端/网络终止：offscreen 在常驻上下文里，必须自己收尾（不能等 popup）
-        onEnd: () => {
+        onEnd: (reason) => {
           debugEvt('ws-end-received', {});
           if (!session || session.streamSeq !== myStreamSeq) {
             debugEvt('ws-end-stale', {});
             return;
           }
-          handleRemoteEnd();
+          handleRemoteEnd(reason);
         },
         onEvent: (e) => debugEvt(e.ev, e),
       });

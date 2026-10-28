@@ -37,6 +37,35 @@ t('redact: bearer token in headers', () => {
   );
 });
 
+t('redact: URL userinfo credentials', () => {
+  assert.strictEqual(
+    redact('endpoint=wss://user:password@host/api-ws/v1/inference'),
+    'endpoint=wss://<redacted>@host/api-ws/v1/inference',
+  );
+  assert.strictEqual(
+    redact('https://user%3Apassword@example.test/path'),
+    'https://<redacted>@example.test/path',
+  );
+});
+
+t('redact: generic secret fields', () => {
+  assert.strictEqual(
+    redact('{"client_secret":"abc","password":"def","credential":"ghi"}'),
+    '{"client_secret":"<redacted>","password":"<redacted>","credential":"<redacted>"}',
+  );
+  assert.strictEqual(
+    redact('https://host/?client_secret=abc&password=def&credential=ghi'),
+    'https://host/?client_secret=<redacted>&password=<redacted>&credential=<redacted>',
+  );
+});
+
+t('redact: unknown URL query parameter values', () => {
+  assert.strictEqual(
+    redact('endpoint=wss://proxy.example.test/path?secret_xyz=abc&mode=full'),
+    'endpoint=wss://proxy.example.test/path?secret_xyz=<redacted>&mode=<redacted>',
+  );
+});
+
 t('redact: ordinary diagnostic text remains readable', () => {
   assert.strictEqual(redact('model=qwen task-started len=12'), 'model=qwen task-started len=12');
 });

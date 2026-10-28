@@ -9,7 +9,7 @@
  *
  * 用法：
  *   node tests/serve-debug.js            # 默认端口 18923
- *   node tests/serve-debug.js 8080       # 指定端口
+ *   node tests/serve-debug.js 8080       # 指定静态托管端口（遥测桥只认 18923）
  *   SERVE_LOG=1 node tests/serve-debug.js # 打印访问日志（诊断 404/请求序列用）
  *   然后浏览器打开 http://localhost:18923/tests/stream-debug.html
  *

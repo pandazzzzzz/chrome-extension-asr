@@ -7,7 +7,8 @@
 
 // MV3 service worker 为经典脚本，用 importScripts 同步加载依赖。
 // 顺序：共享错误 → 消息契约 → 历史存储（IndexedDB 在 SW 可用；配置/加密仍由
-// 扩展页面读取，background 不接触 API Key）。
+// 扩展页面读取）。Live Stream 的 START 消息会携带明文 API Key 经过 background
+// 内存转发；background 不持久化密钥，WebSocket 与音频采集都在 offscreen 中。
 importScripts(
   '../shared/errors.js',
   '../shared/timeout.js',
@@ -27,11 +28,9 @@ const debugSubscribers = new Set();
 // offscreen 文档回收、代际守卫的仲裁都发生在本上下文 —— #68/#71/#72 的竞态
 // 在诊断页上不可见。schema 与 offscreen-streaming.js 的 debugEvt 对齐（{ ev, at, src }）。
 function debugEvt(ev, detail) {
-  chrome.runtime.sendMessage({
-    type: globalThis.MESSAGES.DEBUG_EVT,
-    payload: { ev, at: Date.now(), src: 'background', ...detail },
-    target: globalThis.TARGETS.DEBUG,
-  }).catch(() => {});
+  // runtime.sendMessage 不会回到发送者自己的 onMessage，因此 background 不能
+  // 依赖“发给 debug target 再由 onMessage 转发”的路径。直接写入已订阅 tab。
+  forwardDebugToTabs({ ev, at: Date.now(), src: 'background', ...detail });
 }
 
 function forwardDebugToTabs(payload) {
@@ -78,8 +77,9 @@ chrome.runtime.onInstalled.addListener((details) => {
 // onCommand 的 sender 不携带 tab 信息（事件本身没有 tab 字段），需要 tab 只能自己
 // 查 —— 这也是快捷键**不**用于启动标签页录音的原因：`tabCapture` 要的 tab 级授权
 // 虽然同样由「键盘快捷键」这类手势授予（Chrome 文档《The activeTab permission》
-// 明确列出 "Executing a keyboard shortcut"），但录音状态机活在 popup 的模块作用域里，
-// 从 SW 启动需要把整条录音链路搬出 popup，属于独立改动，不在快捷键处理范围内。
+// 明确列出 "Executing a keyboard shortcut"），但麦克风录音的 MediaRecorder 仍
+// 属于当前 UI 页面；从 SW 发起需要先打开 UI/取得录音租约，属于独立交互改动，
+// 不在快捷键处理范围内。
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'open-side-panel') {
     // 同步调用，不 await 任何东西在前（见上）。
@@ -211,12 +211,13 @@ async function closeOffscreenDocument() {
 // 的文档、毁掉正在进行的录音。约定：start 成功即 enter 当代；任何一次回收之后、
 // 下一次 start 之前的迟到收尾，token 不等 → 拒绝执行。
 let offscreenGeneration = 0;
-let activeOffscreenToken = null;
+let activeOffscreenToken = null; // { kind: 'stream'|'tab', generation: number }
 
 // ---------- Live Stream 状态（跨 popup 生命周期） ----------
 // 会话宿主在 offscreen（offscreen-streaming.js）：popup/sidepanel 只是 UI 壳，
-// 关闭即销毁，状态真相在 background + offscreen。apiKey 只在 offscreen 内存，
-// 不入任何 storage。流式与标签页录音共享同一份 offscreen 文档 —— 三路互斥的
+// 关闭即销毁，状态真相在 background + offscreen。apiKey 仅经 background 内存
+// 转发并在 offscreen 会话期间驻留，不写入 storage。流式与标签页录音共享同一份
+// offscreen 文档 —— 三路互斥的
 // "文档归属"判断必须覆盖两路，谁都不能在对方活跃时回收文档。
 const STREAMING_KEY = 'streaming';
 const STREAM_GENERATION_KEY = 'streamGeneration';
@@ -262,39 +263,85 @@ async function isStreaming() {
   });
   if (ctxs.length === 0) {
     await setStreaming(false);
+    releaseAudio('stream');
+    if (activeOffscreenToken?.kind === 'stream') activeOffscreenToken = null;
     return false;
   }
   return true;
 }
 
+// ---------- 三路录音仲裁 ----------
+// 麦克风录音仍在 UI 进程执行，但“开始录音”的许可由 background 统一发放：
+// popup/sidepanel 在 getUserMedia 前建立长连接租约，页面关闭时连接断开，
+// 租约自动释放。audioReservation 在异步查询持久状态期间占位，避免 Mic 与
+// Stream/Tab 同时通过“当前没人录音”的检查。
+let audioOwner = null;      // { kind: 'mic'|'tab'|'stream', port?: Port }
+let audioReservation = null; // 正在核验中的 kind
+
+async function reserveAudio(kind, port = null) {
+  if (audioReservation) return false;
+  audioReservation = kind;
+  try {
+    if (audioOwner?.kind === 'stream') await isStreaming();
+    else if (audioOwner?.kind === 'tab') await isTabRecording();
+    if (audioOwner) return false;
+    if (await isTabRecording()) return false;
+    if (await isStreaming()) return false;
+    audioOwner = { kind, port };
+    debugEvt('audio-owner-claimed', { kind });
+    return true;
+  } finally {
+    audioReservation = null;
+  }
+}
+
+function releaseAudio(kind, port = null) {
+  if (audioOwner?.kind !== kind) return false;
+  if (port && audioOwner.port !== port) return false;
+  debugEvt('audio-owner-released', { kind });
+  audioOwner = null;
+  return true;
+}
+
 async function handleStreamStart(payload) {
-  // 三路互斥在 background 侧裁决（各 UI 只护栏自己的本地标志，跨路互斥必须查真相源）
-  if (await isTabRecording()) {
-    debugEvt('mutex-rejected', { want: 'stream', held: 'tab-record' });
+  if (!(await reserveAudio('stream'))) {
+    debugEvt('mutex-rejected', { want: 'stream', held: audioOwner?.kind || audioReservation || 'unknown' });
     return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
   }
-  debugEvt('stream-start-relay', {});
-  await ensureOffscreenDocument();
-  let result;
   try {
-    result = await sendToOffscreen(globalThis.MESSAGES.STREAM_START, payload, 19000);
+    debugEvt('stream-start-relay', {});
+    await ensureOffscreenDocument();
+    const streamGeneration = await nextStreamGeneration();
+    let result;
+    try {
+      result = await sendToOffscreen(
+        globalThis.MESSAGES.STREAM_START,
+        { ...payload, streamGeneration },
+        19000,
+      );
+    } catch (e) {
+      // START 超时：offscreen 失联且未开始会话（后台已代为清理，见 offscreen 侧）。
+      // 但若它实际已开始（结果丢失），标记与文档对账会自愈，这里只回收文档。
+      await closeOffscreenDocument();
+      activeOffscreenToken = null;
+      throw e;
+    }
+    if (result.ok) {
+      activeOffscreenToken = { kind: 'stream', generation: streamGeneration };
+      debugEvt('stream-token-claimed', { generation: streamGeneration, streamGeneration });
+      await setStreaming(true);
+    } else {
+      if (result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
+        await closeOffscreenDocument();
+        activeOffscreenToken = null;
+      }
+      releaseAudio('stream');
+    }
+    return result;
   } catch (e) {
-    // START 超时：offscreen 失联且未开始会话（后台已代为清理，见 offscreen 侧）。
-    // 但若它实际已开始（结果丢失），标记与文档对账会自愈，这里只回收文档。
-    await closeOffscreenDocument();
-    activeOffscreenToken = null;
+    releaseAudio('stream');
     throw e;
   }
-  if (result.ok) {
-    const streamGeneration = await nextStreamGeneration();
-    activeOffscreenToken = streamGeneration;
-    debugEvt('stream-token-claimed', { generation: streamGeneration, streamGeneration });
-    await setStreaming(true);
-  } else if (result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
-    await closeOffscreenDocument();
-    activeOffscreenToken = null;
-  }
-  return result;
 }
 
 async function handleStreamStop() {
@@ -302,11 +349,21 @@ async function handleStreamStop() {
   debugEvt('stream-stop-relay', { token: tokenAtStart });
   const result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STOP, {}, 15000);
   // 代际守卫与 handleTabRecordStop 同构（流式与 tab 录音共享文档）
-  if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null || result.ok)) {
+  let reclaimed = false;
+  const ownsStream = tokenAtStart?.kind === 'stream'
+    && tokenAtStart === activeOffscreenToken;
+  const recoveredStream = tokenAtStart === null && result.ok && !(await isTabRecording());
+  if ((ownsStream || recoveredStream) && (tokenAtStart !== null || result.ok)) {
     await closeOffscreenDocument();
     activeOffscreenToken = null;
+    reclaimed = true;
   }
-  if (result.ok) await setStreaming(false);
+  if (result.ok) {
+    await setStreaming(false);
+    releaseAudio('stream');
+  } else if (reclaimed) {
+    releaseAudio('stream');
+  }
   return result;
 }
 
@@ -320,9 +377,12 @@ async function handleStreamEnded(payload) {
   // 生命周期解耦；streamSeq 只在文档内部防延迟回调串扰，不能跨文档比较。
   // SW 重启后 token 为 null，此时 STREAM_ENDED 本身已证明会话收尾完成，
   // 不能把 generation 与 null 比较而误判 stale（#68）。
-  const staleStream = typeof streamGeneration === 'number'
-    && tokenAtStart !== null
-    && streamGeneration !== tokenAtStart;
+  const staleKind = tokenAtStart !== null && tokenAtStart.kind !== 'stream';
+  const staleGeneration = tokenAtStart?.kind === 'stream'
+    && typeof streamGeneration === 'number'
+    && streamGeneration !== tokenAtStart.generation;
+  const recoveredButTabActive = tokenAtStart === null && await isTabRecording();
+  const staleStream = staleKind || staleGeneration || recoveredButTabActive;
   if (staleStream) {
     debugEvt('stream-ended-stale', { streamGeneration, token: tokenAtStart });
     return { ok: true, data: { stale: true } };
@@ -336,6 +396,9 @@ async function handleStreamEnded(payload) {
     await closeOffscreenDocument();
     activeOffscreenToken = null;
   }
+  // 文档关闭期间必须继续持有音频租约；否则新的 STREAM_START 会复用即将关闭的
+  // 文档，随后这里把新会话的 token 清掉，留下无文档但 streaming=true 的僵尸态。
+  releaseAudio('stream');
   return { ok: true, data: { stale: false } };
 }
 
@@ -372,6 +435,8 @@ async function isTabRecording() {
   });
   if (ctxs.length === 0) {
     await setTabRecording(false);
+    releaseAudio('tab');
+    if (activeOffscreenToken?.kind === 'tab') activeOffscreenToken = null;
     return false;
   }
   return true;
@@ -410,14 +475,19 @@ async function sendToOffscreen(type, payload, timeoutMs) {
 
 // 开始录标签页：取 streamId → 通知 offscreen 开始
 async function handleTabRecordStart(payload) {
-  // 三路互斥：流式会话活跃时禁止开 tab 录音（两路共享同一份 offscreen 文档，
-  // 且麦克风流与 tab 采集同时跑会导致 AudioContext 数量翻倍、帧率不可控）。
-  if (await isStreaming()) {
-    debugEvt('mutex-rejected', { want: 'tab-record', held: 'stream' });
+  if (!(await reserveAudio('tab'))) {
+    debugEvt('mutex-rejected', { want: 'tab-record', held: audioOwner?.kind || audioReservation || 'unknown' });
     return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
   }
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let tab;
+  try {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  } catch (e) {
+    releaseAudio('tab');
+    throw e;
+  }
   if (!tab || !tab.id) {
+    releaseAudio('tab');
     return { ok: false, error: globalThis.Errors.NO_TAB };
   }
 
@@ -427,13 +497,19 @@ async function handleTabRecordStart(payload) {
   try {
     streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
   } catch (error) {
+    releaseAudio('tab');
     return {
       ok: false,
       error: globalThis.createError(globalThis.Errors.TAB_CAPTURE, error.message || ''),
     };
   }
 
-  await ensureOffscreenDocument();
+  try {
+    await ensureOffscreenDocument();
+  } catch (e) {
+    releaseAudio('tab');
+    throw e;
+  }
   let result;
   try {
     result = await sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_START, { streamId }, 9000);
@@ -442,6 +518,7 @@ async function handleTabRecordStart(payload) {
     // 同步早退,不会挂起）,销毁重建是唯一安全路径。rethrow 交给统一 catch → TIMEOUT。
     await closeOffscreenDocument();
     activeOffscreenToken = null;
+    releaseAudio('tab');
     throw e;
   }
   // start 失败时回收文档，但 **ALREADY_RECORDING 除外**：那是另一路（如 sidepanel）
@@ -454,9 +531,12 @@ async function handleTabRecordStart(payload) {
   // 成功即认领当代（token 须在此同步刷新,handleTabRecordStop 靠它判断归属），
   // 并把「正在录音」落到 storage.session —— popup 关掉重开要靠它对齐 UI。
   if (result.ok) {
-    activeOffscreenToken = ++offscreenGeneration;
+    offscreenGeneration += 1;
+    activeOffscreenToken = { kind: 'tab', generation: offscreenGeneration };
     debugEvt('tab-record-token-claimed', { generation: offscreenGeneration });
     await setTabRecording(true);
+  } else {
+    releaseAudio('tab');
   }
   return result;
 }
@@ -470,16 +550,68 @@ async function handleTabRecordStop() {
   //   两边皆 null：SW 挂起重启丢了 token 但文档还在——仅当 STOP 确实送达（result.ok，
   //     录音被证实停止）才回收；失败分支分不清是否还有活跃录音，宁可留文档不误杀。
   //   token 不匹配：重试已换代，这是陈旧 stop 的迟到收尾，绝不关新录音的文档。
-  if (tokenAtStart === activeOffscreenToken && (tokenAtStart !== null || result.ok)) {
+  let reclaimed = false;
+  const ownsTab = tokenAtStart?.kind === 'tab'
+    && tokenAtStart === activeOffscreenToken;
+  const recoveredTab = tokenAtStart === null && result.ok && !(await isStreaming());
+  if ((ownsTab || recoveredTab) && (tokenAtStart !== null || result.ok)) {
     await closeOffscreenDocument();
     activeOffscreenToken = null;
+    reclaimed = true;
   }
   // STOP 送达（result.ok）即录音确已停止 → 清状态。失败分支分不清文档里是否还有
   // 活跃录音（如代际不匹配时我们故意留着文档），保留标记让 popup 仍显示「录音中」，
   // 由 isTabRecording() 的文档存在性对账兜底。
-  if (result.ok) await setTabRecording(false);
+  if (result.ok) {
+    await setTabRecording(false);
+    releaseAudio('tab');
+  } else if (reclaimed) {
+    releaseAudio('tab');
+  }
   return result;
 }
+
+// 麦克风录音租约：MediaRecorder 留在 UI，但所有权由常驻的 background 裁决。
+// 长连接断开（popup/sidepanel 关闭）即释放，避免残留锁让其它路径永远 ALREADY。
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== globalThis.MESSAGES.MIC_RECORD_PORT) return;
+  let owned = false;
+  let disconnected = false;
+
+  port.onMessage.addListener((message) => {
+    if (message?.type === globalThis.MESSAGES.MIC_RECORD_ACQUIRE) {
+      void (async () => {
+        const acquired = await reserveAudio('mic', port);
+        if (!acquired || disconnected) {
+          if (acquired) releaseAudio('mic', port);
+          try {
+            port.postMessage({ ok: false, error: globalThis.Errors.ALREADY_RECORDING });
+          } catch { /* page already gone */ }
+          try {
+            port.disconnect();
+          } catch { /* already disconnected */ }
+          return;
+        }
+        owned = true;
+        try {
+          port.postMessage({ ok: true, data: { recording: true } });
+        } catch {
+          owned = false;
+          releaseAudio('mic', port);
+        }
+      })();
+    } else if (message?.type === globalThis.MESSAGES.MIC_RECORD_RELEASE && owned) {
+      owned = false;
+      releaseAudio('mic', port);
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    disconnected = true;
+    if (owned) releaseAudio('mic', port);
+    owned = false;
+  });
+});
 
 // 统一消息入口
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -491,6 +623,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // 是否活着」转给页面，面板显示真实状态而非陈旧计数（SW 冷启时第一条订阅会唤醒
   // worker 并得到响应，即天然的心跳）。
   if (type === globalThis.MESSAGES.DEBUG_SUBSCRIBE && sender?.tab?.id != null) {
+    if (!globalThis.isApprovedDebugPageUrl(sender.url)) {
+      sendResponse({
+        ok: false,
+        error: globalThis.createError(globalThis.Errors.UNKNOWN, 'Debug subscription denied'),
+      });
+      return true;
+    }
     debugSubscribers.add(sender.tab.id);
     sendResponse({ ok: true });
     return true; // 保留通道，页面才能观察到送达（fire-and-forget 会吞掉 lastError）
