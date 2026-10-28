@@ -63,6 +63,7 @@ async function makePage() {
     recordBtn: makeField('', { disabled: false }),
     tabRecordBtn: makeField('', { disabled: false }),
     saveBtn: makeField('', { disabled: false }),
+    testModelBtn: makeField('', { disabled: false }),
     streamBtn: makeField('', { disabled: false }),
     result: makeField(''),
     copyBtn: makeField('', { disabled: false }),
@@ -158,6 +159,8 @@ async function makePage() {
       modelSelectionFor: (m) => (m === 'qwen-audio-3.1-asr-flash-streaming'
         ? { value: m, customText: '' }
         : { value: '', customText: m || '' }),
+      testConnection: async () => ({ ok: true, model: 'fun-asr-realtime' }),
+      endpointFor: () => 'wss://example.test/inference',
     }],
     ConfigUI: {
       resolveRegionSelection: () => ({ value: 'cn-beijing' }),
@@ -189,6 +192,24 @@ async function makePage() {
 }
 
 (async () => {
+  await t('Test model: 使用未保存的 Custom 模型与 Custom endpoint', async () => {
+    const { sandbox, els } = await makePage();
+    let observed;
+    sandbox.PROVIDERS[0].testConnection = async (config) => {
+      observed = config;
+      return { ok: true, model: config.model };
+    };
+    els.modelInput.value = '';
+    els.modelCustomInput.value = 'fun-asr-realtime';
+    els.regionSelect.value = 'custom';
+    els.endpointInput.value = 'wss://draft.test/inference';
+    await sandbox.testModel();
+    assert.strictEqual(observed.model, 'fun-asr-realtime');
+    assert.strictEqual(observed.endpoint, 'wss://draft.test/inference');
+    assert.strictEqual(els.statusDiv.textContent, 'Model test passed: fun-asr-realtime.');
+    assert.strictEqual(els.testModelBtn.disabled, false);
+  });
+
   await t('onChanged: 本页有未保存编辑时，外部变更不得覆盖 UI（issue #54）', async () => {
     const { els, listeners } = await makePage();
     assert.strictEqual(listeners.changed.length, 1, 'onChanged 监听器未注册');

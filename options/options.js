@@ -37,6 +37,7 @@ function gatherElements() {
   els.modelCustom = document.getElementById('modelCustom');
   els.modelCustomRow = document.getElementById('modelCustomRow');
   els.saveBtn = document.getElementById('saveBtn');
+  els.testModelBtn = document.getElementById('testModelBtn');
   els.clearHistoryBtn = document.getElementById('clearHistoryBtn');
   els.exportHistoryBtn = document.getElementById('exportHistoryBtn');
   els.refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
@@ -134,9 +135,40 @@ function bindEvents() {
     setModelCustomVisible(!els.model.value);
   });
   els.saveBtn.addEventListener('click', save);
+  els.testModelBtn.addEventListener('click', testModel);
   els.clearHistoryBtn.addEventListener('click', clearHistory);
   els.exportHistoryBtn.addEventListener('click', exportHistory);
   els.refreshHistoryBtn.addEventListener('click', refreshHistory);
+}
+
+async function testModel() {
+  if (els.testModelBtn.disabled) return;
+  const provider = (globalThis.PROVIDERS || []).find((p) => p.id === els.provider.value);
+  if (!provider?.testConnection) {
+    show('This provider does not support model testing.', 'error');
+    return;
+  }
+  els.testModelBtn.disabled = true;
+  els.testModelBtn.textContent = 'Testing…';
+  show('Testing endpoint, API key, and model…', 'info');
+  try {
+    const endpoint = els.region.value === 'custom'
+      ? els.endpoint.value.trim()
+      : provider.endpointFor(els.region.value);
+    const result = await provider.testConnection({
+      apiKey: els.apiKey.value.trim(),
+      model: resolveModel() || provider.defaultStreamModel,
+      endpoint,
+    });
+    show(result.ok
+      ? `Model test passed: ${result.model}.`
+      : `Model test failed: ${result.error}`, result.ok ? 'success' : 'error');
+  } catch (error) {
+    show(`Model test failed: ${error.message}`, 'error');
+  } finally {
+    els.testModelBtn.disabled = false;
+    els.testModelBtn.textContent = 'Test model';
+  }
 }
 
 async function save() {

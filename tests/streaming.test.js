@@ -176,6 +176,45 @@ t('Qwen.createStreamSession: 缺 apiKey 抛 NO_API_KEY', () => {
   assert.throws(() => Q.createStreamSession({ apiKey: '', onResult() {} }),
     (e) => e.code === 'NO_API_KEY');
 });
+t('Qwen.testConnection: task-started 即成功并结束会话，不发送音频', async () => {
+  await withFakeSocket(async (sockets) => {
+    let sent = false;
+    const probe = Q.testConnection({
+      apiKey: 'k', model: 'fun-asr-realtime', endpoint: 'wss://example.test/api-ws/v1/inference',
+    });
+    sockets[0].onopen();
+    sockets[0].send = (data) => {
+      const message = JSON.parse(data);
+      if (message.header.action === 'finish-task') sent = true;
+    };
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    const result = await probe;
+    assert.deepStrictEqual(result, { ok: true, model: 'fun-asr-realtime' });
+    assert.strictEqual(sent, true, '成功后必须发送 finish-task');
+    assert.strictEqual(sockets[0].closeCalled, true);
+    assert.ok(sockets[0].sent.every((data) => typeof data === 'string'), '探测不得发送音频二进制帧');
+  });
+});
+t('Qwen.testConnection: 服务端 task-failed 返回可读错误', async () => {
+  await withFakeSocket(async (sockets) => {
+    const probe = Q.testConnection({ apiKey: 'k', model: 'fun-asr-realtime' });
+    sockets[0].onmessage({ data: JSON.stringify({ header: {
+      event: 'task-failed', error_message: 'Model is not available',
+    } }) });
+    const result = await probe;
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Model is not available/);
+  });
+});
+t('Qwen.testConnection: 握手网络错误返回失败而不是抛出', async () => {
+  await withFakeSocket(async (sockets) => {
+    const probe = Q.testConnection({ apiKey: 'bad-key', model: 'fun-asr-realtime' });
+    sockets[0].onerror();
+    const result = await probe;
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /API key|handshake/);
+  });
+});
 t('Qwen.createStreamSession: 非 run-task 模型被拒绝', () => {
   assert.throws(() => Q.createStreamSession({ apiKey: 'k', model: 'qwen3-asr-flash', onResult() {} }),
     (e) => e.code === 'UNKNOWN');

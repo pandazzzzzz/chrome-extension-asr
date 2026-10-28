@@ -440,6 +440,33 @@ class QwenProvider extends BaseProvider {
     };
   }
 
+  /**
+   * Validate credentials and model availability without sending any audio.
+   * A run-task handshake exercises the same protocol as Live Stream; a bare
+   * WebSocket connection alone cannot prove that the selected model is usable.
+   */
+  static async testConnection({ apiKey, model, endpoint }) {
+    const streamModel = model || this.defaultStreamModel;
+    let session;
+    let failure;
+    try {
+      session = this.createStreamSession({
+        apiKey,
+        model: streamModel,
+        endpoint,
+        onError(error) { failure = error; },
+      });
+      await session.ready;
+      if (failure) return { ok: false, error: failure.message };
+      await session.stop();
+      return { ok: true, model: streamModel };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    } finally {
+      session?.close();
+    }
+  }
+
   static _generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0;

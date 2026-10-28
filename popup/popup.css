@@ -159,3 +159,9 @@ button.ghost.active {
   background: var(--err-bg);
   color: var(--err-text);
 }
+
+#status.info {
+  display: block;
+  background: var(--surface-2);
+  color: var(--text);
+}

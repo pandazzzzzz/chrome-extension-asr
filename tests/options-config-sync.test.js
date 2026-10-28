@@ -60,6 +60,7 @@ function makeSandbox() {
     modelCustom: makeField(''),
     modelCustomRow: { style: {} },
     saveBtn: makeField(),
+    testModelBtn: makeField(),
     clearHistoryBtn: makeField(),
     exportHistoryBtn: makeField(),
     refreshHistoryBtn: makeField(),
@@ -94,6 +95,8 @@ function makeSandbox() {
         ? { value: model, customText: '' }
         : { value: '', customText: model || '' };
     },
+    testConnection: async () => ({ ok: true, model: 'draft-model' }),
+    endpointFor: () => 'wss://example.test/inference',
   };
   const sandbox = {
     console,
@@ -190,6 +193,21 @@ function changeEvent(config) {
 }
 
 (async () => {
+  await t('Test model: tests draft settings and reports provider errors', async () => {
+    const { sandbox, els } = await initPage();
+    let observed;
+    sandbox.PROVIDERS[0].testConnection = async (config) => {
+      observed = config;
+      return { ok: true, model: config.model };
+    };
+    els.model.value = '';
+    els.modelCustom.value = 'draft-model';
+    await sandbox.testModel();
+    assert.strictEqual(observed.model, 'draft-model');
+    assert.strictEqual(els.status.textContent, 'Model test passed: draft-model.');
+    assert.strictEqual(els.testModelBtn.disabled, false);
+  });
+
   await t('onChanged: external config is applied through decrypted ConfigStore.load', async () => {
     const { els, listeners, page } = await initPage();
     page.configStoreLoadResult = {
