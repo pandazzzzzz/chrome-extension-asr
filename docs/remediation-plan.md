@@ -15,8 +15,9 @@ All code/test/documentation batches are complete in worktree
 - `node scripts/pack.js --node` and `npm run pack`: 36 entries, 97 KB.
 - `npm audit --omit=optional`: 0 vulnerabilities.
 
-The only open process item is the historical over-length squash-merge body;
-published history is not rewritten for review remediation.
+The over-length squash-merge body process item is fixed by issue #96 without
+rewriting published history. Push CI now validates generated squash subjects
+and exempts only the aggregate body; source commits remain fully linted in PR CI.
 
 The final pre-merge review also fixed and regression-tested four follow-up
 issues: teardown-before-lease-release, local `close()` misclassified as a
@@ -50,8 +51,8 @@ network error, save-in-flight UI snapshots, and raw diagnostic export URLs.
 
 ## Batch 4 — Repository health and verification (complete except live/manual matrix)
 
-1. ◻ Fix the squash-merge commit-body length at the next integration opportunity;
-   do not rewrite published history solely for this review.
+1. ✅ Fix the squash-merge commit-body validation in push CI without rewriting
+   published history.
 2. ✅ Update vulnerable development dependencies through the lockfile and rerun
    smoke, packaging, and browser tests.
 3. ✅ Correct the README offscreen WebSocket data flow and remove stale
