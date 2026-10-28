@@ -284,8 +284,8 @@
     if (!localMediaUrl.startsWith('blob:')) return;
     // The browser-generated Blob URL cannot execute script; CodeQL cannot
     // infer that through createObjectURL here.
-    // codeql[js/xss-through-dom]
-    video.src = localMediaUrl;
+    // encodeURI leaves a Blob URL unchanged and provides a URI barrier.
+    video.src = encodeURI(localMediaUrl);
     video.load();
   });
   window.addEventListener('pagehide', () => {
