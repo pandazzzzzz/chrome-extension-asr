@@ -13,7 +13,7 @@ Node `v24.22.1`, npm `11.19.1`, local Google Chrome.
 | Node zip backend | PASS | 36 entries, 97 KB |
 | PowerShell zip backend | PASS | 36 entries, 97 KB |
 | Runtime dependency exposure | PASS | No runtime dependencies; `npm audit --omit=optional` reports 0 vulnerabilities |
-| Main CI | PROCESS ITEM | Historical squash body exceeds commitlint limit; no code fix, do not rewrite published history |
+| Main CI | REMEDIATED | Issue #96 lets push CI validate GitHub squash subjects while exempting only the generated aggregate body; no published history rewrite |
 | CodeQL | PASS remotely | Run `40557047053` succeeded |
 | Dependency review | PASS | Audit is clean; dependency-review workflow previously passed |
 | Open issue cross-check | PASS | 8 issues rechecked; no clear false positive; #66/#69/#73 fixed, #48 documented |

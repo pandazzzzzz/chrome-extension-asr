@@ -10,8 +10,9 @@
 - All product-code findings now have automated regression coverage and pass:
   **15 test suites / 138 assertions**, browser smoke **26/26**, lint, manifest
   validation, and both packaging paths.
-- The only unresolved finding is the historical over-length squash-merge body:
-  it is a process/CI issue, not a product-code defect.
+- The historical over-length squash-merge body is resolved by issue #96:
+  push CI validates GitHub squash subjects while exempting only the generated
+  aggregate body. Source commits remain fully linted in PR CI.
 - Findings below are ordered by severity. Subagent-only hypotheses that could
   not be reproduced or were already guarded were excluded.
 
@@ -24,7 +25,7 @@
 | 3. Inconsistent stream generations | P1 | **Fixed** — background issues one ID and offscreen echoes it |
 | 4. Mic/Tab/Stream mutual exclusion | P1 | **Fixed** — background lease arbitration incl. mic port |
 | 5. Graceful stream stop | P2 | **Fixed** — stop capture, await `provider.stop()`, then finalize |
-| 6. Over-length commit body | P2 | **Open process item** — do not rewrite published history |
+| 6. Over-length commit body | P2 | **Fixed** — GitHub squash body limits exempt; subject still linted |
 | 7. Diagnostic subscription boundary | P3 | **Fixed** — exact approved loopback page validated |
 | 8. Diagnostic redaction | P3 | **Fixed** — URL userinfo and generic secret fields covered |
 | 9. Dependencies/runtime docs | P3 | **Fixed** — audit 0 vulnerabilities and docs corrected |
@@ -125,6 +126,10 @@ gaps in the remediation itself. All are fixed and covered:
   though code checks and tests pass.
 - **Fix direction:** Keep squash-merge bodies within the enforced limit. No
   product-code change is needed.
+- **Resolution:** `scripts/lint-push.js` recognizes GitHub-generated squash
+  commits and lints their subject without the aggregated body. It is covered by
+  `tests/lint-push.test.js`; local and directly pushed commits keep full body
+  validation. Published history was not rewritten.
 
 ## P3 — Lower-impact security hardening and maintainability
 
