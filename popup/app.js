@@ -577,7 +577,7 @@ async function stopRecording() {
     recorder.release();
     recorder = null;
     debugEvt('record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
-    showStatus('Recording complete.', 'success');
+    showStatus(recordingCompleteMessage('mic'), 'success');
   } catch (error) {
     debugEvt('record-error', { where: 'stop', message: error?.message || String(error) });
     // 超时/异常时已录分片是用户唯一能救回的数据：release({keepChunks}) 停轨但
@@ -691,7 +691,7 @@ async function stopTabRecording() {
       ),
     );
     debugEvt('tab-record-stopped', { size: audioBlob ? audioBlob.size : 0, mime: audioBlob ? audioBlob.type : '' });
-    showStatus('Tab recording complete.', 'success');
+    showStatus(recordingCompleteMessage('tab'), 'success');
   } catch (error) {
     debugEvt('tab-record-error', { where: 'stop', message: error?.message || String(error) });
     // offscreen 失败响应可携带部分已录音频（recorder 超时路径）；对账说已不在录时
@@ -951,13 +951,13 @@ globalThis.chrome?.runtime?.onMessage?.addListener((request) => {
 });
 
 // 字幕镜像现由 offscreen 会话驱动（partial/final/done 全在会话侧）；本页开关
-// 只负责持久化偏好 + 会话中途热切换（STREAM_SET_SUBTITLES）。会话不活跃时
-// 无需通知（下次 start 会带上开关值）。
+// 负责持久化偏好 + 会话中途热切换（STREAM_SET_SUBTITLES）。会话不活跃时
+// 给出明确提示，避免用户把“暂时没有浮层”误认为开关失效。
 async function toggleSubtitles() {
   subtitlesEnabled = !subtitlesEnabled;
   els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
   els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
-  await persistConfig(); // 配置写失败会自行显示状态，浮层仍按用户点击立即切换
+  const saved = await persistConfig(); // 配置写失败会自行显示状态，浮层仍按用户点击立即切换
   if (isStreaming) {
     try {
       await globalThis.MessageClient.send(
@@ -969,7 +969,19 @@ async function toggleSubtitles() {
     } catch {
       /* 会话侧很快也会通过对账拿到正确值；失败不阻塞开关 */
     }
+  } else if (saved) {
+    showStatus(
+      subtitlesEnabled
+        ? 'Subtitles will appear when Live Stream is running.'
+        : 'Subtitles are off for future Live Streams.',
+      'info',
+    );
   }
+}
+
+function recordingCompleteMessage(kind) {
+  const prefix = kind === 'tab' ? 'Tab recording complete' : 'Recording complete';
+  return `${prefix} — audio only. Use Save audio, or Live Stream for transcription.`;
 }
 
 // ---------- Navigation (optional buttons) ----------
@@ -1131,7 +1143,9 @@ async function persistConfig() {
   } catch (error) {
     debugEvt('config-save-error', { message: error?.message || String(error) });
     showStatus(`Cannot save settings: ${error.message}`, 'error');
+    return false;
   }
+  return true;
 }
 
 // 跨入口页同步：popup/sidepanel 与 options 可同屏共存（side panel 不随焦点销毁），

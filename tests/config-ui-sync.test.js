@@ -38,15 +38,20 @@ process.on('uncaughtException', (e) => { console.error(e.stack); process.exit(1)
 
 // --- 最小 DOM / chrome mock ---
 function makeField(value, extra = {}) {
-  return {
+  const field = {
     value,
     style: {},
-    addEventListener() {}, // bindEvents 会对全部控件绑定事件，mock 统一提供
     appendChild() {},
     classList: { toggle() {} },
     matches: () => false, // 非 :focus
     ...extra,
   };
+  // bindEvents 会对控件绑定事件；保存回调便于测试直接触发用户操作。
+  field.listeners = {};
+  field.addEventListener = (event, fn) => {
+    field.listeners[event] = fn;
+  };
+  return field;
 }
 
 async function makePage() {
@@ -70,7 +75,7 @@ async function makePage() {
     fillBtn: makeField('', { disabled: false }),
     optionsBtn: null,
     panelBtn: null,
-    subtitleBtn: null,
+    subtitleBtn: makeField('Subtitles'),
     audioInput: null,
     status: makeField(''),
   };
@@ -215,6 +220,35 @@ async function makePage() {
     assert.strictEqual(observed.endpoint, 'wss://draft.test/inference');
     assert.strictEqual(els.statusDiv.textContent, 'Model test passed: fun-asr-realtime.');
     assert.strictEqual(els.testModelBtn.disabled, false);
+  });
+
+  await t('Subtitles: idle toggle explains that Live Stream is required', async () => {
+    const { els } = await makePage();
+    assert.strictEqual(typeof els.subtitleBtn.listeners.click, 'function');
+
+    await els.subtitleBtn.listeners.click();
+    await flushAsync();
+    assert.strictEqual(els.subtitleBtn.textContent, 'Subtitles on');
+    assert.match(
+      els.statusDiv.textContent,
+      /Subtitles will appear when Live Stream is running\./,
+    );
+
+    await els.subtitleBtn.listeners.click();
+    await flushAsync();
+    assert.strictEqual(els.subtitleBtn.textContent, 'Subtitles');
+    assert.match(els.statusDiv.textContent, /Subtitles are off for future Live Streams\./);
+  });
+
+  await t('Recording completion copy says audio only and points to Live Stream', async () => {
+    const { sandbox } = await makePage();
+    assert.match(sandbox.recordingCompleteMessage('mic'), /audio only.*Live Stream/);
+    assert.match(sandbox.recordingCompleteMessage('tab'), /^Tab recording complete.*audio only/);
+
+    for (const file of ['popup/popup.html', 'sidepanel/sidepanel.html']) {
+      const html = fs.readFileSync(path.join(root, file), 'utf8');
+      assert.match(html, /Live Stream transcripts appear here\. Recording produces audio only\./);
+    }
   });
 
   await t('onChanged: 本页有未保存编辑时，外部变更不得覆盖 UI（issue #54）', async () => {

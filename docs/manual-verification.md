@@ -60,7 +60,7 @@
 | # | 操作 | 预期 |
 |---|---|---|
 | 2.1 | 点 **Start Recording** | 变 `Stop Recording`，状态 `Recording... speak now.`，**另两个录音按钮禁用** |
-| 2.2 | 说 3 秒 → 点 **Stop Recording** | 状态 `Recording complete.`，按钮复原，三路重新可用 |
+| 2.2 | 说 3 秒 → 点 **Stop Recording** | 状态 `Recording complete — audio only. Use Save audio, or Live Stream for transcription.`，按钮复原，三路重新可用 |
 | 2.3 | 点 **Save audio** | 下载文件成功。**注意**：下拉框写 `mp4`，但落盘扩展名是 **`.m4a`**（`extensionForMime()` 把 `audio/mp4` 映射为 `m4a`）。`wav` 并非所有 Chrome 都支持：不支持时状态栏会提示实际回退格式，文件扩展名也跟随实际格式，而不是继续写 `.wav` |
 | 2.4 | **重入**：双击 **Start Recording** | 只开一条流；**关键**：结束后麦克风占用指示（标签页红点）必须消失 |
 | 2.5 | 验证音轨不泄漏 | 停止录音后，`chrome://settings/content/microphone` 或标签页图标应显示无占用 |
@@ -97,7 +97,7 @@
 | 3.1 | 开一个**有声音**的标签页（可先在本机打开任意音视频；诊断页可用 `localMedia` 选择本地文件），点工具栏图标开 popup | popup 正常 |
 | 3.2 | 点 **Record Tab** | 变 `Stop Tab Rec`，状态 `Recording tab audio... play something in the tab.` |
 | 3.3 | **关键**：播放标签页音频 | **标签页声音仍然可听**（捕获必须回放，否则被静音 —— §7 决策 #3） |
-| 3.4 | 点 **Stop Tab Rec** | 状态 `Tab recording complete.`，返回录音（超时放宽到 20s） |
+| 3.4 | 点 **Stop Tab Rec** | 状态 `Tab recording complete — audio only. Use Save audio, or Live Stream for transcription.`，返回录音（超时放宽到 20s） |
 | 3.5 | 点 **Save audio** | 下载的文件**能播放且含标签页音频** |
 | 3.6 | 非扩展页面上点 **Record Tab** | 报 `TAB_CAPTURE` 类错误，按钮复原（不卡在录音态） |
 | 3.7 | **关键**：录音中**关掉 popup 再打开**（点页面/切窗口都算） | 按钮仍为 `Stop Tab Rec`、三路互斥仍在，**能正常停止** —— 录音状态由 background 持有（§5.3），popup 重开会对账恢复 |
@@ -127,12 +127,12 @@
 
 | # | 操作 | 预期 | 失败含义 |
 |---|---|---|---|
-| 4b.1 | 开一个普通 http(s) 页面（如诊断页）→ 点 **Subtitles** | 按钮变 **Subtitles on**（高亮）；诊断页左下角出现半透明字幕浮层 | 无浮层 = content script 未注入（`chrome://` 页不支持）或 background 转发失败 |
+| 4b.1 | 开一个普通 http(s) 页面（如诊断页）→ 点 **Subtitles** | 按钮变 **Subtitles on**（高亮），状态栏提示 `Subtitles will appear when Live Stream is running.`；空闲时**不创建空浮层** | 无提示 = 开关未走到空闲态反馈；出现空浮层 = 字幕生命周期未绑定流式会话 |
 | 4b.2 | 开着 Subtitles 跑一次 **Live Stream** | 说话时浮层文本**随 partial 实时刷新**，停顿定稿后仍在 | 只更新结果区不见浮层 = `renderStreamText` 未镜像 |
 | 4b.3 | 点击 **Stop Stream** | 浮层保留约 2s 后**自动淡出**（`done=true` 超时） | 不消失 = 自动超时未生效 |
 | 4b.4 | 拖动浮层 | 浮层跟随指针移动，松手后停在原处；位置限制在视口内 | 拖不动 = pointer 事件/host 定位问题 |
 | 4b.5 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（字幕绑定点击 Live Stream 时的 tab，不跟随切 tab，也不会在新页面再开一份） | 新页面出现浮层 = 字幕未绑定起始 tab |
-| 4b.6 | 关闭 **Subtitles** 开关 | 浮层立即隐藏；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
+| 4b.6 | 关闭 **Subtitles** 开关 | 状态栏提示 `Subtitles are off for future Live Streams.`；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
 | 4b.7 | 在 `chrome://` 页面开 Subtitles 跑流式 | 结果区照常工作，浮层不出现且**不报错**（旁路输出失败被静默） | 主流程被字幕失败打断 = pushSubtitle 未吞错 |
 ---
 

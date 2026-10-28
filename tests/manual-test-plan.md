@@ -35,7 +35,7 @@
 | # | 步骤 | 预期 | 覆盖 |
 |---|---|---|---|
 | A1 | 全新加载扩展，打开 popup | 无报错；工具栏图标正常；popup 尺寸/文案完整 | 🖐 |
-| A2 | popup 基线文案 | 按钮为 `Start Recording` / `Record Tab` / `Save audio` / `Live Stream` / `Copy text` / `Fill into page` / `Subtitles` / `Options` / `Side panel`；**Copy/Fill 禁用**（无结果）；**Subtitles 为关闭态**（不高亮）；Model 预填默认流式模型 | 🖐/🤖（§manual-verification 0 节；按钮禁用逻辑有 Node 断言） |
+| A2 | popup 基线文案 | 按钮为 `Start Recording` / `Record Tab` / `Save audio` / `Live Stream` / `Copy text` / `Fill into page` / `Subtitles` / `Options` / `Side panel`；**Copy/Fill 禁用**（无结果）；**Subtitles 为关闭态**（不高亮）；Result 占位文案说明录音只产出音频；Model 预填默认流式模型 | 🖐/🤖（§manual-verification 0 节；按钮禁用逻辑与占位文案有 Node 断言） |
 | A3 | 老配置升级：装有旧版本（配置在 `storage.sync`）时更新到本版 | 配置迁移到 `storage.local`、明文 Key 变密文、`storage.sync` 里 `asrConfig` 消失 | 🤖（`tests/config.test.js` 迁移用例 + batch 探针） |
 | A4 | 重载扩展后再开 popup | 配置保留、无 console 错误 | 🖐 |
 
@@ -44,7 +44,7 @@
 | # | 步骤 | 预期 | 覆盖 |
 |---|---|---|---|
 | B1 | 点 **Start Recording** | 变 `Stop Recording`，状态 `Recording... speak now.`，**另两个录音按钮禁用** | 🤖（`probe-saveaudio.js`） |
-| B2 | 说 3 秒 → **Stop Recording** | 状态 `Recording complete.`，三按钮复原 | 🤖（同上） |
+| B2 | 说 3 秒 → **Stop Recording** | 状态 `Recording complete — audio only. Use Save audio, or Live Stream for transcription.`，三按钮复原 | 🤖（同上） |
 | B3 | 点 **Save audio**（默认 webm） | 下载 `recording-<ISO时间戳>.webm`，状态 `Saved recording (NN KB).` | 🤖（同上） |
 | B4 | 格式选 `mp4` 再存 | 落盘扩展名是 **`.m4a`**（已知文案差异，非 bug）；文件能播 | 🖐（听感） |
 | B5 | 格式选 `wav` 再存 | 落盘 `.wav`；能播且是录音内容 | 🖐（听感） |
@@ -101,7 +101,7 @@
 |---|---|---|---|
 | F1 | 诊断页让 `#sampleVideo` 出声 → 工具栏开 popup → 点 **Record Tab** | 变 `Stop Tab Rec`，状态 `Recording tab audio... play something in the tab.` | 🤖（`probe-fix-regression.js`，`triggerExtensionAction` 等价工具栏点击） |
 | F2 | **★ 播放期间听扬声器** | **标签页声音仍然可听**——捕获不得静音页面（历史 bug，决策 #3） | 🖐 **只能人耳** |
-| F3 | 点 **Stop Tab Rec** → **Save audio** | 状态 `Tab recording complete.`；下载文件**能播放且含标签页音频** | 🖐（听回放） |
+| F3 | 点 **Stop Tab Rec** → **Save audio** | 状态 `Tab recording complete — audio only. Use Save audio, or Live Stream for transcription.`；下载文件**能播放且含标签页音频** | 🖐（听回放） |
 | F4 | 录音中**关掉 popup 再重开** | 按钮仍 `Stop Tab Rec`、三按钮互斥仍在、**能正常停止**（状态由 background 持有） | 🤖 |
 | F5 | 在不可捕获页面（`chrome://` 等）点 Record Tab | 报 `TAB_CAPTURE` 类错误，按钮**复原**、不卡录音态 | 🤖（结构）+ 🖐（文案观感） |
 | F6 | sidepanel 里点 Record Tab 开始/停止，再切回 popup | 两边按钮态**对齐真实录音状态**、互不报错 | 🤖（`probe-already-recording.js`）+ 🖐 真实面板 |
@@ -122,12 +122,12 @@
 
 | # | 步骤 | 预期 | 覆盖 |
 |---|---|---|---|
-| H1 | 普通 http(s) 页面 → 点 **Subtitles** | 按钮 `Subtitles on`（高亮）；页面左下出现半透明浮层 | 🤖（`subtitle-e2e.js` 18/18） |
+| H1 | 普通 http(s) 页面 → 点 **Subtitles** | 按钮 `Subtitles on`（高亮）；状态提示 `Subtitles will appear when Live Stream is running.`；空闲时不创建空浮层 | 🤖（Node 空闲态文案断言） |
 | H2 | 开着 Subtitles 跑 **Live Stream**（真语音） | 浮层文本**随 partial 实时刷新**，定稿后仍在 | 🖐（真语音链路） |
 | H3 | 点 **Stop Stream** | 浮层保留约 2s 后**自动淡出** | 🤖（done=true 淡出已验） |
 | H4 | 拖动浮层 | 跟随指针、松手停在原处、**位置钳制在视口内** | 🖐（手感） |
 | H5 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（不跟随切换，属设计） | 🖐 |
-| H6 | 关闭 Subtitles → 重开 popup | 浮层立即隐藏；开关状态**持久化** | 🤖 |
+| H6 | 关闭 Subtitles → 重开 popup | 状态提示 `Subtitles are off for future Live Streams.`；开关状态**持久化** | 🤖 |
 | H7 | 在 `chrome://` 页面开着 Subtitles 跑流式 | 结果区照常；**无浮层且不报错**（旁路失败被吞是刻意） | 🤖（结构）+ 🖐 |
 
 ### TC-I 键盘快捷键（须真实键盘；CDP 按键到不了浏览器 accelerator）
