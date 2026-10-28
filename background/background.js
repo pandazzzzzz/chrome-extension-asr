@@ -570,7 +570,7 @@ async function handleTabRecordStart(payload) {
   return result;
 }
 
-// 停止录标签页：offscreen 返回录制 Blob，随后回收文档
+// 停止录标签页：offscreen 写入 OPFS 并返回 { file, mime, size }，随后回收文档
 async function handleTabRecordStop() {
   const tokenAtStart = activeOffscreenToken;
   const result = await sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_STOP, {}, 19000);

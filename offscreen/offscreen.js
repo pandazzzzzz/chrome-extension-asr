@@ -8,7 +8,7 @@
 //   offscreen 用 streamId 调 getUserMedia({chromeMediaSource:'tab'}) 拿到
 //   流，并用 AudioContext 把捕获音频回放给用户（否则标签页会被静音）。
 //   background → offscreen: { type: 'asr:tab-record-stop', target:'offscreen' }
-//   offscreen 返回录制得到的 Blob。
+//   offscreen 把录制 Blob 写入 OPFS，只返回 { file, mime, size } 元数据。
 //
 // 依赖 messaging/messages.js、audio/recorder.js（由 offscreen.html 的 <script> 加载）。
 (() => {
@@ -87,19 +87,29 @@
     // blob 声明放进 try：catch 直接可见，无需 null 哨兵。
     // 关键：清理放进 finally——recorder.stop() 抛错（含其内部超时兜底 reject）时
     // 也必须置空 recorder、关闭 audioContext，否则状态卡死 + 泄漏。
-    // encodeAudio 放 try 内：编码若抛错同样走 finally 清理并回结构化错误。
+    // OPFS 写入放 try 内：失败时仍可尝试把已收分片另存一份。
     let blob;
     try {
       blob = await recorder.stop();
-      return { ok: true, data: await globalThis.encodeAudio(blob) };
+      return { ok: true, data: await globalThis.RecordingStore.save(blob) };
     } catch (e) {
       // 超时/异常时已录分片是用户唯一能救回的数据：stop() 超时 reject 后
       // getBlob() 仍可拼出已收分片；随错误一起回传（可能为空，调用方判断）。
       const partial = recorder.getBlob();
+      let data;
+      if (partial && partial.size > 0) {
+        try {
+          data = await globalThis.RecordingStore.save(partial);
+        } catch (storageError) {
+          // The original recording error is the primary diagnosis; the partial
+          // save failure is logged but does not erase it.
+          console.error('Failed to persist partial tab recording:', storageError);
+        }
+      }
       return {
         ok: false,
         error: globalThis.createError(Errors.RECORD_ERROR, e.message || ''),
-        data: partial && partial.size > 0 ? await globalThis.encodeAudio(partial) : undefined,
+        data,
       };
     } finally {
       await teardownCapture();
