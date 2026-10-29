@@ -72,7 +72,7 @@ t('入口页引用的本地脚本都在 zip 内', () => {
   for (const htmlFile of ['popup/popup.html', 'sidepanel/sidepanel.html']) {
     const htmlPath = path.join(ROOT, htmlFile);
     const html = fs.readFileSync(htmlPath, 'utf8');
-    for (const match of html.matchAll(/<script src="([^"]+)"><\/script>/g)) {
+    for (const match of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>\s*<\/script\s*>/gi)) {
       const src = match[1];
       if (/^(?:[a-z]+:)?\/\//i.test(src)) continue;
       const entry = path.relative(ROOT, path.resolve(path.dirname(htmlPath), src)).replace(/\\/g, '/');

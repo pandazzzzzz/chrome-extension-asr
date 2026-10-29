@@ -26,7 +26,7 @@ function lines(file) {
 
 function scriptOrder(htmlFile) {
   const html = fs.readFileSync(path.join(root, htmlFile), 'utf8');
-  return [...html.matchAll(/<script src="([^"]+)"><\/script>/g)]
+  return [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>\s*<\/script\s*>/gi)]
     .map((match) => match[1])
     .filter((src) => /(?:^|\/)app(?:-[a-z]+)?\.js$/.test(src));
 }
