@@ -250,6 +250,17 @@ async function makePage() {
     }
   });
 
+  await t('Model: Custom entry is discoverable in popup, side panel, and options', async () => {
+    for (const file of ['popup/popup.html', 'sidepanel/sidepanel.html', 'options/options.html']) {
+      const html = fs.readFileSync(path.join(root, file), 'utf8');
+      assert.match(
+        html,
+        /Need another model\? Choose Custom\.\.\. and enter its exact model name\./,
+        `${file} does not explain how to enter a Custom model`,
+      );
+    }
+  });
+
   await t('onChanged: 本页有未保存编辑时，外部变更不得覆盖 UI（issue #54）', async () => {
     const { els, listeners } = await makePage();
     assert.strictEqual(listeners.changed.length, 1, 'onChanged 监听器未注册');

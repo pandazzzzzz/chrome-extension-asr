@@ -59,6 +59,7 @@
     textarea { resize: vertical; min-height: 80px; font-family: inherit; }
     .row { display: flex; gap: 10px; }
     .field { flex: 1; }
+    .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; line-height: 1.4; }
     .btn-row { display: flex; gap: 10px; margin-top: 16px; }
     button {
       cursor: pointer; padding: 10px 14px;
@@ -122,6 +123,8 @@
         <select id="model"></select>
       </div>
     </div>
+
+    <p class="hint">Need another model? Choose Custom... and enter its exact model name.</p>
 
     <div id="modelCustomRow" class="field">
       <label for="modelCustom">Model name</label>
