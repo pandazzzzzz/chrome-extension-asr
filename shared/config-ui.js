@@ -1,5 +1,5 @@
 /**
- * 共享 config-UI 渲染规则（popup/app.js 与 options/options.js 共用）。
+ * 共享 config-UI 渲染规则（popup/app-*.js 与 options/options.js 共用）。
  *
  * "两个入口页必须把同一份存储配置渲染一致" 是仓库的明确不变量 —— 但 region
  * 的 legacy-endpoint 归属规则和模型下拉的填充此前各写了一遍，写法已开始分叉。

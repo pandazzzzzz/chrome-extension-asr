@@ -408,7 +408,7 @@
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     return URL.createObjectURL(blob);
   }
-  // 纵深防御：打点侧（popup/app.js 注释约定）从不把 apiKey 放进 detail，provider 也
+  // 纵深防御：打点侧（popup/app-*.js 注释约定）从不把 apiKey 放进 detail，provider 也
   // 只在 WS URL 的 query 里带 Key。但 config-saved 会原样带用户填的 endpoint —— 若用户
   // 把 Key 拼进了自己填的 URL，或未来某个打点新加字段带上了含 query 的完整 URL，
   // 屏幕和导出文件都会泄 Key。`redactDebugText` 同时覆盖 query、JSON 和 Bearer。

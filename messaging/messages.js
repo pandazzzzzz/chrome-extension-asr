@@ -88,7 +88,7 @@ globalThis.TARGETS = Object.freeze({
                   // background / offscreen 的 target 过滤会忽略它，无需处理。
   UI: 'ui',     // offscreen → 扩展页（popup/sidepanel）的单向广播：流式文本更新与会话终止。
                 // background / offscreen / content 的 target 过滤都会忽略它；只有
-                // popup/app.js 显式监听 target === TARGETS.UI 的消息。
+                // popup/app-streaming.js 显式监听 target === TARGETS.UI 的消息。
 });
 
 // 诊断遥测只允许来自仓库自带的本地诊断页，且限定默认开发端口。任意

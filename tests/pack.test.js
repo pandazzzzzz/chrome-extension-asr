@@ -67,6 +67,21 @@ t('manifest 引用的每个路径都在 zip 内', () => {
   assert.deepStrictEqual(missing, [], 'zip 缺少 manifest 引用的路径');
 });
 
+t('入口页引用的本地脚本都在 zip 内', () => {
+  const missing = [];
+  for (const htmlFile of ['popup/popup.html', 'sidepanel/sidepanel.html']) {
+    const htmlPath = path.join(ROOT, htmlFile);
+    const html = fs.readFileSync(htmlPath, 'utf8');
+    for (const match of html.matchAll(/<script src="([^"]+)"><\/script>/g)) {
+      const src = match[1];
+      if (/^(?:[a-z]+:)?\/\//i.test(src)) continue;
+      const entry = path.relative(ROOT, path.resolve(path.dirname(htmlPath), src)).replace(/\\/g, '/');
+      if (!entries.includes(entry)) missing.push(`${htmlFile} -> ${entry}`);
+    }
+  }
+  assert.deepStrictEqual(missing, [], 'zip 缺少入口页脚本');
+});
+
 t('zip 不含 agent skill 产物（.agents/ .claude/ skills-lock.json）', () => {
   const bad = entries.filter((e) => /^(\.agents|\.claude)\//.test(e) || e === 'skills-lock.json');
   assert.deepStrictEqual(bad, [], 'zip 混入 agent 产物');

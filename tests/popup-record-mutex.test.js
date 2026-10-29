@@ -8,6 +8,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const assert = require('node:assert');
+const { loadPopupRuntime } = require('./popup-runtime');
 
 const root = path.resolve(__dirname, '..');
 
@@ -152,7 +153,7 @@ async function makePopup(options = {}) {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(root, 'popup/app.js'), 'utf8'), sandbox, { filename: 'popup/app.js' });
+  loadPopupRuntime(vm, sandbox);
   await listeners.domready[0]();
   await flushAsync();
   return {

@@ -11,16 +11,17 @@
 // 会把密文再加密一次，密钥被静默永久损坏。同步路径必须经 ConfigStore.load()
 // 解密后再应用。
 //
-// popup/app.js 不是模块（挂 globalThis），这里用 vm 加载它的源码并注入最小
-// DOM/storage mock，只驱动监听器与快照相关的纯函数行为。
+// popup runtime 不是模块（挂 globalThis），这里按入口页顺序在 vm 中加载
+// 全部 app-*.js，并注入最小 DOM/storage mock。
 const path = require('node:path');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const assert = require('node:assert');
+const { loadPopupRuntime } = require('./popup-runtime');
 
 const root = path.resolve(__dirname, '..');
 
-// app.js 的初始化链有多个 async 层级（DOMContentLoaded → loadConfig →
+// runtime 的初始化链有多个 async 层级（DOMContentLoaded → loadConfig →
 // ConfigStore.load → applyConfigToUI），手动触发后需排空整条 microtask 链
 // 再断言，否则监听器可能尚未注册 / 快照尚未建立。
 async function flushAsync() {
@@ -185,10 +186,9 @@ async function makePage() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
-  const source = fs.readFileSync(path.join(root, 'popup/app.js'), 'utf8');
-  vm.runInContext(source, sandbox, { filename: 'popup/app.js' });
+  loadPopupRuntime(vm, sandbox);
 
-  // app.js 的初始化挂在 DOMContentLoaded 上 —— mock 里手动触发并等待完成。
+  // app.js 的启动挂在 DOMContentLoaded 上 —— mock 里手动触发并等待完成。
   await listeners.domready[0]();
   await flushAsync();
 

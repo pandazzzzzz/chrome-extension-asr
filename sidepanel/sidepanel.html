@@ -20,7 +20,7 @@
 </head>
 <body>
   <!--
-    Side panel — 复用 popup/app.js 与 popup.css（DOM id 保持一致）。
+    Side panel — 复用 popup/app-*.js 与 popup.css（DOM id 保持一致）。
     侧栏常驻不随点击关闭，适合长会话录音。
   -->
   <div class="container">
@@ -108,6 +108,12 @@
   <script src="../transcription/providers/base.js"></script>
   <script src="../transcription/providers/qwen.js"></script>
   <script src="../transcription/providers/index.js"></script>
+  <script src="../popup/app-state.js"></script>
+  <script src="../popup/app-ui.js"></script>
+  <script src="../popup/app-recording.js"></script>
+  <script src="../popup/app-streaming.js"></script>
+  <script src="../popup/app-actions.js"></script>
+  <script src="../popup/app-config.js"></script>
   <script src="../popup/app.js"></script>
 </body>
 </html>
