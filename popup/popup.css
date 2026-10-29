@@ -97,6 +97,13 @@ textarea {
   flex: 1;
 }
 
+.hint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .btn-row {
   margin-top: 12px;
   display: flex;
