@@ -63,7 +63,7 @@ function applyToUI(config) {
   const first = providers[0]?.id || '';
   // 旧版批量 provider（openai/deepgram 等）已从注册表删除：保存值没有对应 <option>
   // 时 select 会归成 '' 导致空白下拉，点 Save 还会把 '' 写回 storage。回退到第一个
-  // provider，与 popup/app.js applyConfigToUI 的 stale-provider-fallback 保持一致。
+  // provider，与 popup/app-config.js applyConfigToUI 的 stale-provider-fallback 保持一致。
   const savedProvider = config.provider;
   const hasOption = providers.some((p) => p.id === savedProvider);
   els.provider.value = (hasOption && savedProvider) ? savedProvider : first;
@@ -71,7 +71,7 @@ function applyToUI(config) {
   els.endpoint.value = config.endpoint || '';
   els.audioType.value = config.audioType || 'audio/webm';
   // 模型下拉：选项来自当前 provider 的 modelOptions，再把保存的模型映射成
-  // 「预置项 / Custom+手填」。与 popup/app.js 的 applyConfigToUI 用同一个
+  // 「预置项 / Custom+手填」。与 popup/app-config.js 的 applyConfigToUI 用同一个
   // modelSelectionFor，保证两页对同一配置渲染一致。
   const modelProvider = providers.find((p) => p.id === els.provider.value) || providers[0];
   populateModels(modelProvider, config.model);

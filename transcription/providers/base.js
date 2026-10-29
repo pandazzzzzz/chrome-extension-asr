@@ -69,7 +69,7 @@ class BaseProvider {
    *
    * 空 `model` 是 Custom 哨兵，与 `regions` 里 `custom` 项 `endpoint: ''` 同构：
    * 具体值由 UI 的文本框收集。基类为空数组 —— 无预置选项的 provider 由 UI 退化成
-   * 纯文本框（见 popup/app.js 的 populateModelOptions）。
+   * 纯文本框（见 popup/app-ui.js 的 populateModelOptions）。
    */
   static modelOptions = [];
 

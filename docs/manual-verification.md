@@ -82,7 +82,7 @@
 | 2b.5 | 选设备 → 跑一次 **Live Stream** | 同样用所选设备（partial/final 正常出字） | 流式仍走默认 = `startStreaming` 未接入 `acquireMicrophone()` |
 | 2b.6 | **失效回退**：选一个设备后把它拔掉/禁用 → 再录音 | 状态提示 `Selected microphone is unavailable — using system default.`，录音**照常开始**（用默认设备），下拉框回到 `System default` | 报 `Cannot start recording: ...` = 回退逻辑失效 |
 | 2b.7 | 热插拔：录音空闲时插入/拔出 USB 麦克风 | 下拉框自动重建且**保留当前选择**（若该设备仍在） | 列表不更新 = `devicechange` 监听未生效 |
-| 2b.8 | sidepanel 打开 | 同样有 **Microphone** 下拉框，选择与 popup 共享 | 侧栏无此控件 = 复用 `popup/app.js` 的 `#audioInput` 缺失 |
+| 2b.8 | sidepanel 打开 | 同样有 **Microphone** 下拉框，选择与 popup 共享 | 侧栏无此控件 = 复用 `popup/app-ui.js` 的 `#audioInput` 缺失 |
 | 2b.9 | 在 `chrome://settings/content/microphone` 阻止麦克风后，分别点 **Start Recording** 与 **Live Stream** | 两条路径都提示 `Microphone access is blocked. Allow microphone access in Chrome settings (chrome://settings/content/microphone), then try again.` | 只显示 `Permission dismissed` / `Permission denied` = 未经过 `microphoneErrorMessage` 映射 |
 
 ---
@@ -144,7 +144,7 @@
 | # | 操作 | 预期 |
 |---|---|---|
 | 5.1 | popup 点 **Side panel** | 侧栏打开，popup 收起 |
-| 5.2 | 在侧栏跑一次 Live Stream | 功能与 popup 一致（复用 `popup/app.js`）；状态在面板存活期间保持 |
+| 5.2 | 在侧栏跑一次 Live Stream | 功能与 popup 一致（复用 `popup/app-*.js`）；状态在面板存活期间保持 |
 | 5.3 | popup 点 **Options** | 打开设置页 |
 | 5.4 | options 页看存储状态 | API Key 显示 `configured (encrypted at rest)` |
 | 5.5 | options 页看历史列表 | 列出最近 **20** 条流式结果，条目可读 |
@@ -163,7 +163,7 @@
 ## 6. 失败时怎么取证
 
 诊断页（`node tests/serve-debug.js`）会实时显示扩展遥测事件，面板顶部可按事件名过滤
-（输入 `ws-` / `record-` / `tab-` 只看一条路径）。事件名来自 `popup/app.js` 与
+（输入 `ws-` / `record-` / `tab-` 只看一条路径）。事件名来自 `popup/app-*.js` 与
 `offscreen/offscreen-streaming.js` 的 `debugEvt()`、以及 provider 的 `track()`；
 下表按**功能路径**分组列出排查时真正用得上的。
 
@@ -231,7 +231,7 @@
 | 注入没生效 | `fill-ok` / `fill-error` + `code` | `fill-error` 带 `NO_FIELD` = 活动元素不是可编辑字段（看诊断面板「活动元素」） |
 | 复制失败 | `copy-ok` / `copy-error` | `copy-error` 多为页面未获焦（clipboard 需焦点） |
 
-> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app.js`、`offscreen/offscreen-streaming.js`、
+> 事件名/字段若与代码不符（新增打点或改名），以 `popup/app-*.js`、`offscreen/offscreen-streaming.js`、
 > `background/background.js` 的 `debugEvt(...)` 调用点与 `transcription/providers/qwen.js` 的 `track(...)` 为准。
 > 事件统一带 `{src}` 来源标记（`ui` / `offscreen` / `background` / provider 事件经 offscreen 转发）；
 > offscreen 会话事件带 `streamSeq`，可分拣新旧会话交错的日志。

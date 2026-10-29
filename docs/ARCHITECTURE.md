@@ -17,7 +17,7 @@
 
 | 模块 | 现状 | 问题 |
 |---|---|---|
-| `popup/app.js` + `sidepanel` + `options` | mic/Tab 录音 UI + **Live Stream UI 镜像**（会话宿主在 offscreen） + 配置表单（Provider 为下拉框，API Key 加密） | — |
+| `popup/app-*.js` + `sidepanel` + `options` | mic/Tab 录音 UI + **Live Stream UI 镜像**（会话宿主在 offscreen） + 配置表单（Provider 为下拉框，API Key 加密）；popup 与 sidepanel 按固定顺序加载同一组 classic scripts，`app.js` 只做启动 | 无 bundler，脚本顺序是契约 |
 | `background/background.js` | 消息路由 + offscreen 协调 + fill-text/字幕转发 + **三路录音仲裁/标签页录音状态持有者**（`storage.session` 的 `tabRecording`；录音活在 offscreen，跨 popup 生命周期） | Live Stream START 会经内存转发明文 API Key，但不持久化；无 API 代理/转录（已删，设计取舍） |
 | `offscreen/` | 标签页采集与 Live Stream 宿主；标签页录音写入同源 OPFS，只向 UI 返回 `{ file, mime, size }` | 依赖 Chrome OPFS（最低版本 116 已满足） |
 | `content/content.js` + `.css` | 页面听写注入（`asr:fill-text`），兼容受控组件；首次使用时由 background 按需注入，重复执行幂等 | — |
@@ -124,8 +124,14 @@
 # ── 入口层 ──────────────────────────────────────────────
 ├── popup/                   # 〔保留〕快速录音 + 真流式窗口
 │   ├── popup.html / popup.css   # 调色板为 :root 变量 + prefers-color-scheme 深色覆盖
-│   └── app.js              # 〔已有〕录音 + Live Stream + 配置表单（Provider 为下拉框）
-├── sidepanel/               #  〔已有〕长会话面板（复用 popup/app.js + popup.css）
+│   ├── app-state.js         # 共享状态、DOM 引用、诊断与状态提示
+│   ├── app-ui.js            # 表单联动、设备选择、三路录音互斥
+│   ├── app-recording.js     # 麦克风/Tab 录音 + Save audio
+│   ├── app-streaming.js     # Live Stream UI 镜像 + 字幕开关
+│   ├── app-actions.js       # Copy/Fill/导航
+│   ├── app-config.js        # 配置加载/渲染/保存/跨页同步
+│   └── app.js               # 〔已有〕DOMContentLoaded 启动入口
+├── sidepanel/               #  〔已有〕长会话面板（复用 popup/app-*.js + popup.css）
 ├── options/                 #  〔已有〕全局设置 + 转录历史（可导出 JSON）+ 存储状态（自带同套 CSS 变量）
 ├── content/                 # 〔已有〕页面听写注入（asr:fill-text）+ 浮动字幕（asr:subtitle-*）
 │   ├── content.js / content.css
@@ -193,7 +199,7 @@
 
 | 优先级 | 事项 | 涉及 | 状态 |
 |---|---|---|---|
-| P0 | **密钥安全**：全部配置存 `storage.local`，apiKey 经 WebCrypto 加密 | `store/config.js`、`store/crypto.js`、`popup/app.js` | ✅ 已落地 |
+| P0 | **密钥安全**：全部配置存 `storage.local`，apiKey 经 WebCrypto 加密 | `store/config.js`、`store/crypto.js`、`popup/app-config.js` | ✅ 已落地 |
 | P1 | **background 职责落地**：消息路由 | `background/background.js`、`messaging/` | ✅ 已落地 |
 | P1 | **content 职责落地**：页面听写注入 | `content/` | ✅ 已落地 |
 | P2 | **转录层清理**：删除伪流式（VAD 分段）、批量 provider、Transcribe 调度 | `transcription/`、`audio/vad`、`popup/` | ✅ 已落地 |

@@ -4,7 +4,7 @@
  * 麦克风设备名只在**已授权**后可见：未授权时 enumerateDevices() 返回的 label
  * 为空且 deviceId 可能被裁剪成 ''/'default'。因此本模块把「授权」与「枚举」
  * 分开：由调用方在首次 getUserMedia 成功后调用 refresh()，再把带名字的列表
- * 填进下拉框（见 popup/app.js 的 populateAudioInputs / refreshAudioInputs）。
+ * 填进下拉框（见 popup/app-ui.js 的 refreshAudioInputs）。
  *
  * 约束构造优先用精确 deviceId；deviceId 已失效（设备被拔掉、权限撤销后 id
  * 轮换）时回退默认设备，避免 getUserMedia 直接抛 OverconstrainedError。
