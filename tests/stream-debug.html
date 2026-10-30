@@ -143,6 +143,9 @@
   const NOISY_EVENTS = new Set(['pcm-stats', 'heartbeat']);
   const NOISY_KEEP = 200; // 每种噪音事件保留的最近条数
   const noisyDropped = { 'pcm-stats': 0, heartbeat: 0 };
+  function renderNoisyDropped() {
+    noisyDroppedEl.textContent = String(noisyDropped['pcm-stats'] + noisyDropped.heartbeat);
+  }
 
   // 过滤语法：子串包含（如 ws-）；`-名称` 排除（如 -pcm-stats）。可组合：
   // `ws- -stop-done` = 含 ws- 且不含 stop-done。
@@ -174,6 +177,7 @@
       if (recent >= NOISY_KEEP) {
         noisyDropped[phase] += 1;
         evtTotal++;
+        renderNoisyDropped();
         return;
       }
     }
@@ -208,7 +212,7 @@
       if (dropped.el && dropped.el.parentNode) dropped.el.parentNode.removeChild(dropped.el);
     }
     evtCount.textContent = String(evtEntries.length);
-    noisyDroppedEl.textContent = String(noisyDropped['pcm-stats'] + noisyDropped.heartbeat);
+    renderNoisyDropped();
   }
 
   // 接收 bridge 转发的遥测：只认可信 origin（本页 http://localhost 或同源 file://）

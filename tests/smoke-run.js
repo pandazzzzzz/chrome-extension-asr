@@ -6,7 +6,7 @@
  * Chain: serve-debug.js hosts tests/ (loopback only, exact allowlist extended
  * below) → puppeteer-core drives a real Chrome (WebCrypto/IndexedDB need it)
  * → read #summary ("N passed, M failed"), then exercise the diagnostic page's
- *    local-media picker in the same browser.
+ *    local-media picker and noisy-event counter in the same browser.
  *
  * Chrome discovery: SMOKE_CHROME_PATH env, then the platform defaults, then
  * puppeteer-core's own resolution (CI runners preinstall google-chrome).
@@ -163,6 +163,46 @@ async function probeDebugLocalMedia(browser, port) {
   }
 }
 
+async function probeDebugEventThrottle(browser, port) {
+  const page = await browser.newPage();
+  const failures = [];
+  page.on('pageerror', (error) => failures.push(String(error)));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && !/404|favicon/i.test(msg.text())) {
+      failures.push(msg.text());
+    }
+  });
+  try {
+    await page.goto(`http://127.0.0.1:${port}/tests/stream-debug.html`, {
+      waitUntil: 'load',
+      timeout: 30000,
+    });
+    await page.evaluate(() => {
+      for (let i = 0; i < 205; i += 1) {
+        window.postMessage({
+          type: 'asr:debug-log',
+          entry: { phase: 'pcm-stats', detail: { seq: i }, at: Date.now() },
+        }, location.origin);
+      }
+    });
+    await page.waitForFunction(
+      () => document.getElementById('noisyDropped').textContent === '5',
+      { timeout: 10000 },
+    );
+    const result = await page.evaluate(() => ({
+      rows: document.getElementById('evtLog').children.length,
+      count: document.getElementById('evtCount').textContent,
+      dropped: document.getElementById('noisyDropped').textContent,
+    }));
+    if (result.rows !== 200 || result.count !== '200' || result.dropped !== '5') {
+      failures.push(`noisy-event throttle mismatch: ${JSON.stringify(result)}`);
+    }
+    return { failures, result };
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 async function probeOpfsHandoff(browser, port) {
   const writer = await browser.newPage();
   const reader = await browser.newPage();
@@ -270,6 +310,12 @@ async function probeOpfsHandoff(browser, port) {
     console.log(`debug local media: ${JSON.stringify(mediaProbe.result)}`);
     if (mediaProbe.failures.length) {
       console.error('debug local media failures:\n  ' + mediaProbe.failures.slice(0, 10).join('\n  '));
+      process.exit(1);
+    }
+    const throttleProbe = await probeDebugEventThrottle(browser, PORT);
+    console.log(`debug event throttle: ${JSON.stringify(throttleProbe.result)}`);
+    if (throttleProbe.failures.length) {
+      console.error('debug event throttle failures:\n  ' + throttleProbe.failures.slice(0, 10).join('\n  '));
       process.exit(1);
     }
     const opfsProbe = await probeOpfsHandoff(browser, PORT);
