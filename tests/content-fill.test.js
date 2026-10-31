@@ -203,7 +203,9 @@ t('subtitles: a page-removed host is recreated on the next show (#116)', () => {
       releasePointerCapture() {},
       getBoundingClientRect() { return { left: 0, top: 0 }; },
       attachShadow() {
-        return { appendChild() {} };
+        const shadow = { children: [], appendChild(child) { this.children.push(child); } };
+        this.shadow = shadow;
+        return shadow;
       },
       remove() { this.isConnected = false; },
     };
@@ -241,6 +243,8 @@ t('subtitles: a page-removed host is recreated on the next show (#116)', () => {
     const live = documentElement.children.filter((h) => h.isConnected);
     assert.strictEqual(live.length, 1, 'a fresh connected host must be mounted');
     assert.notStrictEqual(live[0], documentElement.children[0], 'detached host must not be reused');
+    const overlay = live[0].shadow.children.find((c) => c.className === 'overlay');
+    assert.strictEqual(overlay.children[0].nodeValue, 'second', 'text must be written into the new host');
   });
 });
 

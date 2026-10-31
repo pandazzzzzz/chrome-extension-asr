@@ -290,7 +290,10 @@
           onStreamResult(r);
         },
         onError: (e) => {
-          if (!session || session.streamSeq !== myStreamSeq) return;
+          if (!session || session.streamSeq !== myStreamSeq) {
+            debugEvt('ws-error-stale', {});
+            return;
+          }
           debugEvt('ws-error', { message: e?.message || String(e) });
           broadcastUpdate('error-status', { message: `Stream error: ${e.message}` });
         },

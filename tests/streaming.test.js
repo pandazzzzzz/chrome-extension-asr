@@ -91,6 +91,30 @@ t('createResampler: identity rate returns the input block', () => {
   assert.strictEqual(rs.process(input), input);
 });
 
+t('createResampler: streamed output matches one-shot resampling mid-stream', () => {
+  const inRate = 44100;
+  const outRate = 16000;
+  const frameLen = 1280;
+  const frames = 200;
+  const input = new Float32Array(frameLen * frames);
+  for (let i = 0; i < input.length; i++) input[i] = Math.sin(i * 0.017) + 0.3 * Math.sin(i * 0.31);
+  const rs = globalThis.createResampler(inRate, outRate);
+  const parts = [];
+  for (let f = 0; f < frames; f++) {
+    parts.push(rs.process(input.subarray(f * frameLen, (f + 1) * frameLen)));
+  }
+  const streamed = new Float32Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) { streamed.set(part, offset); offset += part.length; }
+  const reference = globalThis.resampleFloat32(input, inRate, outRate);
+  const compared = Math.min(streamed.length, reference.length) - 2;
+  assert.ok(compared > 0, 'enough samples to compare');
+  for (let i = 1; i < compared; i++) {
+    assert.ok(Math.abs(streamed[i] - reference[i]) < 1e-5,
+      `sample ${i}: ${streamed[i]} vs ${reference[i]}`);
+  }
+});
+
 // --- provider 契约 ---
 const Q = globalThis.QwenProvider;
 t('Qwen: 流式能力元数据正确', () => {

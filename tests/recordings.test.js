@@ -155,6 +155,17 @@ t('sweep removes only old unreferenced recordings', async () => {
   console.log('PASS | sweep removes only old unreferenced recordings');
 });
 
+t('sweep keeps recordings whose age cannot be determined', async () => {
+  const fake = makeFakeOpfs();
+  await withOpfs(fake, async () => {
+    fake.files.set('tab-unknown.audio', { size: 1 });
+    const removed = await globalThis.RecordingStore.sweep([]);
+    assert.strictEqual(removed, 0, 'unknown age must fail closed');
+    assert.ok(fake.files.has('tab-unknown.audio'), 'file without lastModified is kept');
+  });
+  console.log('PASS | sweep keeps recordings with unknown age');
+});
+
 (async () => {
   for (const { name, fn } of tests) {
     try {

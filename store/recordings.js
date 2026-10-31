@@ -115,7 +115,8 @@ globalThis.RecordingStore = (() => {
       } catch {
         continue;
       }
-      if (typeof file.lastModified === 'number' && Date.now() - file.lastModified < minAgeMs) continue;
+      // 无法判断年龄的文件一律保留：宁可漏清理，也不能误删刚写入、引用尚未落盘的录音。
+      if (typeof file.lastModified !== 'number' || Date.now() - file.lastModified < minAgeMs) continue;
       try {
         await dir.removeEntry(name);
         removed += 1;
