@@ -36,7 +36,10 @@
 
   /** 惰性创建浮层：closed Shadow DOM + 全内联样式（一次性注入 <style>）。 */
   function attach() {
-    if (state.host) return;
+    // 页面可以 remove() 掉 light DOM 里的宿主；此时闭包引用仍在但节点已脱离文档，
+    // 继续写它等于静默丢字幕。isConnected 为假时清空状态并重建（#116）。
+    if (state.host && state.host.isConnected) return;
+    if (state.host) detach();
 
     var host = document.createElement('div');
     host.id = HOST_ID;
