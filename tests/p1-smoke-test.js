@@ -413,22 +413,15 @@ async function runTests() {
   try {
     const M = globalThis.MESSAGES;
     const T = globalThis.TARGETS;
-    // 前向兼容：offscreen 迁移（#43）合入前 main 上还没有这组动作 —— 缺席时
-    // 标注通过而不是失败，合并顺序无关；存在则全量断言。
-    if (!('STREAM_START' in M)) {
-      addResult('messages: streaming contract actions + TARGETS.UI', true,
-        'STREAM_* actions not in this build yet (offscreen migration pending)');
-    } else {
-      const ok = M.STREAM_START === 'asr:stream-start'
-        && M.STREAM_STOP === 'asr:stream-stop'
-        && M.STREAM_STATE === 'asr:stream-state'
-        && M.STREAM_SET_SUBTITLES === 'asr:stream-set-subtitles'
-        && M.STREAM_UPDATE === 'asr:stream-update'
-        && M.STREAM_ENDED === 'asr:stream-ended'
-        && T.UI === 'ui';
-      addResult('messages: streaming contract actions + TARGETS.UI', ok,
-        ok ? 'all six STREAM_* actions + ui target defined' : 'missing action');
-    }
+    const ok = M.STREAM_START === 'asr:stream-start'
+      && M.STREAM_STOP === 'asr:stream-stop'
+      && M.STREAM_STATE === 'asr:stream-state'
+      && M.STREAM_SET_SUBTITLES === 'asr:stream-set-subtitles'
+      && M.STREAM_UPDATE === 'asr:stream-update'
+      && M.STREAM_ENDED === 'asr:stream-ended'
+      && T.UI === 'ui';
+    addResult('messages: streaming contract actions + TARGETS.UI', ok,
+      ok ? 'all six STREAM_* actions + ui target defined' : 'missing action');
   } catch (e) {
     addResult('messages: streaming contract', false, e.message);
   }
