@@ -319,6 +319,7 @@ async function makePopup(options = {}) {
   {
     const { sandbox } = await makePopup();
     const ref = { file: 'tab-restore.audio', mime: 'audio/webm', size: 9 };
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
     let stored = null;
     sandbox.chrome.storage.local = {
       set: async (obj) => { stored = obj; },
@@ -336,7 +337,7 @@ async function makePopup(options = {}) {
     );
     vm.runInContext('isTabRecording = true', sandbox);
     await vm.runInContext('stopTabRecording()', sandbox);
-    assert.strictEqual(stored?.pendingTabRecording?.file, ref.file,
+    assert.strictEqual(stored?.[key]?.file, ref.file,
       'stop must persist the OPFS ref so a closed popup can recover it (#109)');
 
     vm.runInContext('audioBlob = null; audioRecording = null;', sandbox);
@@ -349,7 +350,8 @@ async function makePopup(options = {}) {
   {
     const { sandbox } = await makePopup();
     const ref = { file: 'tab-gone.audio', mime: 'audio/webm', size: 9 };
-    let stored = { pendingTabRecording: ref };
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    let stored = { [key]: ref };
     sandbox.chrome.storage.local = {
       set: async (obj) => { stored = { ...stored, ...obj }; },
       get: async () => stored,
@@ -364,7 +366,7 @@ async function makePopup(options = {}) {
     await vm.runInContext('restorePendingTabRecording()', sandbox);
     const restored = await vm.runInContext('audioRecording', sandbox);
     assert.strictEqual(restored, null, 'a ref whose file is gone must not be restored (#122)');
-    assert.strictEqual(stored.pendingTabRecording, undefined, 'stale pending ref must be cleared');
+    assert.strictEqual(stored[key], undefined, 'stale pending ref must be cleared');
     console.log('PASS | stale pending recording ref is dropped (#122)');
   }
 
@@ -373,7 +375,8 @@ async function makePopup(options = {}) {
     // 另一个上下文（sidepanel）留下的 pending 引用，本页内存里没有持有任何结果：
     // discardAudioResult（开始录音前的清理）不得清掉它（#122 复核发现的 P1）。
     const foreign = { file: 'tab-foreign.audio', mime: 'audio/webm', size: 7 };
-    let stored = { pendingTabRecording: foreign };
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    let stored = { [key]: foreign };
     sandbox.chrome.storage.local = {
       set: async (obj) => { stored = { ...stored, ...obj }; },
       get: async () => stored,
@@ -387,7 +390,7 @@ async function makePopup(options = {}) {
     };
     await vm.runInContext('audioRecording = null; audioBlob = null;', sandbox);
     vm.runInContext('discardAudioResult()', sandbox);
-    assert.strictEqual(stored.pendingTabRecording?.file, foreign.file,
+    assert.strictEqual(stored[key]?.file, foreign.file,
       'a page without a result must not clear the global pending slot');
     console.log('PASS | discard without a held result keeps the foreign pending ref');
   }
@@ -396,7 +399,8 @@ async function makePopup(options = {}) {
     const { sandbox } = await makePopup();
     const held = { file: 'tab-held.audio', mime: 'audio/webm', size: 4 };
     const newer = { file: 'tab-newer.audio', mime: 'audio/webm', size: 5 };
-    let stored = { pendingTabRecording: newer };
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    let stored = { [key]: newer };
     const removedKeys = [];
     sandbox.chrome.storage.local = {
       get: async () => stored,
@@ -406,7 +410,7 @@ async function makePopup(options = {}) {
     sandbox.RecordingStore = { isRef: (v) => !!v?.file, remove: async () => true, sweep: async () => 0 };
     vm.runInContext(`audioRecording = ${JSON.stringify(held)}; clearPendingTabRecording(audioRecording)`, sandbox);
     await flushAsync();
-    assert.strictEqual(stored.pendingTabRecording?.file, newer.file,
+    assert.strictEqual(stored[key]?.file, newer.file,
       'clearing a stale held ref must not erase a newer pending slot');
     assert.deepStrictEqual(removedKeys, [], 'nothing may be removed when the slot changed');
     console.log('PASS | conditional clear respects a newer pending slot');
@@ -431,7 +435,8 @@ async function makePopup(options = {}) {
   {
     const { sandbox } = await makePopup();
     const ref = { file: 'tab-keep.audio', mime: 'audio/webm', size: 8 };
-    let stored = { pendingTabRecording: ref };
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    let stored = { [key]: ref };
     let removed = 0;
     sandbox.chrome.storage.local = {
       get: async () => stored,
@@ -453,11 +458,12 @@ async function makePopup(options = {}) {
     const { sandbox } = await makePopup();
     const held = { file: 'tab-held.audio', mime: 'audio/webm', size: 4 };
     const newer = { file: 'tab-newer.audio', mime: 'audio/webm', size: 5 };
-    let stored = { pendingTabRecording: newer };
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    let stored = { [key]: newer };
     sandbox.chrome.storage.local = {
       get: async () => stored,
       set: async () => {},
-      remove: async (key) => { delete stored[key]; },
+      remove: async (slot) => { delete stored[slot]; },
     };
     sandbox.RecordingStore = {
       isRef: () => true,
@@ -468,9 +474,30 @@ async function makePopup(options = {}) {
     vm.runInContext(`audioRecording = ${JSON.stringify(held)}`, sandbox);
     await vm.runInContext('handleSaveAudio()', sandbox);
     await flushAsync();
-    assert.strictEqual(stored.pendingTabRecording?.file, newer.file,
+    assert.strictEqual(stored[key]?.file, newer.file,
       'saving an older held recording must not erase a newer pending slot');
     console.log('PASS | save clears only the slot it owns');
+  }
+
+  {
+    const { sandbox } = await makePopup();
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    const own = { file: 'tab-popup.audio', mime: 'audio/webm', size: 1 };
+    const other = { file: 'tab-sidepanel.audio', mime: 'audio/webm', size: 2 };
+    const stored = { [key]: own, 'pendingTabRecording:sidepanel': other };
+    let sweptKeep = null;
+    sandbox.chrome.storage.local = { get: async () => stored, remove: async () => {} };
+    sandbox.RecordingStore = {
+      isRef: (value) => value === own || value === other,
+      list: async () => [own.file, other.file],
+      sweep: async (keep) => { sweptKeep = keep.map((r) => r.file); return 0; },
+    };
+    await vm.runInContext('restorePendingTabRecording()', sandbox);
+    const restored = await vm.runInContext('audioRecording', sandbox);
+    assert.strictEqual(restored?.file, own.file, 'restore must pick this context\u2019s slot');
+    assert.deepStrictEqual([...sweptKeep].sort(), [own.file, other.file].sort(),
+      'sweep must keep every context\u2019s pending recording');
+    console.log('PASS | pending slots are isolated per UI context');
   }
   process.exit(0);
 })().catch((e) => {

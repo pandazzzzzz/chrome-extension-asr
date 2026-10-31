@@ -71,9 +71,18 @@ function showStatus(message, type) {
     els.statusDiv.className = '';
   }, 3500);
 }
-// Tab 录音的 OPFS 引用必须落盘：popup 关闭后文件就成了没人能读、也没人能删的
-// 孤儿（#109）。用 storage.local 让浏览器重启后仍可恢复。
-const PENDING_TAB_RECORDING_KEY = 'pendingTabRecording';
+// Tab 录音的 OPFS 引用必须落盘：UI 关闭后文件就成了没人能读、也没人能删的孤儿
+// （#109）。popup 与 sidepanel 各用独立槽位，互不覆盖；旧版单键作为一次性回退。
+const PENDING_TAB_RECORDING_PREFIX = 'pendingTabRecording';
+const PENDING_TAB_RECORDING_KEY = `${PENDING_TAB_RECORDING_PREFIX}:${
+  typeof location !== 'undefined' && location.pathname.includes('/sidepanel/') ? 'sidepanel' : 'popup'
+}`;
+
+function pendingRecordingRefs(stored) {
+  return Object.entries(stored || {})
+    .filter(([key, value]) => key.startsWith(PENDING_TAB_RECORDING_PREFIX) && globalThis.RecordingStore.isRef(value))
+    .map(([, value]) => value);
+}
 
 function persistPendingTabRecording(ref) {
   if (!globalThis.RecordingStore.isRef(ref)) return;
@@ -86,14 +95,12 @@ function persistPendingTabRecording(ref) {
   }
 }
 
-// 全局槽只能由持有该 ref 的上下文清除：popup 与 sidepanel 共享同一个
-// pendingTabRecording。ref 为 null 表示数据本身已损坏，可无条件清。
+// 只能清除本上下文槽里、且仍是同一文件的引用。ref 为 null 表示数据已损坏。
 async function clearPendingTabRecordingIfHeld(ref) {
   try {
     if (ref) {
       const stored = await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY);
-      const current = stored?.[PENDING_TAB_RECORDING_KEY];
-      if (current?.file !== ref.file) return; // 槽里已是更新的录音：不要替别人清
+      if (stored?.[PENDING_TAB_RECORDING_KEY]?.file !== ref.file) return;
     }
     await chrome.storage.local.remove?.(PENDING_TAB_RECORDING_KEY);
   } catch {
@@ -105,40 +112,48 @@ function clearPendingTabRecording(ref) {
   void clearPendingTabRecordingIfHeld(ref);
 }
 
-// 装载时恢复上次未保存的 Tab 录音，并清理无引用指向的孤儿文件。
+// 装载时恢复本上下文的未保存录音，并清理所有上下文都没有引用的孤儿文件。
 async function restorePendingTabRecording() {
-  let pending = null;
+  let stored = {};
   let readFailed = false;
   try {
-    pending = (await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY))?.[PENDING_TAB_RECORDING_KEY] ?? null;
+    stored = (await chrome.storage.local.get(null)) || {};
   } catch (error) {
-    readFailed = true; // 读不到就不能判断哪些文件该清
+    readFailed = true; // 读不到引用状态就不能判断哪些文件该清
     debugEvt('pending-recording-read-error', { message: error?.message || String(error) });
   }
-  let missing = false;
+  const pending = stored[PENDING_TAB_RECORDING_KEY] ?? stored[PENDING_TAB_RECORDING_PREFIX] ?? null;
   if (globalThis.RecordingStore.isRef(pending)) {
+    let missing = false;
     // isRef 只校验结构；文件可能已被站点数据清理。OPFS 不可用时保持引用，让 Save 报真实错误。
     try {
       if (typeof globalThis.RecordingStore.list === 'function') {
         missing = !(await globalThis.RecordingStore.list()).includes(pending.file);
       }
     } catch { /* OPFS unavailable */ }
-    if (!missing) {
+    if (missing) {
+      debugEvt('pending-recording-missing', { file: pending.file });
+      await clearPendingTabRecordingIfHeld(pending);
+    } else {
       audioBlob = null;
       audioRecording = pending;
       showStatus('Previous tab recording is ready — use Save audio.', 'success');
       debugEvt('pending-recording-restored', { size: pending.size });
-    } else {
-      debugEvt('pending-recording-missing', { file: pending.file });
-      await clearPendingTabRecordingIfHeld(pending);
-      pending = null;
+      if (!stored[PENDING_TAB_RECORDING_KEY] && stored[PENDING_TAB_RECORDING_PREFIX]) {
+        // 旧版单键迁移到本上下文槽位：先写新槽再删旧键，避免过程中两边都没有引用。
+        try {
+          await chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: pending });
+          await chrome.storage.local.remove?.(PENDING_TAB_RECORDING_PREFIX);
+        } catch { /* storage unavailable: keep the legacy key */ }
+      }
     }
-  } else if (pending) {
-    await clearPendingTabRecordingIfHeld(null);
   }
   if (readFailed) return; // 未知引用状态时不要 sweep，否则可能删掉有效的未保存录音
   try {
-    const removed = await globalThis.RecordingStore.sweep(audioRecording ? [audioRecording] : []);
+    const keep = new Map();
+    for (const ref of pendingRecordingRefs(stored)) keep.set(ref.file, ref);
+    if (audioRecording) keep.set(audioRecording.file, audioRecording);
+    const removed = await globalThis.RecordingStore.sweep([...keep.values()]);
     if (removed) debugEvt('recording-sweep', { removed });
   } catch (error) {
     debugEvt('recording-sweep-error', { message: error?.message || String(error) });
