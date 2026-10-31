@@ -127,7 +127,9 @@
   function onStreamFrame(frame) {
     const s = session;
     if (!s || !s.wsSession || !s.context || !s.targetSampleRate) return;
-    const resampled = globalThis.resampleFloat32(frame, s.context.sampleRate, s.targetSampleRate);
+    const resampled = s.resampler
+      ? s.resampler.process(frame)
+      : globalThis.resampleFloat32(frame, s.context.sampleRate, s.targetSampleRate);
     const int16 = globalThis.floatToInt16(resampled);
     s.wsSession.sendAudio(int16);
   }
@@ -252,10 +254,17 @@
       endedRemotely: false,
       finalSaved: false,
       micFallback: fellBack,
+      resampler: null,
     };
     session = s;
 
     try {
+      // 模型回落必须发生在采样率取值之前：AudioContext 建在最终模型的采样率上，
+      // 否则会平白多一层重采样（并叠加 convert.js 的逐帧取整漂移）。
+      if (!provider.isStreamModel(s.model) && provider.defaultStreamModel) {
+        debugEvt('model-fallback', { requested: s.model, using: provider.defaultStreamModel });
+        s.model = provider.defaultStreamModel;
+      }
       const targetSampleRate = provider.sampleRateFor(s.model);
       s.targetSampleRate = targetSampleRate;
 
@@ -267,14 +276,10 @@
         context = new AudioContext();
       }
       s.context = context;
+      // 用实际 context.sampleRate（浏览器可能忽略 requested rate）建状态化重采样器，
+      // 跨帧保留相位；teardown 时随 session 一起丢弃。
+      s.resampler = globalThis.createResampler(context.sampleRate, targetSampleRate);
       await context.resume();
-
-      // 模型回落必须发生在 sampleRateFor 之后取值覆盖 —— 与 popup 时代同序
-      if (!provider.isStreamModel(s.model) && provider.defaultStreamModel) {
-        debugEvt('model-fallback', { requested: s.model, using: provider.defaultStreamModel });
-        s.model = provider.defaultStreamModel;
-        s.targetSampleRate = provider.sampleRateFor(s.model);
-      }
 
       const wsSession = provider.createStreamSession({
         apiKey: s.apiKey,
@@ -285,7 +290,10 @@
           onStreamResult(r);
         },
         onError: (e) => {
-          if (!session || session.streamSeq !== myStreamSeq) return;
+          if (!session || session.streamSeq !== myStreamSeq) {
+            debugEvt('ws-error-stale', {});
+            return;
+          }
           debugEvt('ws-error', { message: e?.message || String(e) });
           broadcastUpdate('error-status', { message: `Stream error: ${e.message}` });
         },

@@ -141,7 +141,8 @@ globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
     // 本页存在未保存编辑（当前 UI 与上次落盘快照不一致）时不得整体重渲染：
     // applyConfigToUI 会覆写正在输入的 custom model / API key 等字段并隐藏
     // Custom 行（issue #54 手测：11 秒内三次把用户输入清成 model:""）。有未保存
-    // 编辑的页本来就不该被外部状态覆盖；等本页把编辑保存后，后续外部变更再同步。
+    // 编辑的页本来就不该被外部状态覆盖。取舍：**这一次**外部变更被丢弃、不追放
+    // （本页保存会整份写回，覆盖它）；只有之后的新变更才会同步（#118）。
     if (lastSavedConfigSnapshot !== null && hasUnsavedConfigEdits()) {
       debugEvt('config-external-deferred', {});
       return;

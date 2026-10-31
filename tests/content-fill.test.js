@@ -185,5 +185,68 @@ t('subtitles: 重复按需注入只注册一个消息监听器', () => {
   assert.strictEqual(listeners.length, 1);
 });
 
+t('subtitles: a page-removed host is recreated on the next show (#116)', () => {
+  const listeners = [];
+  function makeEl(tag) {
+    const el = {
+      tagName: tag,
+      style: {},
+      dataset: {},
+      children: [],
+      isConnected: false,
+      appendChild(child) {
+        this.children.push(child);
+        child.isConnected = this.isConnected;
+      },
+      addEventListener() {},
+      setPointerCapture() {},
+      releasePointerCapture() {},
+      getBoundingClientRect() { return { left: 0, top: 0 }; },
+      attachShadow() {
+        const shadow = { children: [], appendChild(child) { this.children.push(child); } };
+        this.shadow = shadow;
+        return shadow;
+      },
+      remove() { this.isConnected = false; },
+    };
+    return el;
+  }
+  const documentElement = makeEl('html');
+  documentElement.isConnected = true;
+  const sandbox = {
+    document: {
+      documentElement,
+      createElement: makeEl,
+      createTextNode: (text) => ({ nodeValue: text }),
+    },
+    window: { innerWidth: 1024, innerHeight: 768 },
+    setTimeout,
+    clearTimeout,
+    chrome: { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } },
+    TARGETS: { CONTENT: 'content' },
+    MESSAGES: { SUBTITLE_SHOW: 'asr:subtitle-show', SUBTITLE_HIDE: 'asr:subtitle-hide' },
+    Errors: { NO_TEXT: { code: 'NO_TEXT' } },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(root, 'content/subtitle.js'), 'utf8'), sandbox);
+
+  const dispatch = (payload) => new Promise((resolve) => {
+    listeners[0]({ target: 'content', type: 'asr:subtitle-show', payload }, {}, resolve);
+  });
+  return dispatch({ text: 'first' }).then(() => {
+    const first = documentElement.children[0];
+    assert.ok(first, 'host mounted');
+    first.remove(); // 页面主动删除宿主
+    return dispatch({ text: 'second' });
+  }).then(() => {
+    const live = documentElement.children.filter((h) => h.isConnected);
+    assert.strictEqual(live.length, 1, 'a fresh connected host must be mounted');
+    assert.notStrictEqual(live[0], documentElement.children[0], 'detached host must not be reused');
+    const overlay = live[0].shadow.children.find((c) => c.className === 'overlay');
+    assert.strictEqual(overlay.children[0].nodeValue, 'second', 'text must be written into the new host');
+  });
+});
+
 console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);
 process.exit(fail === 0 ? 0 : 1);

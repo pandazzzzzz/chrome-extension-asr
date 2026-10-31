@@ -92,13 +92,14 @@ async function toggleRecording() {
   }
 }
 
+
 function discardAudioResult() {
   const stale = audioRecording;
   audioBlob = null;
   audioRecording = null;
-  if (stale) {
-    void globalThis.RecordingStore.remove(stale).catch(() => {});
-  }
+  if (!stale) return; // 本页没有持有结果：不能动全局 pending 键，它可能属于另一个 UI 上下文
+  void globalThis.RecordingStore.remove(stale).catch(() => {});
+  clearPendingTabRecording(stale);
 }
 
 async function startRecording() {
@@ -276,6 +277,8 @@ async function stopTabRecording() {
 
   isTabRecording = false;
   els.tabRecordBtn.textContent = 'Record Tab';
+  // 本页此刻持有的旧引用（可能尚未保存）：覆盖全局 pending 槽前要先删其文件。
+  const refAtStop = audioRecording;
   try {
     // offscreen 返回 { file, mime, size }；音频留在同源 OPFS，消息通道只传引用。
     // 超时仍放宽，覆盖 recorder.stop() 的 5s 兜底和后台 relay。
@@ -290,6 +293,12 @@ async function stopTabRecording() {
     }
     audioBlob = null;
     audioRecording = recording;
+    // 覆盖全局 pending 槽前，先删掉本页此前持有但未保存的引用指向的文件，
+    // 否则旧文件失去唯一引用变成孤儿。
+    if (globalThis.RecordingStore.isRef(refAtStop) && refAtStop.file !== recording.file) {
+      void globalThis.RecordingStore.remove(refAtStop).catch(() => {});
+    }
+    await persistPendingTabRecording(recording);
     debugEvt('tab-record-stopped', { size: recording.size, mime: recording.mime });
     showStatus(recordingCompleteMessage('tab'), 'success');
   } catch (error) {
@@ -300,6 +309,10 @@ async function stopTabRecording() {
     if (globalThis.RecordingStore.isRef(partial) && (await syncTabRecordingState()) && !isTabRecording) {
       audioBlob = null;
       audioRecording = partial;
+      if (globalThis.RecordingStore.isRef(refAtStop) && refAtStop.file !== partial.file) {
+        void globalThis.RecordingStore.remove(refAtStop).catch(() => {});
+      }
+      await persistPendingTabRecording(partial);
       debugEvt('tab-record-partial', { size: partial.size, mime: partial.mime });
       showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
       return;
@@ -355,6 +368,7 @@ async function handleSaveAudio() {
     if (audioRecording === tabRef) {
       audioBlob = null;
       audioRecording = null;
+      clearPendingTabRecording(tabRef);
     }
     try {
       await globalThis.RecordingStore.remove(tabRef);

@@ -236,6 +236,19 @@ function freshMocks() {
     assert.strictEqual(cfg.apiKey, 'sk-keep', '加密失败时旧密钥必须保持可解密');
   });
 
+  await t('load: storage.sync 故障时本地配置仍可读（#117）', async () => {
+    localStore.asrConfig = { provider: 'local-only' };
+    globalThis.chrome.storage.sync.get = async () => { throw new Error('sync unavailable'); };
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+      const cfg = await globalThis.ConfigStore.load();
+      assert.strictEqual(cfg.provider, 'local-only', 'local config must survive a failing migration');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);
   process.exit(fail === 0 ? 0 : 1);
 })();

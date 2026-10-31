@@ -130,9 +130,11 @@ async function stopStreaming() {
     debugEvt('stop-error', { message: error?.message || String(error) });
     await syncStreamingState();
   } finally {
+    // busy 必须先清：enableAllRecordButtons 把 busy 视为“该路仍活跃”，
+    // 先 enable 会把另外两路锁死在 disabled（#107）。
+    isStreamingBusy = false;
     els.streamBtn.textContent = isStreaming ? 'Stop Stream' : 'Live Stream';
     if (!isStreaming) enableAllRecordButtons();
-    isStreamingBusy = false;
   }
 }
 

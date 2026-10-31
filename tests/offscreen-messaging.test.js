@@ -33,6 +33,7 @@ const t = (name, fn) => Promise.resolve()
 
 process.on('unhandledRejection', (e) => { console.error('UNHANDLED', e); process.exit(1); });
 
+let lastAudioContextOptions = null;
 function makeSandbox() {
   const sent = []; // { type, payload, target }
   const listeners = [];
@@ -61,6 +62,7 @@ function makeSandbox() {
     openMicrophone: async () => ({ stream: { getTracks: () => [] }, fellBack: false }),
   };
   class FakeAudioContext {
+    constructor(options) { this.sampleRate = 16000; lastAudioContextOptions = options || null; }
     resume() { return Promise.resolve(); }
     close() { return Promise.resolve(); }
   }
@@ -68,6 +70,8 @@ function makeSandbox() {
   sandbox.createPcmCapture = () => ({ start: async () => {} });
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
+  // offscreen.html 先加载 audio/convert.js；流式启动要建状态化重采样器。
+  vm.runInContext(fs.readFileSync(path.join(root, 'audio/convert.js'), 'utf8'), sandbox, { filename: 'audio/convert.js' });
   vm.runInContext(fs.readFileSync(path.join(root, 'offscreen/offscreen-streaming.js'), 'utf8'), sandbox, { filename: 'offscreen/offscreen-streaming.js' });
   return { sandbox, sent, listeners };
 }
@@ -219,6 +223,16 @@ async function run() {
     assert.strictEqual(started.data.streaming, true);
     assert.strictEqual(started.data.model, 'fallback-model');
     assert.strictEqual(started.data.micFallback, false);
+  });
+
+  await t('model fallback decides the AudioContext rate before it is created (#115)', async () => {
+    const { sandbox, listeners } = makeSandbox();
+    await startSession(sandbox, listeners, {
+      sampleRateFor: (model) => (model === 'fallback-model' ? 8000 : 16000),
+    });
+    assert.ok(lastAudioContextOptions, 'AudioContext must be constructed');
+    assert.strictEqual(lastAudioContextOptions.sampleRate, 8000,
+      'context must be built for the fallback model, not the rejected one');
   });
 
   await t('unknown STREAM_* action: answered by the streaming listener, not hijacked (#58)', async () => {

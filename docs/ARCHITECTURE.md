@@ -28,6 +28,11 @@
 | 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` 覆盖 PCM/provider 契约、麦克风权限错误映射、配置合并与跨页同步（popup/sidepanel/options）、offscreen 流式生命周期、三路录音仲裁、IndexedDB 历史、OPFS 录音引用、内容注入、MediaRecorder、诊断脱敏与静态服务器边界、打包规则；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome，已入 CI（`smoke` job） | 依赖脚本加载顺序；无类型契约 |
 | `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen`/`activeTab`/`scripting` + **`commands` 3 条**（popup / side panel / options）+ `minimum_chrome_version: 116`。fill 和字幕不再随 `<all_urls>` 常驻：background 先发送探测，无接收者时才用 `scripting` 注入并重发；`activeTab` 将临时访问限制在已授权 tab。**host_permissions 为空**（WebSocket 不受其约束，扩展也无 `fetch()`）；诊断桥 `debug/bridge.js` **只注入回环主机**，并用 `include_globs` 精确限定 `18923` 端口与诊断页路径；background 只接受 top-frame 订阅（issue #32 / #45 / #89） | `activeTab` 只由工具栏/快捷键等直接手势授予；独立打开的 side panel 不自动获得授权。`chrome://` 等受限页面不可注入；`[::1]` 诊断页无法用 match pattern 表达 |
 
+> **配置同步取舍**：popup/sidepanel/options 收到 `storage.onChanged` 时，若本页存在未保存编辑，
+> 会跳过这次外部变更且**不追放**（本页随后保存会用整份表单覆盖它）。这是为了避免外部状态
+> 清掉用户正在输入的内容（issue #54/#59/#66）。若将来支持合并，应在保存成功后重新读取外部
+> 状态再决定是否提示（见 issue #118）。
+
 ### 1.2 目标能力
 
 1. **快速转录**（规划）：popup 录音 → 云端 provider API → 文本（批量转录已删，待重建）

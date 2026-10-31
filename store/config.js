@@ -49,7 +49,13 @@ globalThis.ConfigStore = (() => {
   /** 读取配置；apiKey 解密为明文返回；缺失字段为 undefined，由调用方补默认值。 */
   async function load() {
     return enqueue(async () => {
-      await migrateLegacy();
+      // 迁移是尽力而为：旧版 storage.sync 在离线/权限异常时会抛错，绝不能因此
+      // 让本地配置读写整体不可用（#117）。失败即视为“尚未迁移”，下次再试。
+      try {
+        await migrateLegacy();
+      } catch (error) {
+        console.warn('Legacy config migration skipped:', error?.message || error);
+      }
       const { [CONFIG_KEY]: config } = await chrome.storage.local.get(CONFIG_KEY);
       if (!config) return {};
       const result = { ...config };
