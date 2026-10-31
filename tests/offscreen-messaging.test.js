@@ -61,6 +61,7 @@ function makeSandbox() {
     openMicrophone: async () => ({ stream: { getTracks: () => [] }, fellBack: false }),
   };
   class FakeAudioContext {
+    constructor() { this.sampleRate = 16000; }
     resume() { return Promise.resolve(); }
     close() { return Promise.resolve(); }
   }
@@ -68,6 +69,8 @@ function makeSandbox() {
   sandbox.createPcmCapture = () => ({ start: async () => {} });
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
+  // offscreen.html 先加载 audio/convert.js；流式启动要建状态化重采样器。
+  vm.runInContext(fs.readFileSync(path.join(root, 'audio/convert.js'), 'utf8'), sandbox, { filename: 'audio/convert.js' });
   vm.runInContext(fs.readFileSync(path.join(root, 'offscreen/offscreen-streaming.js'), 'utf8'), sandbox, { filename: 'offscreen/offscreen-streaming.js' });
   return { sandbox, sent, listeners };
 }

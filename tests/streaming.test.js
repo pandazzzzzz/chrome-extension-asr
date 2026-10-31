@@ -68,6 +68,29 @@ t('resampleFloat32: 16k -> 48k 升采样', () => {
   assert.strictEqual(out.length, 3000);
 });
 
+t('createResampler: cross-frame phase stays continuous (no drift)', () => {
+  const rs = globalThis.createResampler(48000, 16000);
+  const frame = new Float32Array(1280).fill(0.25);
+  let out = 0;
+  const frames = 375 * 60; // 60 seconds at 375 frames/s
+  for (let i = 0; i < frames; i++) out += rs.process(frame).length;
+  const expected = (frame.length * frames) / 3;
+  assert.ok(Math.abs(out - expected) < 1, `drift ${out - expected} samples must stay below 1`);
+});
+
+t('createResampler: constant signal survives frame edges', () => {
+  const rs = globalThis.createResampler(48000, 16000);
+  const a = rs.process(new Float32Array(1280).fill(0.7));
+  const b = rs.process(new Float32Array(1280).fill(0.7));
+  assert.ok([...a, ...b].every((v) => Math.abs(v - 0.7) < 1e-6));
+});
+
+t('createResampler: identity rate returns the input block', () => {
+  const rs = globalThis.createResampler(16000, 16000);
+  const input = new Float32Array([1, 2, 3]);
+  assert.strictEqual(rs.process(input), input);
+});
+
 // --- provider 契约 ---
 const Q = globalThis.QwenProvider;
 t('Qwen: 流式能力元数据正确', () => {
