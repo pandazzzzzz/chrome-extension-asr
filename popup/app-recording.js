@@ -92,6 +92,57 @@ async function toggleRecording() {
   }
 }
 
+// Tab 录音的 OPFS 引用必须落盘：popup 关闭后内存引用消失，文件就成了没人能
+// 读取、也没人能删除的孤儿（#109）。用 storage.local 而不是 session，因为
+// 浏览器重启后文件仍然在 OPFS 里，引用也应该一起活下来。
+const PENDING_TAB_RECORDING_KEY = 'pendingTabRecording';
+
+function persistPendingTabRecording(ref) {
+  if (!globalThis.RecordingStore.isRef(ref)) return;
+  try {
+    const written = chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: ref });
+    written?.catch?.((error) => debugEvt('pending-recording-persist-error', {
+      message: error?.message || String(error),
+    }));
+  } catch (error) {
+    debugEvt('pending-recording-persist-error', { message: error?.message || String(error) });
+  }
+}
+
+function clearPendingTabRecording() {
+  try {
+    const removed = chrome.storage.local.remove?.(PENDING_TAB_RECORDING_KEY);
+    removed?.catch?.(() => {});
+  } catch {
+    // 测试桩或存储不可用：没有待恢复引用时无需额外处理。
+  }
+}
+
+// 装载时恢复上次未保存的 Tab 录音，并顺手清理没有引用指向的孤儿文件。
+async function restorePendingTabRecording() {
+  let pending = null;
+  try {
+    const stored = await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY);
+    pending = stored?.[PENDING_TAB_RECORDING_KEY] ?? null;
+  } catch (error) {
+    debugEvt('pending-recording-read-error', { message: error?.message || String(error) });
+  }
+  if (globalThis.RecordingStore.isRef(pending)) {
+    audioBlob = null;
+    audioRecording = pending;
+    showStatus('Previous tab recording is ready — use Save audio.', 'success');
+    debugEvt('pending-recording-restored', { size: pending.size });
+  } else if (pending) {
+    clearPendingTabRecording();
+  }
+  try {
+    const removed = await globalThis.RecordingStore.sweep(audioRecording ? [audioRecording] : []);
+    if (removed) debugEvt('recording-sweep', { removed });
+  } catch (error) {
+    debugEvt('recording-sweep-error', { message: error?.message || String(error) });
+  }
+}
+
 function discardAudioResult() {
   const stale = audioRecording;
   audioBlob = null;
@@ -99,6 +150,7 @@ function discardAudioResult() {
   if (stale) {
     void globalThis.RecordingStore.remove(stale).catch(() => {});
   }
+  clearPendingTabRecording();
 }
 
 async function startRecording() {
@@ -290,6 +342,7 @@ async function stopTabRecording() {
     }
     audioBlob = null;
     audioRecording = recording;
+    persistPendingTabRecording(recording);
     debugEvt('tab-record-stopped', { size: recording.size, mime: recording.mime });
     showStatus(recordingCompleteMessage('tab'), 'success');
   } catch (error) {
@@ -300,6 +353,7 @@ async function stopTabRecording() {
     if (globalThis.RecordingStore.isRef(partial) && (await syncTabRecordingState()) && !isTabRecording) {
       audioBlob = null;
       audioRecording = partial;
+      persistPendingTabRecording(partial);
       debugEvt('tab-record-partial', { size: partial.size, mime: partial.mime });
       showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
       return;
@@ -355,6 +409,7 @@ async function handleSaveAudio() {
     if (audioRecording === tabRef) {
       audioBlob = null;
       audioRecording = null;
+      clearPendingTabRecording();
     }
     try {
       await globalThis.RecordingStore.remove(tabRef);

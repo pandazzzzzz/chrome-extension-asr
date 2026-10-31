@@ -301,6 +301,50 @@ async function makePopup(options = {}) {
     assert.strictEqual(stored.file, newRef.file, 'a slow Save must not clear a newer recording');
     console.log('PASS | slow tab save preserves a newer OPFS reference');
   }
+
+  {
+    const { sandbox, els } = await makePopup();
+    // Active stream: the other two paths are disabled by the mutex.
+    vm.runInContext('isStreaming = true; els.streamBtn.textContent = "Stop Stream";', sandbox);
+    els.recordBtn.disabled = true;
+    els.tabRecordBtn.disabled = true;
+    await vm.runInContext('stopStreaming()', sandbox);
+    await flushAsync();
+    assert.strictEqual(els.recordBtn.disabled, false, 'mic path must re-enable after stream stop (#107)');
+    assert.strictEqual(els.tabRecordBtn.disabled, false, 'tab path must re-enable after stream stop (#107)');
+    assert.strictEqual(els.streamBtn.disabled, false, 'stream path re-enables after stop');
+    console.log('PASS | stopping a stream releases the other recording paths (#107)');
+  }
+
+  {
+    const { sandbox } = await makePopup();
+    const ref = { file: 'tab-restore.audio', mime: 'audio/webm', size: 9 };
+    let stored = null;
+    sandbox.chrome.storage.local = {
+      set: async (obj) => { stored = obj; },
+      get: async () => stored || {},
+      remove: async () => { stored = null; },
+    };
+    sandbox.RecordingStore = {
+      isRef: (value) => value === ref,
+      read: async () => ({ size: 9, type: 'audio/webm' }),
+      remove: async () => true,
+      sweep: async () => 0,
+    };
+    sandbox.MessageClient.send = async (type) => (
+      type === 'asr:tab-record-stop' ? ref : { recording: false }
+    );
+    vm.runInContext('isTabRecording = true', sandbox);
+    await vm.runInContext('stopTabRecording()', sandbox);
+    assert.strictEqual(stored?.pendingTabRecording?.file, ref.file,
+      'stop must persist the OPFS ref so a closed popup can recover it (#109)');
+
+    vm.runInContext('audioBlob = null; audioRecording = null;', sandbox);
+    await vm.runInContext('restorePendingTabRecording()', sandbox);
+    const restored = await vm.runInContext('audioRecording', sandbox);
+    assert.strictEqual(restored?.file, ref.file, 'popup reload restores the persisted ref');
+    console.log('PASS | tab recording ref survives popup close (#109)');
+  }
   process.exit(0);
 })().catch((e) => {
   console.error(e);

@@ -45,6 +45,9 @@ function makeFakeOpfs() {
         },
       };
     },
+    async *keys() {
+      yield* files.keys();
+    },
     async removeEntry(name) {
       if (!files.delete(name)) throw notFound(`missing ${name}`);
     },
@@ -121,6 +124,35 @@ t('save creates distinct refs so an older Save click stays valid', async () => {
     assert.notStrictEqual(one.file, two.file);
     assert.strictEqual(fake.files.size, 2);
   });
+});
+
+t('list reports only recording files in the OPFS directory', async () => {
+  const fake = makeFakeOpfs();
+  await withOpfs(fake, async () => {
+    fake.files.set('tab-a.audio', { size: 1, lastModified: 0 });
+    fake.files.set('tab-b.audio', { size: 1, lastModified: 0 });
+    fake.files.set('notes.txt', { size: 1, lastModified: 0 });
+    const names = await globalThis.RecordingStore.list();
+    assert.deepStrictEqual(names.sort(), ['tab-a.audio', 'tab-b.audio']);
+  });
+  console.log('PASS | list reports only recording files');
+});
+
+t('sweep removes only old unreferenced recordings', async () => {
+  const fake = makeFakeOpfs();
+  await withOpfs(fake, async () => {
+    const old = Date.now() - 60 * 60 * 1000;
+    fake.files.set('tab-keep.audio', { size: 1, lastModified: old });
+    fake.files.set('tab-orphan.audio', { size: 1, lastModified: old });
+    fake.files.set('tab-fresh.audio', { size: 1, lastModified: Date.now() });
+    fake.files.set('notes.txt', { size: 1, lastModified: old });
+    const removed = await globalThis.RecordingStore.sweep([{ file: 'tab-keep.audio', mime: 'audio/webm', size: 1 }]);
+    assert.strictEqual(removed, 1, 'only the old orphan is removed');
+    assert.ok(fake.files.has('tab-keep.audio'), 'referenced recording is kept');
+    assert.ok(fake.files.has('tab-fresh.audio'), 'a just-written file survives the in-flight window');
+    assert.ok(fake.files.has('notes.txt'), 'non-recording files are never touched');
+  });
+  console.log('PASS | sweep removes only old unreferenced recordings');
 });
 
 (async () => {

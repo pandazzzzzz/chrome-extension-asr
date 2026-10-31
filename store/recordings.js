@@ -71,5 +71,60 @@ globalThis.RecordingStore = (() => {
     }
   }
 
-  return { save, read, remove, isRef };
+  async function list() {
+    let dir;
+    try {
+      dir = await directory(false);
+    } catch (error) {
+      if (error?.name === 'NotFoundError') return [];
+      throw error;
+    }
+    const names = [];
+    for await (const name of dir.keys()) {
+      if (FILE_PATTERN.test(name)) names.push(name);
+    }
+    return names;
+  }
+
+  /**
+   * 删除没有任何引用指向的录音文件（popup 关闭时没来得及保存的孤儿）。
+   * 只删除早于 minAgeMs 的文件：stop 响应到 popup 持久化引用之间有一个短暂的
+   * 窗口，另一个 UI 上下文此刻 scan 不应把刚写完的文件删掉。
+   */
+  async function sweep(keep = [], { minAgeMs = 5 * 60 * 1000 } = {}) {
+    const keepSet = new Set(
+      (keep || [])
+        .map((ref) => (typeof ref === 'string' ? ref : ref?.file))
+        .filter(Boolean),
+    );
+    let dir;
+    try {
+      dir = await directory(false);
+    } catch (error) {
+      if (error?.name === 'NotFoundError') return 0;
+      throw error;
+    }
+    let removed = 0;
+    for await (const name of dir.keys()) {
+      if (!FILE_PATTERN.test(name) || keepSet.has(name)) continue;
+      let handle;
+      let file;
+      try {
+        handle = await dir.getFileHandle(name);
+        file = await handle.getFile();
+      } catch {
+        continue;
+      }
+      if (typeof file.lastModified === 'number' && Date.now() - file.lastModified < minAgeMs) continue;
+      try {
+        await dir.removeEntry(name);
+        removed += 1;
+      } catch {
+        // 并发删除或文件已消失：下一轮 sweep 再处理。
+      }
+    }
+    return removed;
+  }
+
+  return { save, read, remove, list, sweep, isRef };
 })();
