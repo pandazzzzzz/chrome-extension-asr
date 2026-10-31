@@ -80,6 +80,19 @@ function pendingRecordingKey(pathname) {
 const PENDING_TAB_RECORDING_KEY = pendingRecordingKey(
   typeof location !== 'undefined' ? location.pathname : '',
 );
+let pendingStorageQueue = Promise.resolve();
+
+// pending 槽的持久化/清除必须串行：clear 的 read-then-remove 若和新录音的 set
+// 交错，会把刚写入的新引用删掉。Web Locks 覆盖同源多页面，队列兜底旧环境。
+function enqueuePendingStorage(task) {
+  const run = pendingStorageQueue.then(() => {
+    const locks = globalThis.navigator?.locks;
+    if (!locks?.request) return task();
+    return locks.request(`asr-pending-recording:${PENDING_TAB_RECORDING_KEY}`, task);
+  });
+  pendingStorageQueue = run.catch(() => {});
+  return run;
+}
 
 function pendingRecordingRefs(stored) {
   return Object.entries(stored || {})
@@ -87,28 +100,32 @@ function pendingRecordingRefs(stored) {
     .map(([, value]) => value);
 }
 
-function persistPendingTabRecording(ref) {
-  if (!globalThis.RecordingStore.isRef(ref)) return;
-  try {
-    chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: ref })?.catch?.(
-      (error) => debugEvt('pending-recording-persist-error', { message: error?.message || String(error) }),
-    );
-  } catch (error) {
-    debugEvt('pending-recording-persist-error', { message: error?.message || String(error) });
-  }
+async function persistPendingTabRecording(ref) {
+  if (!globalThis.RecordingStore.isRef(ref)) return false;
+  return enqueuePendingStorage(async () => {
+    try {
+      await chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: ref });
+      return true;
+    } catch (error) {
+      debugEvt('pending-recording-persist-error', { message: error?.message || String(error) });
+      return false;
+    }
+  });
 }
 
 // 只能清除本上下文槽里、且仍是同一文件的引用。ref 为 null 表示数据已损坏。
 async function clearPendingTabRecordingIfHeld(ref) {
-  try {
-    if (ref) {
-      const stored = await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY);
-      if (stored?.[PENDING_TAB_RECORDING_KEY]?.file !== ref.file) return;
+  return enqueuePendingStorage(async () => {
+    try {
+      if (ref) {
+        const stored = await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY);
+        if (stored?.[PENDING_TAB_RECORDING_KEY]?.file !== ref.file) return;
+      }
+      await chrome.storage.local.remove?.(PENDING_TAB_RECORDING_KEY);
+    } catch {
+      /* storage unavailable */
     }
-    await chrome.storage.local.remove?.(PENDING_TAB_RECORDING_KEY);
-  } catch {
-    /* storage unavailable */
-  }
+  });
 }
 
 function clearPendingTabRecording(ref) {
@@ -125,7 +142,14 @@ async function restorePendingTabRecording() {
     readFailed = true; // 读不到引用状态就不能判断哪些文件该清
     debugEvt('pending-recording-read-error', { message: error?.message || String(error) });
   }
-  const pending = stored[PENDING_TAB_RECORDING_KEY] ?? stored[PENDING_TAB_RECORDING_PREFIX] ?? null;
+  const ownPending = stored[PENDING_TAB_RECORDING_KEY];
+  const legacyPending = stored[PENDING_TAB_RECORDING_PREFIX];
+  const pending = globalThis.RecordingStore.isRef(ownPending)
+    ? ownPending
+    : globalThis.RecordingStore.isRef(legacyPending) ? legacyPending : null;
+  const pendingKey = pending === ownPending
+    ? PENDING_TAB_RECORDING_KEY
+    : PENDING_TAB_RECORDING_PREFIX;
   if (globalThis.RecordingStore.isRef(pending)) {
     let missing = false;
     // isRef 只校验结构；文件可能已被站点数据清理。OPFS 不可用时保持引用，让 Save 报真实错误。
@@ -136,13 +160,20 @@ async function restorePendingTabRecording() {
     } catch { /* OPFS unavailable */ }
     if (missing) {
       debugEvt('pending-recording-missing', { file: pending.file });
-      await clearPendingTabRecordingIfHeld(pending);
+      if (pendingKey === PENDING_TAB_RECORDING_KEY) {
+        await clearPendingTabRecordingIfHeld(pending);
+      } else {
+        // 旧版单键不属于任一 UI 上下文，直接清掉；下一次打开不会再次命中。
+        try {
+          await chrome.storage.local.remove?.(PENDING_TAB_RECORDING_PREFIX);
+        } catch { /* storage unavailable */ }
+      }
     } else {
       audioBlob = null;
       audioRecording = pending;
       showStatus('Previous tab recording is ready — use Save audio.', 'success');
       debugEvt('pending-recording-restored', { size: pending.size });
-      if (!stored[PENDING_TAB_RECORDING_KEY] && stored[PENDING_TAB_RECORDING_PREFIX]) {
+      if (pendingKey === PENDING_TAB_RECORDING_PREFIX) {
         // 旧版单键迁移到本上下文槽位：先写新槽再删旧键，避免过程中两边都没有引用。
         try {
           await chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: pending });

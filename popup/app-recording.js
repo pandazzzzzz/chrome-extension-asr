@@ -298,7 +298,7 @@ async function stopTabRecording() {
     if (globalThis.RecordingStore.isRef(refAtStop) && refAtStop.file !== recording.file) {
       void globalThis.RecordingStore.remove(refAtStop).catch(() => {});
     }
-    persistPendingTabRecording(recording);
+    await persistPendingTabRecording(recording);
     debugEvt('tab-record-stopped', { size: recording.size, mime: recording.mime });
     showStatus(recordingCompleteMessage('tab'), 'success');
   } catch (error) {
@@ -312,7 +312,7 @@ async function stopTabRecording() {
       if (globalThis.RecordingStore.isRef(refAtStop) && refAtStop.file !== partial.file) {
         void globalThis.RecordingStore.remove(refAtStop).catch(() => {});
       }
-      persistPendingTabRecording(partial);
+      await persistPendingTabRecording(partial);
       debugEvt('tab-record-partial', { size: partial.size, mime: partial.mime });
       showStatus(`Tab record stop failed: ${error.message} — partial audio kept, use Save audio.`, 'error');
       return;
