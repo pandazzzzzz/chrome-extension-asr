@@ -74,9 +74,12 @@ function showStatus(message, type) {
 // Tab 录音的 OPFS 引用必须落盘：UI 关闭后文件就成了没人能读、也没人能删的孤儿
 // （#109）。popup 与 sidepanel 各用独立槽位，互不覆盖；旧版单键作为一次性回退。
 const PENDING_TAB_RECORDING_PREFIX = 'pendingTabRecording';
-const PENDING_TAB_RECORDING_KEY = `${PENDING_TAB_RECORDING_PREFIX}:${
-  typeof location !== 'undefined' && location.pathname.includes('/sidepanel/') ? 'sidepanel' : 'popup'
-}`;
+function pendingRecordingKey(pathname) {
+  return `${PENDING_TAB_RECORDING_PREFIX}:${String(pathname || '').includes('/sidepanel/') ? 'sidepanel' : 'popup'}`;
+}
+const PENDING_TAB_RECORDING_KEY = pendingRecordingKey(
+  typeof location !== 'undefined' ? location.pathname : '',
+);
 
 function pendingRecordingRefs(stored) {
   return Object.entries(stored || {})

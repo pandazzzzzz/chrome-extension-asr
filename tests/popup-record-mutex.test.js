@@ -497,6 +497,11 @@ async function makePopup(options = {}) {
     assert.strictEqual(restored?.file, own.file, 'restore must pick this context\u2019s slot');
     assert.deepStrictEqual([...sweptKeep].sort(), [own.file, other.file].sort(),
       'sweep must keep every context\u2019s pending recording');
+    assert.strictEqual(
+      vm.runInContext("pendingRecordingKey('/sidepanel/sidepanel.html')", sandbox),
+      'pendingTabRecording:sidepanel',
+      'sidepanel must resolve to its own slot',
+    );
     console.log('PASS | pending slots are isolated per UI context');
   }
   process.exit(0);
