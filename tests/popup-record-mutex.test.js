@@ -345,6 +345,28 @@ async function makePopup(options = {}) {
     assert.strictEqual(restored?.file, ref.file, 'popup reload restores the persisted ref');
     console.log('PASS | tab recording ref survives popup close (#109)');
   }
+
+  {
+    const { sandbox } = await makePopup();
+    const ref = { file: 'tab-gone.audio', mime: 'audio/webm', size: 9 };
+    let stored = { pendingTabRecording: ref };
+    sandbox.chrome.storage.local = {
+      set: async (obj) => { stored = { ...stored, ...obj }; },
+      get: async () => stored,
+      remove: async () => { stored = {}; },
+    };
+    sandbox.RecordingStore = {
+      isRef: (value) => value === ref,
+      list: async () => ['tab-other.audio'],
+      sweep: async () => 0,
+      remove: async () => true,
+    };
+    await vm.runInContext('restorePendingTabRecording()', sandbox);
+    const restored = await vm.runInContext('audioRecording', sandbox);
+    assert.strictEqual(restored, null, 'a ref whose file is gone must not be restored (#122)');
+    assert.strictEqual(stored.pendingTabRecording, undefined, 'stale pending ref must be cleared');
+    console.log('PASS | stale pending recording ref is dropped (#122)');
+  }
   process.exit(0);
 })().catch((e) => {
   console.error(e);

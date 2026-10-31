@@ -35,7 +35,7 @@ All messages are `{ type, payload, requestId, target? }`. `target` is **required
 
 Current actions are defined **only** in `messaging/messages.js` (`MESSAGES` → `TARGETS`); do not enumerate them here — the list drifts. Add a new action there, then handle its `target` branch in the owning context. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`.
 
-Tab-recording state lives in **`background`** (`chrome.storage.session` key `tabRecording`), not in the popup: the recording runs in the offscreen document and outlives the popup, so `popup/app-recording.js` re-syncs its buttons on load via `asr:tab-record-state`. Never let the popup be the source of truth for "is a tab recording running".
+Tab-recording state lives in **`background`** (`chrome.storage.session` key `tabRecording`), not in the popup: the recording runs in the offscreen document and outlives the popup, so `popup/app-recording.js` re-syncs its buttons on load via `asr:tab-record-state`. Never let the popup be the source of truth for "is a tab recording running". The finished recording's OPFS ref is persisted in `storage.local` key `pendingTabRecording` (so a closed popup can still save it); on load the popup restores it only if the file still exists, and `RecordingStore.sweep()` removes unreferenced files older than 5 minutes.
 
 The subtitle actions (`asr:subtitle-show` / `-hide`) turn the live transcript into a
 floating overlay: the **offscreen stream session** mirrors each partial/final update, and

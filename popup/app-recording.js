@@ -92,46 +92,51 @@ async function toggleRecording() {
   }
 }
 
-// Tab 录音的 OPFS 引用必须落盘：popup 关闭后内存引用消失，文件就成了没人能
-// 读取、也没人能删除的孤儿（#109）。用 storage.local 而不是 session，因为
-// 浏览器重启后文件仍然在 OPFS 里，引用也应该一起活下来。
+// Tab 录音的 OPFS 引用必须落盘：popup 关闭后文件就成了没人能读、也没人能删的
+// 孤儿（#109）。用 storage.local 让浏览器重启后仍可恢复。
 const PENDING_TAB_RECORDING_KEY = 'pendingTabRecording';
 
 function persistPendingTabRecording(ref) {
   if (!globalThis.RecordingStore.isRef(ref)) return;
   try {
-    const written = chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: ref });
-    written?.catch?.((error) => debugEvt('pending-recording-persist-error', {
-      message: error?.message || String(error),
-    }));
+    chrome.storage.local.set({ [PENDING_TAB_RECORDING_KEY]: ref })?.catch?.(
+      (error) => debugEvt('pending-recording-persist-error', { message: error?.message || String(error) }),
+    );
   } catch (error) {
     debugEvt('pending-recording-persist-error', { message: error?.message || String(error) });
   }
 }
 
 function clearPendingTabRecording() {
-  try {
-    const removed = chrome.storage.local.remove?.(PENDING_TAB_RECORDING_KEY);
-    removed?.catch?.(() => {});
-  } catch {
-    // 测试桩或存储不可用：没有待恢复引用时无需额外处理。
-  }
+  try { chrome.storage.local.remove?.(PENDING_TAB_RECORDING_KEY)?.catch?.(() => {}); } catch { /* unavailable */ }
 }
 
-// 装载时恢复上次未保存的 Tab 录音，并顺手清理没有引用指向的孤儿文件。
+// 装载时恢复上次未保存的 Tab 录音，并清理无引用指向的孤儿文件。
 async function restorePendingTabRecording() {
   let pending = null;
   try {
-    const stored = await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY);
-    pending = stored?.[PENDING_TAB_RECORDING_KEY] ?? null;
+    pending = (await chrome.storage.local.get(PENDING_TAB_RECORDING_KEY))?.[PENDING_TAB_RECORDING_KEY] ?? null;
   } catch (error) {
     debugEvt('pending-recording-read-error', { message: error?.message || String(error) });
   }
+  let missing = false;
   if (globalThis.RecordingStore.isRef(pending)) {
-    audioBlob = null;
-    audioRecording = pending;
-    showStatus('Previous tab recording is ready — use Save audio.', 'success');
-    debugEvt('pending-recording-restored', { size: pending.size });
+    // isRef 只校验结构；文件可能已被站点数据清理。OPFS 不可用时保持引用，让 Save 报真实错误。
+    try {
+      if (typeof globalThis.RecordingStore.list === 'function') {
+        missing = !(await globalThis.RecordingStore.list()).includes(pending.file);
+      }
+    } catch { /* OPFS unavailable */ }
+    if (!missing) {
+      audioBlob = null;
+      audioRecording = pending;
+      showStatus('Previous tab recording is ready — use Save audio.', 'success');
+      debugEvt('pending-recording-restored', { size: pending.size });
+    } else {
+      debugEvt('pending-recording-missing', { file: pending.file });
+      clearPendingTabRecording();
+      pending = null;
+    }
   } else if (pending) {
     clearPendingTabRecording();
   }
