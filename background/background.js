@@ -115,6 +115,10 @@ async function sendToContent(tabId, type, payload) {
     target: globalThis.TARGETS.CONTENT,
   });
   if (response && response.ok) return { ok: true, data: response.data };
+  // chrome.tabs.sendMessage resolves undefined when listeners exist but none
+  // handles this type. Treat that like "no receiver" so forwardToTab can still
+  // run on-demand injection instead of returning a hard NO_CONTENT.
+  if (!response) throw globalThis.createError(globalThis.Errors.NO_CONTENT);
   return {
     ok: false,
     error: response?.error

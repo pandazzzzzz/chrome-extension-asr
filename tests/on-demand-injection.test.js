@@ -120,6 +120,34 @@ async function test(name, fn) {
     assert.strictEqual(page.tabsSent.length, 2);
   });
 
+  await test('fill reinjects when another content listener swallows the message', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.tabs.sendMessage = async (tabId, message) => {
+      page.tabsSent.push({ tabId, message });
+      if (page.scripts.length === 0) return undefined;
+      return { ok: true, data: true };
+    };
+
+    const response = await dispatch(page, 'asr:fill-text', { text: 'hello' });
+    assert.strictEqual(response.ok, true);
+    assert.strictEqual(page.scripts.length, 1);
+    assert.strictEqual(page.tabsSent.length, 2);
+  });
+
+  await test('subtitle reinjects when another content listener swallows the message', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.tabs.sendMessage = async (tabId, message) => {
+      page.tabsSent.push({ tabId, message });
+      if (page.scripts.length === 0) return undefined;
+      return { ok: true, data: true };
+    };
+
+    const response = await dispatch(page, 'asr:subtitle-show', { text: 'caption', tabId: 7 });
+    assert.strictEqual(response.ok, true);
+    assert.strictEqual(page.scripts.length, 1);
+    assert.strictEqual(page.tabsSent.length, 2);
+  });
+
   await test('subtitle hide never injects into an otherwise untouched page', async () => {
     const page = makeSandbox();
     const response = await dispatch(page, 'asr:subtitle-hide', { tabId: 7 });
