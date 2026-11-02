@@ -4,6 +4,12 @@
 
 ## 如何贡献
 
+### Issue 语言
+
+- Issue 标题和正文使用英文书写，便于检索和外部协作者阅读；后续评论也尽量使用英文。
+- 代码标识符、错误消息和引用的 UI 文案保留原文，不做翻译。
+- 此规则仅适用于 Issue，不改变提交信息和 Pull Request 的语言要求。
+
 ### 报告 Bug
 
 如果你发现了 bug，请创建一个 Issue 并包含以下信息：
@@ -14,11 +20,6 @@
 - 实际行为
 - 截图（如果适用）
 - Chrome 版本和操作系统
-
-### Issue 语言
-
-- Issue 标题、正文和后续评论使用英文书写，便于检索和外部协作者阅读。
-- 代码标识符、错误消息和引用的 UI 文案保留原文，不做翻译。
 
 ### 提出新功能
 
@@ -31,15 +32,15 @@
 ### 提交代码
 
 1. Fork 这个仓库
-2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+2. 创建你的特性分支 (`git checkout -b feat/your-feature`)
 3. 提交你的改动 (`git commit -m 'feat: 添加新功能'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
+4. 推送到分支 (`git push origin feat/your-feature`)
 5. 开启一个 Pull Request
 
 ### 代码规范
 
 - 使用有意义的变量和函数名
-- 添加必要的注释
+- 只在逻辑不直观处添加必要注释
 - 保持代码简洁清晰
 - 遵循现有的代码风格
 
@@ -88,12 +89,12 @@ CI 另会校验 PR 内的提交与 PR 标题。规则见 `commitlint.config.mjs`
 1. 克隆仓库
 2. 在 Chrome 中加载插件进行测试（扩展本身无构建步骤，`Load unpacked` 即跑）
 3. 进行你的修改
-4. 测试所有功能
+4. 按 [`docs/manual-verification.md`](docs/manual-verification.md) 完成手动验证，至少覆盖受影响的界面
 5. 提交 Pull Request
 
 > 可选：`npm ci` 会从 `package-lock.json` 安装开发依赖（`puppeteer-core`、commitlint、husky）。
-> 只有 gitignored 的 `temp/` 本地测试脚本需要它——扩展运行时**不依赖任何 npm 包**，
-> 不装也不影响开发与加载。
+> 已提交的 browser smoke 测试和可选的 `temp/` 本地 harness 需要它——扩展运行时
+> **不依赖任何 npm 包**，不装也能正常开发和加载扩展。
 
 提交前建议本地跑一遍 CI 会跑的检查：
 
@@ -102,9 +103,12 @@ npm run lint                    # 全量 JS 语法检查（无依赖）
 npm test                        # 全部 Node 单元测试（套件清单见 package.json 的 test 脚本；纯 Node、无网络）
 node scripts/check-manifest.js  # manifest.json 与所引路径校验
 npm run pack                    # 打包 extension.zip
+npm run lint:commit             # 校验当前分支的提交信息
+node tests/smoke-run.js         # 浏览器 smoke 测试（需先 npm ci，并安装 Chrome）
 ```
 
-PR 会触发 GitHub Actions：`CI`（语法/manifest/单测/打包）、`CodeQL`（静态安全分析）、
+PR 会触发 GitHub Actions：`CI`（语法/manifest/单测/打包/提交信息）、
+`Browser smoke tests`（真实 Chrome 冒烟测试）、`CodeQL`（静态安全分析）、
 `Dependency review`（新依赖漏洞检查）。详见 `.github/workflows/`。
 
 ## 问题和讨论
