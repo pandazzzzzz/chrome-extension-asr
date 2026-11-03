@@ -170,9 +170,9 @@ async function launchExtension(executablePath, { fakeMedia = true, extraArgs = [
   ];
   if (fakeMedia) {
     args.push('--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream');
-  }
-  if (speech && fs.existsSync(path.resolve(ROOT, speech))) {
-    args.push(`--use-file-for-fake-audio-capture=${path.resolve(ROOT, speech)}`);
+    if (speech && fs.existsSync(path.resolve(ROOT, speech))) {
+      args.push(`--use-file-for-fake-audio-capture=${path.resolve(ROOT, speech)}`);
+    }
   }
   const browser = await puppeteer.launch({
     executablePath,

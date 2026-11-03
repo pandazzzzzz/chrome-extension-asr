@@ -147,12 +147,12 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
     const result = await popup.evaluate(() => document.getElementById('result').value);
     H.check('final transcript is mirrored into the popup', result === finalText, JSON.stringify({ result }));
 
-    await targetPage.waitForFunction(
-      () => !!document.getElementById('asr-subtitle-host'),
-      { timeout: 10000 },
-    );
-    const subtitleText = await H.axText(targetPage);
-    H.check('subtitle overlay reaches the active page', subtitleText.includes(finalText));
+    let subtitleText = '';
+    const subtitleSeen = await H.waitFor(async () => {
+      subtitleText = await H.axText(targetPage);
+      return subtitleText.includes(finalText);
+    }, { timeout: 10000, label: 'subtitle overlay text' }).then(() => true, () => false);
+    H.check('subtitle overlay reaches the active page', subtitleSeen, subtitleSeen ? '' : subtitleText);
 
     await targetPage.bringToFront();
     await targetPage.evaluate(() => {
