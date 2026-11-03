@@ -89,7 +89,7 @@ async function waitForOffscreenClosed(browser) {
   );
 }
 
-async function runMockStreamSuite({ browser, extension, extensionId, targetPage, model, finalText }) {
+async function runMockStreamSuite({ browser, extension, extensionId, targetPage, model, finalText, sampleRate }) {
   const popup = await H.openPopup(browser, extensionId);
   try {
     await configurePopup(popup, { apiKey: 'sk-e2e-mock', model });
@@ -129,8 +129,8 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
     const mock = await offscreen.evaluate(() => globalThis.__asrE2EMock);
     H.check('run-task reaches the offscreen WebSocket', mock.runTasks.length === 1);
     H.check(
-      'declared sample rate matches the offscreen AudioContext',
-      mock.runTasks[0]?.parameters?.sample_rate === mock.contexts[0],
+      `declared sample rate and offscreen AudioContext are both ${sampleRate}`,
+      mock.runTasks[0]?.parameters?.sample_rate === sampleRate && mock.contexts[0] === sampleRate,
       JSON.stringify({
         declared: mock.runTasks[0]?.parameters?.sample_rate,
         context: mock.contexts[0],
@@ -411,6 +411,7 @@ async function main() {
         targetPage,
         model: 'qwen-audio-3.1-asr-flash-streaming',
         finalText: MOCK_FINAL,
+        sampleRate: 16000,
       });
       await runMockStreamSuite({
         browser,
@@ -419,6 +420,7 @@ async function main() {
         targetPage,
         model: 'paraformer-realtime-8k-v2',
         finalText: MOCK_8K_FINAL,
+        sampleRate: 8000,
       });
       await runRealNetworkSuite({ browser, extensionId, targetPage });
     });
