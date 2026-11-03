@@ -64,7 +64,10 @@ async function startServer(port) {
   child.stdout.on('data', (chunk) => { output += String(chunk); });
   child.stderr.on('data', (chunk) => { output += String(chunk); });
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`diagnostic server timeout: ${output}`)), 10000);
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`diagnostic server timeout: ${output}`));
+    }, 10000);
     const poll = setInterval(() => {
       if (output.includes('[ready]')) {
         clearInterval(poll);

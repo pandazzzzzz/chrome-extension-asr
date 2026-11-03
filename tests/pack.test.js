@@ -31,11 +31,23 @@ function readZipEntries(buf) {
 
 // 走 --node 强制 node:zlib 后端：它同时会走 collectFromDisk() 那条回退收集
 // （git 缺失时），正是本次修复的对象。
-const run = spawnSync(process.execPath, ['scripts/pack.js', '--node'], {
-  cwd: ROOT,
-  encoding: 'utf8',
-  env: { ...process.env, PATH: 'C:\\Windows\\System32' }, // 屏蔽 git
-});
+// .cache/ 是 E2E 安装 Chrome for Testing 的位置（已 gitignore）；回退收集读不到
+// .gitignore，必须靠静态 EXCLUDE 挡住，否则会把整个 CfT 打包进 zip。
+const cacheRoot = path.join(ROOT, '.cache');
+fs.mkdirSync(cacheRoot, { recursive: true });
+const cacheProbeDir = fs.mkdtempSync(path.join(cacheRoot, 'pack-probe-'));
+let run;
+try {
+  fs.mkdirSync(cacheProbeDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheProbeDir, 'marker.txt'), 'pack probe');
+  run = spawnSync(process.execPath, ['scripts/pack.js', '--node'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: 'C:\\Windows\\System32' }, // 屏蔽 git
+  });
+} finally {
+  fs.rmSync(cacheProbeDir, { recursive: true, force: true });
+}
 const entries = fs.existsSync(OUT) ? readZipEntries(fs.readFileSync(OUT)) : [];
 
 let pass = 0, fail = 0;
@@ -93,6 +105,11 @@ t('zip 不含 dev-only 文件（package*.json / samples / scripts / .github / �
     || /^\.(editorconfig|prettierrc)$/.test(e)
     || /(^|\/)README\.md$/.test(e));
   assert.deepStrictEqual(bad, [], 'zip 混入 dev-only 文件');
+});
+
+t('zip 不含 .cache/（Chrome for Testing 安装目录）', () => {
+  const bad = entries.filter((e) => e.startsWith('.cache/'));
+  assert.deepStrictEqual(bad, [], 'zip 混入 CfT 安装目录');
 });
 
 t('manifest: bridge 只注入回环主机，不随功能 content script 注入所有页面', () => {
