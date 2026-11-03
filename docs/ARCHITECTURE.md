@@ -25,7 +25,7 @@
 | `audio/` | `recorder.js`（MediaRecorder）+ `convert.js`（Int16/重采样）+ `devices.js`（输入设备枚举 + 约束）+ `pcm-capture.js`/`pcm-worklet.js`（PCM 帧采集喂流式；帧长是调优常量，基准数据见 `offscreen/offscreen-streaming.js` 的 `FRAME_SIZE` 注释） | `vad.js` 已删（服务旧伪流式） |
 | `transcription/` | `providers/{base,qwen,index}.js`：百炼真 WebSocket 流式（run-task 协议） | 无批量 transcribe / transcriber 调度（设计取舍） |
 | 配置存储 | `chrome.storage.local` 存 `asrConfig`（API Key 经 AES-GCM 加密） | — |
-| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` 覆盖 PCM/provider 契约、麦克风权限错误映射、配置合并与跨页同步（popup/sidepanel/options）、offscreen 流式生命周期、三路录音仲裁、IndexedDB 历史、OPFS 录音引用、内容注入、MediaRecorder、诊断脱敏与静态服务器边界、打包规则；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome，已入 CI（`smoke` job） | 依赖脚本加载顺序；无类型契约 |
+| 构建 / 质量 | 无构建/无 TS；`npm run lint` 为全量 JS 语法检查（`scripts/lint.js`，无依赖）；`npm test` 覆盖 PCM/provider 契约、麦克风权限错误映射、配置合并与跨页同步（popup/sidepanel/options）、offscreen 流式生命周期、三路录音仲裁、IndexedDB 历史、OPFS 录音引用、内容注入、MediaRecorder、诊断脱敏与静态服务器边界、打包规则；冒烟测试 `tests/p1-smoke-test.js`（断言数随条件分支增长，不在文档中维护固定值）由 `tests/smoke-run.js` 驱动真 Chrome；`npm run test:e2e` 用 CfT 驱动真实扩展上下文与 mock WebSocket 全链路（16k/8k、字幕、fill、history、Record Tab），均已入 CI（`smoke` / `e2e` job） | 依赖脚本加载顺序；无类型契约 |
 | `manifest.json` | `storage`/`tabCapture`/`sidePanel`/`offscreen`/`activeTab`/`scripting` + **`commands` 3 条**（popup / side panel / options）+ `minimum_chrome_version: 116`。fill 和字幕不再随 `<all_urls>` 常驻：background 先发送探测，无接收者时才用 `scripting` 注入并重发；`activeTab` 将临时访问限制在已授权 tab。**host_permissions 为空**（WebSocket 不受其约束，扩展也无 `fetch()`）；诊断桥 `debug/bridge.js` **只注入回环主机**，并用 `include_globs` 精确限定 `18923` 端口与诊断页路径；background 只接受 top-frame 订阅（issue #32 / #45 / #89） | `activeTab` 只由工具栏/快捷键等直接手势授予；独立打开的 side panel 不自动获得授权。`chrome://` 等受限页面不可注入；`[::1]` 诊断页无法用 match pattern 表达 |
 
 > **配置同步取舍**：popup/sidepanel/options 收到 `storage.onChanged` 时，若本页存在未保存编辑，
@@ -189,6 +189,7 @@
 ├── tests/                   #  〔已有〕浏览器可直接打开的冒烟测试（三种上下文均可运行）
 │   ├── p1-smoke-test.html
 │   ├── p1-smoke-test.js    #  用例主体（外置：内联 <script> 会被扩展 CSP 拦截）
+│   ├── e2e/                 #  真扩展上下文 E2E（CfT + mock WebSocket；可选真网短测）
 │   ├── stream-debug.html   #  流式诊断页（配合 tests/serve-debug.js）
 │   ├── debug-redact.js     #  诊断日志脱敏（query / JSON / Bearer）
 │   ├── serve-debug.js      #  诊断页本地静态服务器（精确文件白名单，校验 Host；127.0.0.1 与 [::1] 各一实例）

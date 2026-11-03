@@ -5,8 +5,8 @@
 # loading the unpacked directory.
 #
 # `npm test` covers the streaming provider contract and PCM helpers
-# (tests/streaming.test.js). The browser smoke tests (tests/p1-smoke-test.html)
-# run in the `smoke` job below, in a real Chrome on ubuntu-latest.
+# (tests/streaming.test.js). Browser smoke runs in `smoke`; the extension E2E
+# suite runs the real popup/background/offscreen/content chain in `e2e`.
 name: CI
 
 on:
@@ -130,9 +130,31 @@ jobs:
         env:
           SMOKE_CHROME_PATH: /usr/bin/google-chrome
 
-# Not covered here (deliberately):
-#   - Live Stream / Record Tab end-to-end — needs a real DashScope API key and a
-#     Chrome-for-Testing binary. Record Tab itself IS automatable
-#     (page.triggerExtensionAction()); the blocker is the key, not the gesture.
-#     Track end-to-end validation in docs/manual-verification.md (Live Stream
-#     section), which is the committed, self-contained procedure.
+  e2e:
+    name: Extension E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Stable Google Chrome ignores unpacked-extension CLI flags; CfT keeps the
+      # test close to the production browser without depending on a system policy.
+      - name: Install Chrome for Testing
+        run: npx browsers install chrome@stable --path .cache/chrome
+
+      - name: Run extension E2E tests
+        run: npm run test:e2e

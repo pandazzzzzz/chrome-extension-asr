@@ -1,0 +1,459 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const H = require('./helpers');
+const { installMockWebSocket } = require('./mock-websocket');
+
+const PORT = Number(process.env.E2E_PORT || 18923);
+const MOCK_FINAL = 'mock final transcript';
+const MOCK_8K_FINAL = 'mock 8k final transcript';
+
+async function configurePopup(popup, { apiKey, model, endpoint = '' }) {
+  await popup.evaluate(({ key, modelName, endpointUrl }) => {
+    document.getElementById('apiKey').value = key;
+    const region = document.getElementById('region');
+    if (endpointUrl) {
+      region.value = 'custom';
+      region.dispatchEvent(new Event('change', { bubbles: true }));
+      document.getElementById('endpoint').value = endpointUrl;
+    } else {
+      region.value = 'cn-beijing';
+      region.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    const select = document.getElementById('model');
+    const preset = [...select.options].some((option) => option.value === modelName);
+    select.value = preset ? modelName : '';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!preset) {
+      const custom = document.getElementById('modelCustom');
+      custom.value = modelName;
+      custom.dispatchEvent(new Event('input', { bubbles: true }));
+      custom.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }, { key: apiKey, modelName: model, endpointUrl: endpoint });
+  await H.sleep(200);
+}
+
+async function enableSubtitles(popup) {
+  const enabled = await popup.evaluate(() => {
+    const button = document.getElementById('subtitleBtn');
+    if (button.textContent.trim() !== 'Subtitles on') button.click();
+    return new Promise((resolve) => setTimeout(() => {
+      resolve(button.textContent.trim() === 'Subtitles on');
+    }, 400));
+  });
+  H.check('Subtitles toggled on', enabled);
+}
+
+async function createOffscreen(popup) {
+  const result = await popup.evaluate(async () => {
+    const url = chrome.runtime.getURL('offscreen/offscreen.html');
+    try {
+      const existing = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+        documentUrls: [url],
+      });
+      if (existing.length === 0) {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen/offscreen.html',
+          reasons: ['USER_MEDIA'],
+          justification: 'Extension E2E test',
+        });
+      }
+      return { ok: true, created: existing.length === 0 };
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+  if (!result.ok) throw new Error(`cannot create offscreen document: ${result.error}`);
+}
+
+async function injectMock(browser, options) {
+  const target = await browser.waitForTarget(
+    (candidate) => candidate.url().includes('/offscreen/offscreen.html'),
+    { timeout: 10000 },
+  );
+  const page = await target.asPage();
+  await page.waitForFunction(() => typeof globalThis.WebSocket === 'function'
+    && typeof globalThis.PROVIDERS !== 'undefined', { timeout: 10000 });
+  await page.evaluate(installMockWebSocket, options);
+  return page;
+}
+
+async function waitForOffscreenClosed(browser) {
+  await H.waitFor(
+    () => browser.targets().every((target) => !target.url().includes('/offscreen/offscreen.html')),
+    { timeout: 10000, label: 'offscreen document cleanup' },
+  );
+}
+
+async function runMockStreamSuite({ browser, extension, extensionId, targetPage, model, finalText, sampleRate }) {
+  const popup = await H.openPopup(browser, extensionId);
+  try {
+    await configurePopup(popup, { apiKey: 'sk-e2e-mock', model });
+    await enableSubtitles(popup);
+    await createOffscreen(popup);
+    const offscreen = await injectMock(browser, {
+      partialText: 'mock partial',
+      finalText,
+    });
+
+    await targetPage.bringToFront();
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('streamBtn').textContent === 'Stop Stream'
+        || /^(Cannot start streaming|Stream error|Timed out)/.test(document.getElementById('status').textContent),
+      15000,
+      'stream start',
+    );
+    const started = await popup.evaluate(() => ({
+      button: document.getElementById('streamBtn').textContent,
+      status: document.getElementById('status').textContent,
+    }));
+    H.check(
+      `Live Stream starts with ${model}`,
+      started.button === 'Stop Stream' && started.status.startsWith('Streaming:'),
+      JSON.stringify(started),
+    );
+
+    await H.waitFor(
+      () => offscreen.evaluate(() => {
+        const state = globalThis.__asrE2EMock;
+        return state && state.runTasks.length === 1 && state.finalSent && state.audioFrames > 0;
+      }),
+      { timeout: 12000, label: 'mock WebSocket traffic' },
+    );
+    const mock = await offscreen.evaluate(() => globalThis.__asrE2EMock);
+    H.check('run-task reaches the offscreen WebSocket', mock.runTasks.length === 1);
+    H.check(
+      `declared sample rate and offscreen AudioContext are both ${sampleRate}`,
+      mock.runTasks[0]?.parameters?.sample_rate === sampleRate && mock.contexts[0] === sampleRate,
+      JSON.stringify({
+        declared: mock.runTasks[0]?.parameters?.sample_rate,
+        context: mock.contexts[0],
+      }),
+    );
+    H.check('PCM frames are sent over the stream', mock.audioFrames > 0, `frames=${mock.audioFrames}`);
+
+    await H.waitFor(
+      () => popup.evaluate((expected) => (
+        document.getElementById('result').value === expected
+      ), finalText),
+      { timeout: 10000, label: 'final transcript mirror' },
+    );
+    const result = await popup.evaluate(() => document.getElementById('result').value);
+    H.check('final transcript is mirrored into the popup', result === finalText, JSON.stringify({ result }));
+
+    let subtitleText = '';
+    const subtitleSeen = await H.waitFor(async () => {
+      subtitleText = await H.axText(targetPage);
+      return subtitleText.includes(finalText);
+    }, { timeout: 10000, label: 'subtitle overlay text' }).then(() => true, () => false);
+    H.check('subtitle overlay reaches the active page', subtitleSeen, subtitleSeen ? '' : subtitleText);
+
+    await targetPage.bringToFront();
+    await targetPage.evaluate(() => {
+      document.querySelector('details').open = true;
+      document.getElementById('in1').focus();
+    });
+    await popup.evaluate(() => document.getElementById('fillBtn').click());
+    const fillStatus = await H.pollPage(
+      popup,
+      () => {
+        const status = document.getElementById('status').textContent;
+        return status === 'Filled into page input.' || status.startsWith('Fill failed:') ? status : '';
+      },
+      10000,
+      'fill into page',
+    );
+    const filled = await targetPage.evaluate(() => document.getElementById('in1').value);
+    H.check(
+      'fill works after the subtitle listener is already present',
+      fillStatus === 'Filled into page input.' && filled === finalText,
+      JSON.stringify({ fillStatus, filled }),
+    );
+
+    await targetPage.bringToFront();
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('streamBtn').textContent === 'Live Stream'
+        && document.getElementById('status').textContent === 'Streaming stopped.',
+      15000,
+      'stream stop',
+    );
+    await H.sleep(600);
+    const ended = await popup.evaluate(async () => ({
+      history: await globalThis.HistoryStore.list(),
+      result: document.getElementById('result').value,
+    }));
+    H.check(
+      'completed stream is written to history',
+      ended.history[0]?.text === finalText && ended.result === finalText,
+      JSON.stringify({ result: ended.result, history: ended.history[0] }),
+    );
+    await waitForOffscreenClosed(browser);
+    H.check('offscreen document is reclaimed after stop', true);
+    H.check('popup has no page or console errors', popup.__e2eErrors.length === 0, popup.__e2eErrors.join(' | '));
+  } finally {
+    await popup.close().catch(() => {});
+  }
+}
+
+async function runRecordTabSuite({ browser, extension, extensionId, targetPage }) {
+  const downloadDir = H.tempDir('chrome-asr-e2e-download-');
+  let popup;
+  let reopened;
+  try {
+    await targetPage.bringToFront();
+    await targetPage.evaluate(async () => {
+      const context = new AudioContext();
+      await context.resume();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0.15;
+      oscillator.frequency.value = 440;
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      globalThis.__e2eTabTone = { context, oscillator };
+    });
+
+    await targetPage.triggerExtensionAction(extension);
+    await H.sleep(400);
+    popup = await H.openPopup(browser, extensionId);
+
+    const browserSession = await browser.target().createCDPSession();
+    const downloadEvents = [];
+    browserSession.on('Browser.downloadWillBegin', (event) => {
+      downloadEvents.push({ kind: 'begin', ...event });
+    });
+    browserSession.on('Browser.downloadProgress', (event) => {
+      downloadEvents.push({ kind: 'progress', ...event });
+    });
+    await browserSession.send('Browser.setDownloadBehavior', {
+      behavior: 'allow',
+      downloadPath: downloadDir,
+      eventsEnabled: true,
+    });
+
+    await targetPage.bringToFront();
+    await popup.evaluate(() => document.getElementById('tabRecordBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('tabRecordBtn').textContent === 'Stop Tab Rec'
+        || document.getElementById('status').textContent.startsWith('Tab record failed:'),
+      12000,
+      'tab recording start',
+    );
+    const started = await popup.evaluate(() => ({
+      button: document.getElementById('tabRecordBtn').textContent,
+      status: document.getElementById('status').textContent,
+    }));
+    H.check('Record Tab starts', started.button === 'Stop Tab Rec', JSON.stringify(started));
+    await H.sleep(1800);
+
+    await popup.close();
+    popup = null;
+    reopened = await H.openPopup(browser, extensionId);
+    const restored = await reopened.evaluate(() => ({
+      button: document.getElementById('tabRecordBtn').textContent,
+      micDisabled: document.getElementById('recordBtn').disabled,
+      streamDisabled: document.getElementById('streamBtn').disabled,
+    }));
+    H.check(
+      'reopened popup restores the active tab recording',
+      restored.button === 'Stop Tab Rec' && restored.micDisabled && restored.streamDisabled,
+      JSON.stringify(restored),
+    );
+
+    await targetPage.bringToFront();
+    await reopened.evaluate(() => document.getElementById('tabRecordBtn').click());
+    await H.pollPage(
+      reopened,
+      () => document.getElementById('status').textContent.startsWith('Tab recording complete')
+        || document.getElementById('status').textContent.startsWith('Tab record stop failed'),
+      20000,
+      'tab recording stop',
+    );
+    const stopped = await reopened.evaluate(() => ({
+      button: document.getElementById('tabRecordBtn').textContent,
+      saveDisabled: document.getElementById('saveBtn').disabled,
+      status: document.getElementById('status').textContent,
+    }));
+    H.check(
+      'Record Tab stops and exposes Save audio',
+      stopped.button === 'Record Tab' && !stopped.saveDisabled
+        && stopped.status.startsWith('Tab recording complete'),
+      JSON.stringify(stopped),
+    );
+
+    const beforeFiles = await reopened.evaluate(() => globalThis.RecordingStore.list().then((items) => items.length));
+    await reopened.evaluate(() => document.getElementById('saveBtn').click());
+    await H.pollPage(
+      reopened,
+      () => document.getElementById('status').textContent.startsWith('Saved recording'),
+      10000,
+      'save tab recording',
+    );
+    const saved = await H.waitFor(() => {
+      const names = fs.readdirSync(downloadDir);
+      if (names.length > 0 && names.every((name) => !name.endsWith('.crdownload'))) {
+        const file = path.join(downloadDir, names[0]);
+        return { file: names[0], size: fs.statSync(file).size };
+      }
+      const begin = downloadEvents.find((event) => event.kind === 'begin');
+      const total = downloadEvents
+        .filter((event) => event.kind === 'progress')
+        .reduce((max, event) => Math.max(max, Number(event.totalBytes) || 0), 0);
+      return begin && total > 0 ? { browserAccepted: true, total, filename: begin.suggestedFilename } : null;
+    }, {
+      timeout: 20000,
+      label: `downloaded recording ${JSON.stringify(downloadEvents.slice(-5))}`,
+    });
+    const afterFiles = await reopened.evaluate(() => globalThis.RecordingStore.list().then((items) => items.length));
+    H.check(
+      'Save audio hands a non-empty recording to the browser downloader',
+      (saved.size || saved.total) > 0,
+      JSON.stringify(saved),
+    );
+    H.check('saved OPFS recording is removed', beforeFiles === 1 && afterFiles === 0,
+      JSON.stringify({ beforeFiles, afterFiles }));
+    await waitForOffscreenClosed(browser);
+    H.check('tab-recording offscreen document is reclaimed', true);
+    H.check('record-tab popup has no page or console errors',
+      reopened.__e2eErrors.length === 0, reopened.__e2eErrors.join(' | '));
+  } finally {
+    await popup?.close().catch(() => {});
+    await reopened?.close().catch(() => {});
+    H.removeTempDir(downloadDir);
+  }
+}
+
+async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
+  const apiKey = process.env.ASR_TEST_API_KEY;
+  if (!apiKey) {
+    console.log('  SKIP | real network (ASR_TEST_API_KEY is not set)');
+    return;
+  }
+  const model = process.env.ASR_TEST_MODEL || 'qwen-audio-3.1-asr-flash-streaming';
+  const endpoint = process.env.ASR_TEST_ENDPOINT || '';
+  const popup = await H.openPopup(browser, extensionId);
+  try {
+    await configurePopup(popup, { apiKey, model, endpoint });
+    await targetPage.bringToFront();
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('streamBtn').textContent === 'Stop Stream'
+        || /^(Cannot start streaming|Stream error|Timed out)/.test(document.getElementById('status').textContent),
+      20000,
+      'real network start',
+    );
+    const started = await popup.evaluate(() => ({
+      button: document.getElementById('streamBtn').textContent,
+      status: document.getElementById('status').textContent,
+    }));
+    const realStarted = H.check(
+      'real provider accepts run-task',
+      started.button === 'Stop Stream' && started.status.startsWith('Streaming:'),
+      JSON.stringify(started),
+    );
+    if (!realStarted) return;
+
+    if (process.env.ASR_TEST_SPEECH) {
+      await H.waitFor(
+        () => popup.evaluate(() => document.getElementById('result').value.trim().length > 0),
+        { timeout: 15000, label: 'real transcript' },
+      );
+      H.check('real audio produces transcript text', true);
+    }
+
+    await targetPage.bringToFront();
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('streamBtn').textContent === 'Live Stream',
+      15000,
+      'real network stop',
+    );
+    H.check('real provider stops cleanly', true);
+  } finally {
+    await popup.close().catch(() => {});
+  }
+}
+
+async function main() {
+  const executablePath = await H.findChrome();
+  if (!executablePath) {
+    throw new Error(
+      'no Chrome for Testing binary found; run '
+      + '`npx browsers install chrome@stable --path .cache/chrome` or set E2E_CHROME_PATH',
+    );
+  }
+  console.log(`E2E browser: ${executablePath}`);
+
+  const server = await H.startServer(PORT);
+  try {
+    await withExtensionBrowser(executablePath, { fakeMedia: true }, async ({ browser, extension, extensionId }) => {
+      const targetPage = await H.openDiagnosticPage(browser, PORT);
+      await targetPage.bringToFront();
+      await H.sleep(600);
+      await targetPage.triggerExtensionAction(extension);
+      await H.sleep(400);
+
+      await runMockStreamSuite({
+        browser,
+        extension,
+        extensionId,
+        targetPage,
+        model: 'qwen-audio-3.1-asr-flash-streaming',
+        finalText: MOCK_FINAL,
+        sampleRate: 16000,
+      });
+      await runMockStreamSuite({
+        browser,
+        extension,
+        extensionId,
+        targetPage,
+        model: 'paraformer-realtime-8k-v2',
+        finalText: MOCK_8K_FINAL,
+        sampleRate: 8000,
+      });
+      await runRealNetworkSuite({ browser, extensionId, targetPage });
+    });
+
+    await withExtensionBrowser(executablePath, { fakeMedia: false }, async ({ browser, extension, extensionId }) => {
+      const targetPage = await H.openDiagnosticPage(browser, PORT);
+      await targetPage.bringToFront();
+      await H.sleep(600);
+      await runRecordTabSuite({ browser, extension, extensionId, targetPage });
+    });
+  } finally {
+    server.stop();
+  }
+}
+
+async function withExtensionBrowser(executablePath, options, fn) {
+  const launched = await H.launchExtension(executablePath, options);
+  try {
+    const extension = await H.waitForExtension(launched.browser);
+    await fn({ browser: launched.browser, ...extension });
+  } finally {
+    await launched.browser.close().catch(() => {});
+    H.removeTempDir(launched.userDataDir);
+  }
+}
+
+main()
+  .then(() => {
+    const failures = H.failureCount();
+    console.log(`\n${failures === 0 ? 'ALL E2E CHECKS PASSED' : `${failures} E2E CHECK(S) FAILED`}`);
+    process.exit(failures === 0 ? 0 : 1);
+  })
+  .catch((error) => {
+    console.error('E2E runner failed:', error?.stack || error?.message || error);
+    process.exit(2);
+  });

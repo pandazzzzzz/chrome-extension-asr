@@ -1,9 +1,9 @@
 # 真机端到端验证清单 — Live Stream 与录音壳
 
 > 目标：覆盖 Live Stream 的真实 WebSocket 流式链路（真 API Key + 真浏览器 + 真实音频）。
-> 常规 CI smoke 不驱动扩展手势，因此本文步骤按人工执行；**Record Tab 已可自动化**
-> （`page.triggerExtensionAction()` 等价于真实工具栏点击，见第 3 节与文末自动化说明），只有听感、
-> 真实麦克风与浏览器级快捷键仍需人工确认。
+> 常规 CI 通过 `npm run test:e2e` 覆盖 mock WebSocket 的扩展全链路与 Record Tab
+> （`page.triggerExtensionAction()` 等价于真实工具栏点击）。本文仍用于真 API Key、
+> 真实语音质量、听感与浏览器级快捷键的人工确认。
 
 ## 0. 准备
 
@@ -302,8 +302,9 @@ cd temp/perf && node run.js all      # A 首字延迟 / B 30s 内存 / C offscre
 ## 附：本清单未覆盖的（属正常范围）
 
 - **WebSocket 协议细节**（run-task 握手、`task-started`/`task-finished` 时序）—— 已由
-  `tests/streaming.test.js` 覆盖契约层，网络层只能真机验
+  `tests/streaming.test.js` 覆盖契约层；可选 E2E 真网路径可验证握手，真实语音质量仍需真机验
 - **Record Tab 的自动化** —— ✅ **已可自动化**（2026-10-11）：`page.triggerExtensionAction()`
   等价于真实工具栏点击（`--allowlisted-extension-id` 只是对照手段，非必需）。
+  `tests/e2e/run.js` 已覆盖开始、重开 popup 恢复、停止、Save audio 与 OPFS 清理；
   仅「标签页声音不被静音」这一**听感**断言仍需人工听一次
 - **长时间流式稳定性**（>10 分钟）—— 建议单独做一次长跑，观察内存与连接保持

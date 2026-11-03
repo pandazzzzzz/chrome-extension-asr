@@ -81,6 +81,15 @@ path traversal, rejects a non-loopback `Host` header, and exits cleanly when
 its port is taken).
 No browser or network needed.
 
+`npm run test:e2e` launches the unpacked extension in Chrome for Testing and
+drives the real popup → background → offscreen → content chain. It covers a
+mock WebSocket stream, 16k/8k run-task sample rates, partial/final text,
+floating subtitles, fill-text, history, and Record Tab, without network access.
+Install the browser once with
+`npx browsers install chrome@stable --path .cache/chrome`, or set
+`E2E_CHROME_PATH`. Set `ASR_TEST_API_KEY` to add the real-network handshake
+suite; set `ASR_TEST_SPEECH` to a local audio file to require a real transcript.
+
 ## WebSocket authentication note
 
 Browsers cannot set an `Authorization` header on a WebSocket handshake. The Qwen
