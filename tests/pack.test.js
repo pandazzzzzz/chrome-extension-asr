@@ -33,7 +33,9 @@ function readZipEntries(buf) {
 // （git 缺失时），正是本次修复的对象。
 // .cache/ 是 E2E 安装 Chrome for Testing 的位置（已 gitignore）；回退收集读不到
 // .gitignore，必须靠静态 EXCLUDE 挡住，否则会把整个 CfT 打包进 zip。
-const cacheProbeDir = path.join(ROOT, '.cache', '__pack_probe__');
+const cacheRoot = path.join(ROOT, '.cache');
+fs.mkdirSync(cacheRoot, { recursive: true });
+const cacheProbeDir = fs.mkdtempSync(path.join(cacheRoot, 'pack-probe-'));
 let run;
 try {
   fs.mkdirSync(cacheProbeDir, { recursive: true });
