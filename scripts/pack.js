@@ -44,6 +44,7 @@ const EXCLUDE = [
   /(^|\/)node_modules\//, // '-x node_modules/*'
   /\.zip$/, // '-x *.zip'
   /^temp\//, // local harness, gitignored — not distribution content
+  /^\.cache\//, // Chrome for Testing install (E2E), gitignored — never ship
   // Repo metadata that is not part of the shipped extension:
   /^AGENTS\.md$/,
   /^CONTRIBUTING\.md$/,
