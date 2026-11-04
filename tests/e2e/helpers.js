@@ -148,14 +148,32 @@ function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-function removeTempDir(dir) {
+async function removeTempDir(dir, { attempts = 6, delay = 400 } = {}) {
   if (!dir) return;
   const resolved = path.resolve(dir);
   const tempRoot = path.resolve(os.tmpdir()) + path.sep;
   if (!resolved.startsWith(tempRoot)) {
     throw new Error(`refusing to remove non-temp directory: ${resolved}`);
   }
-  fs.rmSync(resolved, { recursive: true, force: true });
+  // Windows keeps a Chrome profile locked while the browser still owns it, so a
+  // single rmSync throws EPERM. Cleanup runs in `finally` blocks: letting that
+  // error escape would replace a real assertion failure with a confusing stack
+  // and leak a multi-hundred-MB directory. Retry while the browser shuts down,
+  // then warn instead of throwing (issue #132).
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      fs.rmSync(resolved, { recursive: true, force: true });
+      return true;
+    } catch (error) {
+      const retriable = ['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'].includes(error.code);
+      if (!retriable || attempt === attempts) {
+        console.warn(`  WARN | left ${resolved} on disk (${error.code || error.message}); remove it manually`);
+        return false;
+      }
+      await sleep(delay);
+    }
+  }
+  return false;
 }
 
 async function launchExtension(executablePath, { fakeMedia = true, extraArgs = [] } = {}) {
