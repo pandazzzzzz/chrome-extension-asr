@@ -203,8 +203,7 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
   }
 }
 
-async function runRecordTabSuite({ browser, extension, extensionId, targetPage }) {
-  const downloadDir = H.tempDir('chrome-asr-e2e-download-');
+async function runRecordTabSuite({ browser, extension, extensionId, targetPage, downloadDir }) {
   let popup;
   let reopened;
   try {
@@ -328,7 +327,6 @@ async function runRecordTabSuite({ browser, extension, extensionId, targetPage }
   } finally {
     await popup?.close().catch(() => {});
     await reopened?.close().catch(() => {});
-    H.removeTempDir(downloadDir);
   }
 }
 
@@ -425,25 +423,34 @@ async function main() {
       await runRealNetworkSuite({ browser, extensionId, targetPage });
     });
 
-    await withExtensionBrowser(executablePath, { fakeMedia: false }, async ({ browser, extension, extensionId }) => {
-      const targetPage = await H.openDiagnosticPage(browser, PORT);
-      await targetPage.bringToFront();
-      await H.sleep(600);
-      await runRecordTabSuite({ browser, extension, extensionId, targetPage });
-    });
+    // The download folder belongs to this browser: Chrome keeps it open while it
+    // runs, so removal is deferred to the afterClose hook. The outer finally also
+    // covers a launch that fails before any browser owns the directory (#132).
+    const downloadDir = H.tempDir('chrome-asr-e2e-download-');
+    try {
+      await withExtensionBrowser(executablePath, { fakeMedia: false }, async ({ browser, extension, extensionId }) => {
+        const targetPage = await H.openDiagnosticPage(browser, PORT);
+        await targetPage.bringToFront();
+        await H.sleep(600);
+        await runRecordTabSuite({ browser, extension, extensionId, targetPage, downloadDir });
+      }, () => H.removeTempDir(downloadDir));
+    } finally {
+      await H.removeTempDir(downloadDir);
+    }
   } finally {
     server.stop();
   }
 }
 
-async function withExtensionBrowser(executablePath, options, fn) {
+async function withExtensionBrowser(executablePath, options, fn, afterClose) {
   const launched = await H.launchExtension(executablePath, options);
   try {
     const extension = await H.waitForExtension(launched.browser);
     await fn({ browser: launched.browser, ...extension });
   } finally {
     await launched.browser.close().catch(() => {});
-    H.removeTempDir(launched.userDataDir);
+    await H.removeTempDir(launched.userDataDir);
+    if (afterClose) await afterClose();
   }
 }
 
