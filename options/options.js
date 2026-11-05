@@ -9,6 +9,13 @@ const els = {};
 let statusTimer = null;
 let lastSavedConfigSnapshot = null; // 最近一次已知落盘状态的字段快照
 
+// 与 popup 的 debugEvt 同 schema（{ ev, at, src, detail }）。options 页此前
+// 只加载 bridge 却从不打点，导致「配置保存」在诊断页只对 popup 可见 —— 见 #135。
+function debugEvt(phase, detail) {
+  if (typeof globalThis.emitDebug !== 'function') return;
+  globalThis.emitDebug({ ev: phase, at: Date.now(), src: 'ui', detail: detail || {} });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     gatherElements();
@@ -183,6 +190,7 @@ async function save() {
   // 刻意的不对称：popup 的 persistConfig 是 change 驱动的「草稿保存」，**不**做这个
   // 校验（否则用户还没填完 URL 就丢输入），真正的强制点在 startStreaming 的守卫。
   if (region === 'custom' && !endpoint) {
+    debugEvt('config-save-error', { reason: 'no-endpoint', region });
     show('Custom region requires an endpoint URL.', 'error');
     return;
   }
@@ -204,8 +212,16 @@ async function save() {
     // hasUnsavedConfigEdits() 拦住，不能被误当成"本页已保存"。
     lastSavedConfigSnapshot = JSON.stringify(config);
     show('Settings saved.', 'success');
+    debugEvt('config-saved', {
+      provider: config.provider,
+      model: config.model,
+      endpoint: globalThis.Format.endpointForTelemetry(config.endpoint),
+      audioType: config.audioType,
+      hasKey: !!config.apiKey,
+    });
     await refreshStorageStatus();
   } catch (e) {
+    debugEvt('config-save-error', { message: e?.message || String(e) });
     show(`Save failed: ${e.message}`, 'error');
   }
 }

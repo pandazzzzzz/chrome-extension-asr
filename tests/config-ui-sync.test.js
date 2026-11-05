@@ -156,7 +156,10 @@ async function makePage() {
         }
       },
     },
-    Format: { timestampForFile: () => 'x' },
+    Format: {
+      timestampForFile: () => 'x',
+      endpointForTelemetry: (value) => String(value || '').split('?')[0].split('#')[0],
+    },
     PROVIDERS: [{
       id: 'qwen',
       name: 'Qwen (DashScope)',

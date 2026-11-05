@@ -398,8 +398,42 @@ async function main() {
     await withExtensionBrowser(executablePath, { fakeMedia: true }, async ({ browser, extension, extensionId }) => {
       const targetPage = await H.openDiagnosticPage(browser, PORT);
       await targetPage.bringToFront();
-      await H.sleep(600);
-      await targetPage.triggerExtensionAction(extension);
+
+      // The telemetry chain (content bridge -> background relay -> panel) is the
+      // reason this page exists, and it only works on the manifest-approved
+      // origin. Pin both sides: the live path on 18923, and the explicit warning
+      // when E2E_PORT moves the page somewhere the bridge cannot inject (#134/#135).
+      if (PORT === 18923) {
+        // Subscribe first: a popup opened before the panel registers would emit
+        // its startup events into the void and the wait below would time out.
+        await H.waitFor(
+          () => targetPage.evaluate(() => /已订阅/.test(document.getElementById('evtConn').textContent)),
+          { label: 'diagnostic bridge subscription', timeout: 10000, interval: 200 },
+        );
+        await targetPage.triggerExtensionAction(extension);
+        await H.waitFor(
+          () => targetPage.evaluate(() => [...document.querySelectorAll('#evtLog .logline')]
+            .some((line) => line.textContent.includes('{ui}'))),
+          { label: 'popup telemetry', timeout: 10000, interval: 200 },
+        );
+        const conn = await targetPage.evaluate(() => document.getElementById('evtConn').textContent);
+        H.check('diagnostic panel subscribes on the approved origin', /已订阅/.test(conn), conn);
+        const uiLines = await targetPage.evaluate(() => [...document.querySelectorAll('#evtLog .logline')]
+          .map((line) => line.textContent)
+          .filter((text) => text.includes('{ui}')));
+        H.check('popup telemetry reaches the panel through the bridge', uiLines.length > 0, `${uiLines.length} ui events`);
+      } else {
+        console.log(`  SKIP | bridge telemetry (E2E_PORT=${PORT}; the bridge only injects on 18923)`);
+        // Still needed: the fill/subtitle suites below rely on the activeTab
+        // grant that only a real extension action provides.
+        await targetPage.triggerExtensionAction(extension);
+        await H.waitFor(
+          () => targetPage.evaluate(() => /不在扩展注入范围/.test(document.getElementById('evtConn').textContent)),
+          { label: 'non-injected origin warning', timeout: 5000, interval: 200 },
+        );
+        const conn = await targetPage.evaluate(() => document.getElementById('evtConn').textContent);
+        H.check('panel flags an origin the bridge is not injected into', /不在扩展注入范围/.test(conn), conn);
+      }
       await H.sleep(400);
 
       await runMockStreamSuite({
@@ -420,6 +454,20 @@ async function main() {
         finalText: MOCK_8K_FINAL,
         sampleRate: 8000,
       });
+      if (PORT === 18923) {
+        // Offscreen/provider events are flattened ({ ev, ...fields }), not nested
+        // under detail. The panel used to drop those fields, which made the 8 kHz
+        // triage step impossible to check (#136 follow-up).
+        const lines = await targetPage.evaluate(() => [...document.querySelectorAll('#evtLog .logline')]
+          .map((line) => line.textContent));
+        const runTask = lines.filter((text) => text.includes('run-task-sent'));
+        const pcmStats = lines.filter((text) => text.includes('pcm-stats'));
+        H.check(
+          'flattened provider fields survive into the panel',
+          runTask.some((text) => text.includes('sampleRate')) && pcmStats.some((text) => text.includes('ctxRate')),
+          `run-task-sent=${runTask.length} pcm-stats=${pcmStats.length}`,
+        );
+      }
       await runRealNetworkSuite({ browser, extensionId, targetPage });
     });
 

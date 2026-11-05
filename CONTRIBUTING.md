@@ -109,6 +109,10 @@ npx browsers install chrome@stable --path .cache/chrome  # 安装 E2E 用 CfT（
 npm run test:e2e                # 扩展全链路 E2E（mock WebSocket，无网络）
 ```
 
+诊断页与扩展之间的遥测只走 `http://localhost:18923/tests/stream-debug.html`：
+`SMOKE_PORT` / `E2E_PORT` 可以把静态页换到别的端口，但 content 桥只在 18923
+注入，那里页面能打开、遥测不会到达（页面会显式标红）。
+
 PR 会触发 GitHub Actions：`CI`（语法/manifest/单测/打包/提交信息）、
 `Browser smoke tests`（真实 Chrome 冒烟测试）、`Extension E2E tests`
 （扩展全链路）、`CodeQL`（静态安全分析）、

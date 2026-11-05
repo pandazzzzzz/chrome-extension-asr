@@ -134,7 +134,10 @@ async function makePopup(options = {}) {
       resolveModelSelection: () => ({ value: 'model', customText: '' }),
       populateModelOptions() {},
     },
-    Format: { timestampForFile: () => 'x' },
+    Format: {
+      timestampForFile: () => 'x',
+      endpointForTelemetry: (value) => String(value || '').split('?')[0].split('#')[0],
+    },
     RecordingStore: { isRef: () => false, read: async () => null, remove: async () => false },
     PROVIDERS: [],
     emitDebug() {},
@@ -345,6 +348,40 @@ async function makePopup(options = {}) {
     const restored = await vm.runInContext('audioRecording', sandbox);
     assert.strictEqual(restored?.file, ref.file, 'popup reload restores the persisted ref');
     console.log('PASS | tab recording ref survives popup close (#109)');
+  }
+
+  {
+    const { sandbox, els } = await makePopup();
+    const events = [];
+    let sends = 0;
+    sandbox.emitDebug = (event) => events.push(event);
+    sandbox.PROVIDERS = [{
+      id: 'qwen',
+      name: 'Qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      streamModels: ['model'],
+      endpointFor: () => '',
+    }];
+    els.provider.value = 'qwen';
+    els.apiKey.value = 'sk-test';
+    els.region.value = 'custom';
+    els.endpoint.value = '';
+    sandbox.MessageClient.send = async () => {
+      sends += 1;
+      return { streaming: false };
+    };
+
+    await vm.runInContext('startStreaming()', sandbox);
+    await flushAsync();
+
+    assert.strictEqual(els.statusDiv.textContent, 'Custom region requires an endpoint URL.');
+    assert.strictEqual(sends, 0, 'empty custom endpoint must not reach the streaming host');
+    assert.strictEqual(els.streamBtn.disabled, false, 'guard failure must leave the button usable');
+    assert.ok(events.some(
+      (event) => event.ev === 'start-fail' && event.detail?.reason === 'no-endpoint',
+    ));
+    console.log('PASS | empty custom endpoint is rejected before streaming (#135)');
   }
 
   {

@@ -57,6 +57,8 @@ if (process.env.SERVE_EXTRA_FILES) {
   }
 }
 
+// 默认白名单只托管诊断页与其脚本（.html/.js）；其余类型留给 SERVE_EXTRA_FILES
+// 的调用方（可指名任意精确文件），不是默认可达路径。
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -155,8 +157,9 @@ const handleRequest = (req, res) => {
 
 // 仅绑回环：文件头声明"仅本机开发用""不鉴权"。默认 0.0.0.0/:: 会把服务暴露到
 // LAN/公网 —— 必须限制到回环。
-// 同时绑 IPv4 与 IPv6 回环：bridge 会认 hostname '[::1]'（见 1d6383c），只绑
-// 127.0.0.1 会让 http://[::1]:PORT/... 连不上。
+// 同时绑 IPv4 与 IPv6 回环，让 http://[::1]:PORT/... 也能打开页面。注意 IPv6
+// 只能"看页面"：manifest 的 match pattern 表达不了 [::1]，content 桥不会注入，
+// 那里的遥测永远不通（诊断页会显式标红，见 bridgeOriginSupported）。
 //
 // 每个回环必须用**独立的 server 实例**：对同一个 server 连调两次 listen() 时，
 // Node 让后一次接管，前一次静默失效（实测 address() 只剩 '::1'，127.0.0.1 直接
@@ -183,6 +186,7 @@ LOOPBACKS.forEach((host) => {
     console.error(`诊断页服务器无法监听 ${host}:${PORT} —— ${err.code || err.message}`);
     if (err.code === 'EADDRINUSE') {
       console.error(`端口 ${PORT} 已被占用：先停掉占用的进程，或用 \`node tests/serve-debug.js <其他端口>\` 另选端口。`);
+      console.error('  注意：content 桥只在 localhost/127.0.0.1:18923 上注入，换端口后页面可开、遥测不通。');
     }
     process.exit(1);
   });

@@ -82,13 +82,13 @@
 
 | # | 步骤 | 预期 | 覆盖 |
 |---|---|---|---|
-| E1 | Region=Beijing 跑流式 | WS 连 `dashscope.aliyuncs.com`（诊断页 `ws-connecting` 可见目标；**导出日志前删掉 URL 里的 Key**） | 🤖 |
+| E1 | Region=Beijing 跑流式 | `ws-open` 出现且无 `ws-error`；在 DevTools → Network → WS 里确认实际连接主机是北京地域（`dashscope.aliyuncs.com`）。`config-saved.endpoint` 只是配置字段，可能为空或过期，不能当路由证据；不要记录 URL query | 🤖（`ws-open`）+ 🖐（主机核对） |
 | E2 | Region=Singapore + 新加坡 Key | 连 `dashscope-intl…`；**用北京 Key 时握手失败** —— 报 `Stream error`/`Cannot start streaming` 类网络错误属预期（Key 地域不符） | 🖐（有国际 Key 才跑，否则 N/A） |
 | E3 | Region=Custom + 合法 `wss://` URL | 实际拨所填 URL | 🤖（`probe-8k-custom.js` C2） |
-| E4 | **Region=Custom + Endpoint 留空 → 点 Live Stream** | 状态 `Custom region requires an endpoint URL.`；**麦克风不亮**、无 `ws-connecting` 事件、按钮仍是 `Live Stream` 可点；**绝不连北京** | 🤖（C1/C1b/C8） |
+| E4 | **Region=Custom + Endpoint 留空 → 点 Live Stream** | 状态 `Custom region requires an endpoint URL.`；**麦克风不亮**、无任何 WS 事件（应见 `start-fail` 的 `reason: no-endpoint`）、按钮仍是 `Live Stream` 可点；**绝不连北京** | 🤖（Node: `popup-record-mutex.test.js` 的 no-endpoint 守卫） |
 | E5 | **options 页** Region=Custom + 清空 Endpoint → 点 **Save** | 提示 `Custom region requires an endpoint URL.`；storage 里 `endpoint` **保持上一次的值**（被拒的 save 不落盘）。再填 `wss://…` → `Settings saved.` | 🤖（C9a–d） |
 | E6 | Model 填会话制模型名（如 `qwen3-asr-flash-realtime`）→ 点 Live Stream | 状态提示回落：`Using fun-asr-realtime — "…" is not a run-task model.`，然后**照常出字**（白名单兜底是正确行为） | 🤖（Node 白名单例） |
-| E7 | 8k 模型：Model=`paraformer-realtime-8k-v2` → 说一句 | 正常出 partial/final；诊断页 `run-task-sent` 的 `sampleRate` = **8000**、`ws-connecting` 的 `targetSampleRate` = **8000** | 🖐（服务端接受已于 2026-10-16 真 Key 验过；**真语音文字质量**需人耳） |
+| E7 | 8k 模型：Model=`paraformer-realtime-8k-v2` → 说一句 | 正常出 partial/final；诊断页 `run-task-sent` 的 `sampleRate` = **8000**、`pcm-stats` 的 `ctxRate` / `target` 也都是 **8000** | 🖐（服务端接受已于 2026-10-16 真 Key 验过；**真语音文字质量**需人耳） |
 | E8 | 8k 模型快照名：`fun-asr-flash-8k-realtime-2026-01-28` | 同上（前缀匹配 8000） | 🤖（C5） |
 | E9 | 16k 模型回归：`fun-asr-realtime` 或 `paraformer-realtime-v2` | `sampleRate=16000`、出字正常（注意前者本账号额度状态，选有额度的跑） | 🖐/🤖 |
 
@@ -203,14 +203,14 @@
 |---|---|---|
 | 点 Live Stream 无反应 | `start-blocked` | busy 护栏拦截（正常，再点一次） |
 | 同上 | `start-fail: no-provider / no-api-key / no-endpoint` | 对应配置项为空；`no-endpoint` = E4 守卫生效 |
-| 连不上 | `ws-connecting` → `ws-error` | Key 与地域不匹配（401）/ URL 拼错 / 网络 |
+| 连不上 | `ws-error`（无 `ws-open`，握手期 `started:false`）→ `ws-ready-fail` | Key 与地域不匹配（401）/ URL 拼错 / 网络 |
 | 卡在等待 10s 超时 | `ready-timeout`，`Timed out waiting for task-started (check model / API key)` | Key 无效或模型不在白名单 |
 | 模型被换 | `model-fallback` + 状态 `Using fun-asr-realtime — …` | 填了非白名单名（**正常兜底**，见 E6） |
 | 8k 模型 task-failed | `run-task-sent.sampleRate` ≠ 8000 | 采样率元数据回退（应不可能，若现 = 回归，提 issue）|
 | 丢首句 | — | `await ready` 前采音被丢（历史决策 #4，回归位） |
 | 只有 partial 不定稿 | — | 服务端未发 `sentence_end`（网络/服务端侧） |
 | 最后一句丢失 | — | `flushPartial()` 未跑（回归位） |
-| 字幕没出现 | `subtitle-error: NO_CONTENT` | 目标页不可按需注入或无 `activeTab` 授权（`chrome://` 属预期） |
+| 字幕没出现 | （无专有打点；转发失败被 offscreen 静默吞掉） | 目标页不可按需注入或无 `activeTab` 授权（`chrome://` 属预期） |
 | 快捷键侧栏报 gesture 错 | SW console | `sidePanel.open()` 前被插了 await（决策 #2，回归位） |
 | 录音失败后红点常驻 | — | 音轨泄漏（历史 bug #4，回归位） |
 

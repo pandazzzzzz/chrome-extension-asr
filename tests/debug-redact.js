@@ -7,6 +7,23 @@
  */
 globalThis.redactDebugText = function redactDebugText(value) {
   let text = String(value ?? '');
+  const credentialHostLabel = /^(?:sk|pk|api[_-]?key|access[_-]?token|token|secret|credential)[-_]/i;
+
+  function redactAuthority(authority) {
+    const at = authority.lastIndexOf('@');
+    const prefix = at === -1 ? '' : authority.slice(0, at + 1);
+    const hostPort = authority.slice(at + 1);
+    if (hostPort.startsWith('[')) return prefix + hostPort;
+    const colon = hostPort.lastIndexOf(':');
+    const hasPort = colon !== -1 && /^\d+$/.test(hostPort.slice(colon + 1));
+    const host = hasPort ? hostPort.slice(0, colon) : hostPort;
+    const port = hasPort ? hostPort.slice(colon) : '';
+    const redacted = host
+      .split('.')
+      .map((label) => (credentialHostLabel.test(label) ? '<redacted>' : label))
+      .join('.');
+    return prefix + redacted + port;
+  }
 
   // Diagnostic URLs never need their fragment. Treat the whole fragment as
   // opaque because OAuth/session tokens are often placed there without a
@@ -15,6 +32,12 @@ globalThis.redactDebugText = function redactDebugText(value) {
 
   // URL userinfo: wss://user:password@host/... — keep scheme/host, drop credentials.
   text = text.replace(/\b(https?|wss?):\/\/[^/\s@]+@/gi, '$1://<redacted>@');
+
+  // Credential-shaped hostname labels: wss://sk-secret.proxy.example/...
+  text = text.replace(
+    /\b(https?|wss?):\/\/([^/\s"'?#]+)/gi,
+    (match, scheme, authority) => `${scheme}://${redactAuthority(authority)}`,
+  );
 
   // Redact unknown URL query values, including provider-specific or user-chosen
   // parameter names that the secret-name allowlist cannot know in advance. Keep

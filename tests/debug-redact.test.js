@@ -74,6 +74,17 @@ t('redact: URL userinfo credentials', () => {
   );
 });
 
+t('redact: credential-shaped hostname labels', () => {
+  assert.strictEqual(
+    redact('endpoint=wss://sk-secret.proxy.example/api-ws/v1/inference'),
+    'endpoint=wss://<redacted>.proxy.example/api-ws/v1/inference',
+  );
+  assert.strictEqual(
+    redact('endpoint=wss://ordinary.proxy.example/api-ws/v1/inference'),
+    'endpoint=wss://ordinary.proxy.example/api-ws/v1/inference',
+  );
+});
+
 t('redact: generic secret fields', () => {
   assert.strictEqual(
     redact('{"client_secret":"abc","password":"def","credential":"ghi"}'),
