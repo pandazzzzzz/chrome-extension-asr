@@ -215,7 +215,7 @@ async function save() {
     debugEvt('config-saved', {
       provider: config.provider,
       model: config.model,
-      endpoint: config.endpoint,
+      endpoint: globalThis.Format.endpointForTelemetry(config.endpoint),
       audioType: config.audioType,
       hasKey: !!config.apiKey,
     });

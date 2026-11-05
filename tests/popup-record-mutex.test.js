@@ -134,7 +134,10 @@ async function makePopup(options = {}) {
       resolveModelSelection: () => ({ value: 'model', customText: '' }),
       populateModelOptions() {},
     },
-    Format: { timestampForFile: () => 'x' },
+    Format: {
+      timestampForFile: () => 'x',
+      endpointForTelemetry: (value) => String(value || '').split('?')[0].split('#')[0],
+    },
     RecordingStore: { isRef: () => false, read: async () => null, remove: async () => false },
     PROVIDERS: [],
     emitDebug() {},

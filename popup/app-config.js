@@ -92,7 +92,9 @@ async function persistConfig() {
     debugEvt('config-saved', {
       provider: config.provider,
       model: config.model,
-      endpoint: config.endpoint, // 原值（诊断页可直接看出是不是 https 批量残留）
+      // 只留 scheme/host/path：用户可能把 Key 拼进自定义 URL 的 query，
+      // hasKey 布尔挡不住这种泄漏；路径仍能看出是不是 https 批量残留。
+      endpoint: globalThis.Format.endpointForTelemetry(config.endpoint),
       audioType: config.audioType,
       subtitles: config.subtitles,
       audioInput: config.audioInput || 'default',

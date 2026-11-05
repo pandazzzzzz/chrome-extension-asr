@@ -269,6 +269,21 @@
   }
   setInterval(connLabel, 5000);
   connLabel();
+
+  // 遥测有两种形状：popup/background 发 { ev, at, src, detail }，offscreen 与
+  // provider 发扁平 { ev, at, src, ...字段 }（pcm-stats 的 ctxRate/target、
+  // run-task-sent 的 sampleRate 都在顶层）。统一成 detail 再渲染/导出，否则
+  // 面板只剩事件名、分诊表要核对的字段全丢。
+  const META_KEYS = new Set(['ev', 'phase', 'at', 'src', 'detail']);
+  function detailOf(entry) {
+    if (entry.detail && Object.keys(entry.detail).length) return entry.detail;
+    const rest = {};
+    for (const [key, value] of Object.entries(entry)) {
+      if (!META_KEYS.has(key)) rest[key] = value;
+    }
+    return rest;
+  }
+
   window.addEventListener('message', (e) => {
     if (e.origin && e.origin !== 'null' && e.origin !== location.origin) return;
     if (e.data?.type === 'asr:debug-sub-ack') {
@@ -278,7 +293,7 @@
     }
     if (e.data?.type !== 'asr:debug-log') return;
     const entry = e.data.entry || {};
-    renderEvt(entry.phase || entry.ev || '(未知)', entry.detail || {}, entry.at, entry.src);
+    renderEvt(entry.phase || entry.ev || '(未知)', detailOf(entry), entry.at, entry.src);
     connLabel();
   });
 
@@ -432,10 +447,10 @@
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     return URL.createObjectURL(blob);
   }
-  // 纵深防御：打点侧（popup/app-*.js 注释约定）从不把 apiKey 放进 detail，provider 也
-  // 只在 WS URL 的 query 里带 Key。但 config-saved 会原样带用户填的 endpoint —— 若用户
-  // 把 Key 拼进了自己填的 URL，或未来某个打点新加字段带上了含 query 的完整 URL，
-  // 屏幕和导出文件都会泄 Key。`redactDebugText` 同时覆盖 query、JSON 和 Bearer。
+  // 纵深防御：打点侧从不把 apiKey 放进 detail，config-saved 的 endpoint 也已由
+  // shared/format.js 的 endpointForTelemetry 去掉 userinfo/query/fragment。
+  // 页面仍对屏幕和导出再跑一遍 `redactDebugText`（query、JSON、Bearer），因为
+  // 未来某个打点可能带进含 query 的完整 URL。
   document.getElementById('exportBtn').addEventListener('click', () => {
     // 两段都要导出：遥测面板（evtEntries，含 run-task-sent/ws-open/start-fail
     // 这些分诊表依赖的事件）与 fill 注入日志（entries）。此前只导 entries，

@@ -54,6 +54,12 @@ function producers() {
       for (const match of source.matchAll(/(?:debugEvt|track)\(\s*'([a-z0-9-]+)'/g)) {
         found.add(match[1]);
       }
+      // Event names also appear through ternaries, e.g.
+      // debugEvt(reason === 'remote' ? 'stream-pagehide-like-end' : 'stream-finalized', ...).
+      for (const line of source.split('\n')) {
+        if (!/(?:debugEvt|track)\(/.test(line)) continue;
+        for (const match of line.matchAll(/'([a-z0-9-]+)'/g)) found.add(match[1]);
+      }
       // `reason` values are documented next to the event that carries them.
       for (const match of source.matchAll(/reason:\s*'([a-z0-9-]+)'/g)) {
         found.add(match[1]);
@@ -69,8 +75,17 @@ function documentedCandidates() {
   const candidates = new Map();
   for (const file of DOC_FILES) {
     const lines = fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n');
+    // Triage rows carry their context in the header, not on the row itself
+    // (`| 连不上 | ws-open -> ws-error | ...`), so remember when we are inside
+    // a table whose header is about diagnostic events.
+    let inTriageTable = false;
     lines.forEach((line, index) => {
-      if (!TELEMETRY_CONTEXT.test(line)) return;
+      if (/^\|\s*现象\s*\|\s*关键事件/.test(line)) {
+        inTriageTable = true;
+        return;
+      }
+      if (inTriageTable && !line.startsWith('|')) inTriageTable = false;
+      if (!TELEMETRY_CONTEXT.test(line) && !inTriageTable) return;
       for (const match of line.matchAll(span)) {
         const name = match[1];
         if (MODEL_ID_SHAPE.test(name) || NON_EVENT_TOKENS.has(name)) continue;

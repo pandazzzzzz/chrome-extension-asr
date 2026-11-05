@@ -16,5 +16,23 @@ globalThis.Format = (() => {
     return date.toISOString().replace(/[:.]/g, '-').slice(0, 19);
   }
 
-  return { timestampForFile };
+  /**
+   * 遥测用的 endpoint 摘要：保留 scheme/host/path（分诊时用来判断是不是
+   * `https://` 残留或地址拼错），去掉 userinfo / query / fragment —— 用户
+   * 可能把 Key 直接拼进自定义 URL，`hasKey` 布尔挡不住这种泄漏。
+   * @param {string} value
+   * @returns {string} 空串保持空；无法解析时返回 `<unparseable>`
+   */
+  function endpointForTelemetry(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      const url = new URL(raw);
+      return `${url.protocol}//${url.host}${url.pathname}`;
+    } catch {
+      return '<unparseable>';
+    }
+  }
+
+  return { timestampForFile, endpointForTelemetry };
 })();

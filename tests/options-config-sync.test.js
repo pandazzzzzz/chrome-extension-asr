@@ -163,7 +163,10 @@ function makeSandbox() {
       clear: async () => {},
     },
     CryptoStore: { hasKey: async () => true },
-    Format: { timestampForFile: () => 'x' },
+    Format: {
+      timestampForFile: () => 'x',
+      endpointForTelemetry: (value) => String(value || '').split('?')[0].split('#')[0],
+    },
     emitDebug: (entry) => page.debugEvents.push(entry),
   };
   sandbox.globalThis = sandbox;
