@@ -84,6 +84,7 @@ function makeSandbox() {
       audioType: 'audio/webm',
     },
     savedConfigs: [],
+    debugEvents: [],
   };
   const provider = {
     id: 'qwen',
@@ -163,6 +164,7 @@ function makeSandbox() {
     },
     CryptoStore: { hasKey: async () => true },
     Format: { timestampForFile: () => 'x' },
+    emitDebug: (entry) => page.debugEvents.push(entry),
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -405,6 +407,37 @@ function changeEvent(config) {
       'qwen3-asr-flash-realtime',
       'edits made while save was pending must remain protected from external sync',
     );
+  });
+
+  await t('save emits config-saved telemetry without the API key', async () => {
+    const { sandbox, els, page } = await initPage();
+    els.region.value = 'cn-beijing';
+    els.endpoint.value = '';
+    els.apiKey.value = 'sk-secret';
+    await sandbox.save();
+
+    const saved = page.debugEvents.find((e) => e.ev === 'config-saved');
+    assert.ok(saved, 'config-saved was not emitted');
+    assert.strictEqual(saved.src, 'ui');
+    assert.strictEqual(saved.detail.provider, 'qwen');
+    assert.strictEqual(saved.detail.audioType, 'audio/webm');
+    assert.strictEqual(saved.detail.hasKey, true);
+    assert.ok(
+      !JSON.stringify(saved).includes('sk-secret'),
+      'the API key must never be part of the telemetry payload',
+    );
+  });
+
+  await t('save rejection emits config-save-error with the reason', async () => {
+    const { sandbox, els, page } = await initPage();
+    els.region.value = 'custom';
+    els.endpoint.value = '';
+    await sandbox.save();
+
+    const failed = page.debugEvents.find((e) => e.ev === 'config-save-error');
+    assert.ok(failed, 'config-save-error was not emitted');
+    assert.strictEqual(failed.detail.reason, 'no-endpoint');
+    assert.strictEqual(page.savedConfigs.length, 0, 'rejected save must not write config');
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

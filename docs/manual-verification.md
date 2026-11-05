@@ -15,7 +15,7 @@
 | Provider | `Qwen (DashScope)` |
 | Model | 下拉框，预置五个有免费额度的 run-task 模型（选项来自 provider 的 `modelOptions`）：`qwen-audio-3.1-asr-flash-streaming`（**默认**）、`qwen-audio-3.1-asr-flash-message`、`qwen-audio-3.0-asr-flash-streaming`、`paraformer-realtime-v2`、`paraformer-realtime-8k-v2`，末项 `Custom…` 会展开一个手填框（老配置里的非预置模型自动归到 Custom 并保留原文）。**下拉不是白名单本身**：白名单仍以 `streamModels` 为准（含 `fun-asr-realtime`、`fun-asr-flash-8k-realtime` 等未预置项，可带日期后缀，选 Custom 手填即可）。其余模型名——包括 `qwen3-asr-flash-realtime` 这类走 `/api-ws/v1/realtime` 会话制协议的——会被回落为默认模型。**采样率随模型走**：8k 电话模型（`fun-asr-flash-8k-realtime`、`paraformer-realtime-8k-v2`）以 8000 Hz 采集并在 run-task 声明 `sample_rate:8000`，其余为 16000 Hz |
 | Region | 默认 `Beijing (华北2)` → 自动用 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`。切到 `Singapore (新加坡)` → 自动用 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`。选 `Custom` 才出现 Endpoint 文本框（业务空间专属域名 `wss://{WorkspaceId}.{region}.maas.aliyuncs.com/api-ws/v1/inference` 等）。**Custom 留空是硬错误**（点 Live Stream 直接报 `Custom region requires an endpoint URL.`，不开麦、不连接），**不再**静默回落北京。**Region 必须与 API Key 的地域一致**，否则握手 401 |
-| 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件。服务器**只托管诊断页与脱敏脚本**（`.env.local`、`.git/`、`docs/`、`temp/`，以及 `tests/` 下的手测计划/导出日志在 HTTP 上不可读），并**拒绝非回环 `Host` 头**——所以你放在仓库里的测试 Key 不会被这个页面或任何本机网页取走 |
+| 诊断页（可选） | `node tests/serve-debug.js` → 开 `http://localhost:18923/tests/stream-debug.html`，可看实时遥测事件。**端口必须是 18923**：`SMOKE_PORT`/`E2E_PORT` 换端口后页面照常打开，但 content 桥只在 18923 注入，遥测不通（页面会显式标红）。服务器**只托管诊断页与脱敏脚本**（`.env.local`、`.git/`、`docs/`、`temp/`，以及 `tests/` 下的手测计划/导出日志在 HTTP 上不可读），并**拒绝非回环 `Host` 头**——所以你放在仓库里的测试 Key 不会被这个页面或任何本机网页取走 |
 
 **开始前记录基线**：popup 初始文案应为 `Start Recording` / `Record Tab` / `Save audio` /
 `Live Stream` / `Copy text` / `Fill into page` / `Subtitles` / `Options` / `Side panel`，
@@ -38,8 +38,8 @@
 | 1.6 | 点 **Stop Stream** | 按钮回 `Live Stream`，状态 `Streaming stopped.`，**未定稿的 partial 被并入结果**（`flushPartial()` 兜底） | 最后半句丢失 = flushPartial 未执行 |
 | 1.7 | **重入测试**：快速双击 **Live Stream** | 只开一条流；日志无两条 `start-begin` | 两条流 = busy 护栏失效（§7 决策 #8） |
 | 1.8 | 停止后看 options 页 | 历史**新增一条**，内容与结果一致，provider/model 正确 | 无记录 = offscreen `finalizeSession` 的 `asr:history-add` 未送达 background |
-| 1.9 | 下拉选 `paraformer-realtime-8k-v2`（或 Custom 手填 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`ws-connecting` 的 `targetSampleRate` = **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |
-| 1.10 | 选 `Custom` → **清空** Endpoint → 点 **Live Stream** | 状态 `Custom region requires an endpoint URL.`，**麦克风不亮**、无 `ws-connecting` 事件、按钮仍是 `Live Stream` 可点 | 拨到 `dashscope.aliyuncs.com` = 守卫失效（静默回落北京，本 PR 修的就是它） |
+| 1.9 | 下拉选 `paraformer-realtime-8k-v2`（或 Custom 手填 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`pcm-stats` 的 `ctxRate` / `target` 也都是 **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |
+| 1.10 | 选 `Custom` → **清空** Endpoint → 点 **Live Stream** | 状态 `Custom region requires an endpoint URL.`，**麦克风不亮**、无任何 WS 事件（应见 `start-fail` 的 `reason: no-endpoint`）、按钮仍是 `Live Stream` 可点 | 拨到 `dashscope.aliyuncs.com` = 守卫失效（静默回落北京，本 PR 修的就是它） |
 | 1.11 | 修改 Model/Endpoint 但不保存 → 点 **Test model** | 按钮暂时禁用，成功后显示 `Model test passed: <model>.`；不发音频、不写 Result/History、不显示 Subtitles | 测试用了旧配置 = 草稿读取错误；只连 WebSocket 不发 run-task = 无法验证模型 |
 | 1.12 | 分别用错误 Key、无效 Endpoint 和不可用 Model 点 **Test model** | 显示握手/地址/服务端的具体错误；约 10 秒超时后按钮恢复可点 | 一直停在 Testing = 超时或清理失效 |
 
@@ -216,7 +216,7 @@
 | 现象 | 关键事件 | 含义 |
 |---|---|---|
 | 打开 popup 就异常 | `popup-ready` + `provider`/`model`/`hasKey`/`hasEndpoint` | 配置载入后的初始快照；`hasKey:false` = Key 没读回来 |
-| 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`subtitles`/`audioInput`/`hasKey` | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 记原值（看得出是不是 `https://` 批量残留） |
+| 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`hasKey`（popup 另带 `subtitles`/`audioInput`） | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 记原值（看得出是不是 `https://` 批量残留）。options 页只提交本页字段（merge 语义，见 #19） |
 | Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
 | 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
 | 历史没记上 | `history-error`（offscreen） | offscreen → background 的 `asr:history-add` 失败 = background 写 IndexedDB 出错；连 `stream-finalized` 都没有 = 会话收尾路径未执行 |

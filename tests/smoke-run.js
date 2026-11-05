@@ -76,7 +76,11 @@ function waitReady(server) {
       const s = d.toString();
       if (s.includes('已占用') || s.includes('EADDRINUSE')) {
         clearTimeout(timer);
-        reject(new Error('port in use: pass a free port via SMOKE_PORT'));
+        reject(new Error(
+          'port in use: pass a free port via SMOKE_PORT '
+          + '(the extension telemetry bridge only subscribes on 18923; '
+          + 'these smoke probes are page-local and do not need it)',
+        ));
       }
     });
     server.on('exit', (code) => {
@@ -231,6 +235,10 @@ async function probeOpfsHandoff(browser, port) {
 }
 
 (async () => {
+  if (PORT !== 18923) {
+    console.log(`note: SMOKE_PORT=${PORT} — the extension bridge is only injected on 18923, `
+      + 'so no telemetry reaches this page; the debug probes below are page-local and still valid.');
+  }
   // serve-debug 的白名单不含 smoke 页与其依赖脚本；runner 枚举 <script src> 后
   // 用环境开关请它临时追加（仅本进程、仍是精确文件列表）。
   const smokeHtml = fs.readFileSync(path.join(ROOT, 'tests/p1-smoke-test.html'), 'utf8');

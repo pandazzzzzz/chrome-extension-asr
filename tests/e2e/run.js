@@ -402,6 +402,31 @@ async function main() {
       await targetPage.triggerExtensionAction(extension);
       await H.sleep(400);
 
+      // The telemetry chain (content bridge -> background relay -> panel) is the
+      // reason this page exists, and it only works on the manifest-approved
+      // origin. Pin both sides: the live path on 18923, and the explicit warning
+      // when E2E_PORT moves the page somewhere the bridge cannot inject (#134/#135).
+      if (PORT === 18923) {
+        await H.waitFor(
+          () => targetPage.evaluate(() => document.querySelectorAll('#evtLog .logline').length > 0),
+          { label: 'diagnostic telemetry', timeout: 10000, interval: 200 },
+        );
+        const conn = await targetPage.evaluate(() => document.getElementById('evtConn').textContent);
+        H.check('diagnostic panel subscribes on the approved origin', /已订阅/.test(conn), conn);
+        const uiLines = await targetPage.evaluate(() => [...document.querySelectorAll('#evtLog .logline')]
+          .map((line) => line.textContent)
+          .filter((text) => text.includes('{ui}')));
+        H.check('popup telemetry reaches the panel through the bridge', uiLines.length > 0, `${uiLines.length} ui events`);
+      } else {
+        console.log(`  SKIP | bridge telemetry (E2E_PORT=${PORT}; the bridge only injects on 18923)`);
+        await H.waitFor(
+          () => targetPage.evaluate(() => /不在扩展注入范围/.test(document.getElementById('evtConn').textContent)),
+          { label: 'non-injected origin warning', timeout: 5000, interval: 200 },
+        );
+        const conn = await targetPage.evaluate(() => document.getElementById('evtConn').textContent);
+        H.check('panel flags an origin the bridge is not injected into', /不在扩展注入范围/.test(conn), conn);
+      }
+
       await runMockStreamSuite({
         browser,
         extension,

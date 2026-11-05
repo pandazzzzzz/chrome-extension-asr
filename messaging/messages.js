@@ -95,9 +95,11 @@ globalThis.TARGETS = Object.freeze({
 // localhost 服务都能拿到 content script 注入；仅凭 hostname/path 后缀会让
 // 另一个本地进程冒充诊断页订阅模型、设备与错误遥测。
 globalThis.DEBUG_PAGE = Object.freeze({
-  host: 'localhost',
   port: '18923',
   path: '/tests/stream-debug.html',
+  // `[::1]` 只用于 URL 形态判定：manifest 的 match pattern 表达不了 IPv6
+  // 回环，桥不会注入到该 origin，所以那里只托管页面、没有遥测。诊断页会把
+  // 这一状态显式标红（tests/stream-debug.html 的 bridgeOriginSupported）。
   hosts: Object.freeze(['localhost', '127.0.0.1', '[::1]']),
 });
 
