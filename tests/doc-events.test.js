@@ -30,6 +30,8 @@ const TELEMETRY_CONTEXT = /诊断|遥测|事件|evt|track\(/i;
 // `asr-crypto` is the shared crypto module, not an event.
 const NON_EVENT_TOKENS = new Set(['asr-crypto']);
 const MODEL_ID_SHAPE = /^(?:qwen|fun-asr|paraformer|cosyvoice)/i;
+const HYPHENATED_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/;
+const GROUPED_NAMES = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+\s*:\s*/;
 
 let pass = 0;
 let fail = 0;
@@ -71,7 +73,7 @@ function producers() {
 
 function documentedCandidates() {
   const backtick = String.fromCharCode(96);
-  const span = new RegExp(`${backtick}([a-z][a-z0-9]*(?:-[a-z0-9]+)+)${backtick}`, 'g');
+  const span = new RegExp(`${backtick}([^${backtick}\\n]+)${backtick}`, 'g');
   const candidates = new Map();
   for (const file of DOC_FILES) {
     const lines = fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n');
@@ -87,10 +89,15 @@ function documentedCandidates() {
       if (inTriageTable && !line.startsWith('|')) inTriageTable = false;
       if (!TELEMETRY_CONTEXT.test(line) && !inTriageTable) return;
       for (const match of line.matchAll(span)) {
-        const name = match[1];
-        if (MODEL_ID_SHAPE.test(name) || NON_EVENT_TOKENS.has(name)) continue;
-        if (!candidates.has(name)) candidates.set(name, []);
-        candidates.get(name).push(`${file}:${index + 1}`);
+        const code = match[1];
+        const names = GROUPED_NAMES.test(code)
+          ? (code.match(/[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g) || [])
+          : (HYPHENATED_NAME.test(code) ? [code] : []);
+        for (const name of names) {
+          if (MODEL_ID_SHAPE.test(name) || NON_EVENT_TOKENS.has(name)) continue;
+          if (!candidates.has(name)) candidates.set(name, []);
+          candidates.get(name).push(`${file}:${index + 1}`);
+        }
       }
     });
   }
@@ -113,6 +120,13 @@ test('every event named in the triage docs has a producer', () => {
   }
   if (missing.length) {
     throw new Error(`documented but never produced:\n  ${missing.join('\n  ')}`);
+  }
+});
+
+test('grouped reason spans are scanned', () => {
+  const candidates = documentedCandidates();
+  for (const name of ['start-fail', 'no-provider', 'no-api-key', 'no-endpoint']) {
+    if (!candidates.has(name)) throw new Error(`grouped span name missing: ${name}`);
   }
 });
 

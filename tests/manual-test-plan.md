@@ -203,14 +203,14 @@
 |---|---|---|
 | 点 Live Stream 无反应 | `start-blocked` | busy 护栏拦截（正常，再点一次） |
 | 同上 | `start-fail: no-provider / no-api-key / no-endpoint` | 对应配置项为空；`no-endpoint` = E4 守卫生效 |
-| 连不上 | `ws-error`（无 `ws-open`，握手期 `started:false`）→ `ws-close` | Key 与地域不匹配（401）/ URL 拼错 / 网络 |
+| 连不上 | `ws-error`（无 `ws-open`，握手期 `started:false`）→ `ws-ready-fail`（可能伴随 `ws-close`） | Key 与地域不匹配（401）/ URL 拼错 / 网络 |
 | 卡在等待 10s 超时 | `ready-timeout`，`Timed out waiting for task-started (check model / API key)` | Key 无效或模型不在白名单 |
 | 模型被换 | `model-fallback` + 状态 `Using fun-asr-realtime — …` | 填了非白名单名（**正常兜底**，见 E6） |
 | 8k 模型 task-failed | `run-task-sent.sampleRate` ≠ 8000 | 采样率元数据回退（应不可能，若现 = 回归，提 issue）|
 | 丢首句 | — | `await ready` 前采音被丢（历史决策 #4，回归位） |
 | 只有 partial 不定稿 | — | 服务端未发 `sentence_end`（网络/服务端侧） |
 | 最后一句丢失 | — | `flushPartial()` 未跑（回归位） |
-| 字幕没出现 | `subtitle-error: NO_CONTENT` | 目标页不可按需注入或无 `activeTab` 授权（`chrome://` 属预期） |
+| 字幕没出现 | （无专有打点；转发失败被 offscreen 静默吞掉） | 目标页不可按需注入或无 `activeTab` 授权（`chrome://` 属预期） |
 | 快捷键侧栏报 gesture 错 | SW console | `sidePanel.open()` 前被插了 await（决策 #2，回归位） |
 | 录音失败后红点常驻 | — | 音轨泄漏（历史 bug #4，回归位） |
 

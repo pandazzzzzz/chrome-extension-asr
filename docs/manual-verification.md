@@ -216,7 +216,7 @@
 | 现象 | 关键事件 | 含义 |
 |---|---|---|
 | 打开 popup 就异常 | `popup-ready` + `provider`/`model`/`hasKey`/`hasEndpoint` | 配置载入后的初始快照；`hasKey:false` = Key 没读回来 |
-| 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`hasKey`（popup 另带 `subtitles`/`audioInput`） | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 只记 scheme/host/path（去掉 userinfo/query/fragment，防 Key 拼进 URL），仍看得出是不是 `https://` 批量残留。options 页只提交本页字段（merge 语义，见 #19） |
+| 保存了什么 | `config-saved` + `provider`/`model`/`endpoint`/`audioType`/`hasKey`（popup 另带 `subtitles`/`audioInput`） | 只记 `hasKey` 布尔，**不记 Key 本身**；`endpoint` 只记 scheme/host 与已知协议路径（未知自定义路径脱敏为 `<redacted-path>`，并去掉 userinfo/query/fragment，防 Key 拼进 URL），仍看得出是不是 `https://` 批量残留。options 页只提交本页字段（merge 语义，见 #19） |
 | Provider 被换 | `stale-provider-fallback` + `saved`/`fallback` | 存的 provider 在当前注册表里没有（已删除/未加载），回落到默认 |
 | 老配置地域判定 | `legacy-endpoint-kept` + `endpoint` | 老配置没有 `region` 但存了显式 endpoint → 归为 `custom` 保留原值（不猜地域） |
 | 历史没记上 | `history-error`（offscreen） | offscreen → background 的 `asr:history-add` 失败 = background 写 IndexedDB 出错；连 `stream-finalized` 都没有 = 会话收尾路径未执行 |

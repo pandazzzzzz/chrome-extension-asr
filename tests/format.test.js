@@ -1,6 +1,7 @@
 // shared/format.js is plain globalThis script, so it runs directly under Node.
-// Covers endpointForTelemetry: diagnostics need scheme/host/path, but never
-// userinfo/query/fragment (a user can paste a key into a custom endpoint URL).
+// Covers endpointForTelemetry: diagnostics need scheme/host and known protocol
+// paths, but never userinfo/query/fragment or an unknown custom path (a user can
+// paste a key into any part of a custom endpoint URL).
 const assert = require('node:assert');
 
 require('../shared/format.js');
@@ -31,20 +32,23 @@ test('endpointForTelemetry keeps an empty endpoint empty', () => {
   assert.strictEqual(Format.endpointForTelemetry('   '), '');
 });
 
-test('endpointForTelemetry keeps scheme/host/path', () => {
+test('endpointForTelemetry keeps scheme/host and known protocol paths', () => {
   assert.strictEqual(
     Format.endpointForTelemetry('wss://ws.example.test/api-ws/v1/inference'),
     'wss://ws.example.test/api-ws/v1/inference',
   );
 });
 
-test('endpointForTelemetry drops query, fragment and userinfo', () => {
+test('endpointForTelemetry drops query, fragment, userinfo and unknown paths', () => {
   assert.strictEqual(
     Format.endpointForTelemetry('wss://user:pw@ws.example.test/v1?api_key=sk-secret#token'),
-    'wss://ws.example.test/v1',
+    'wss://ws.example.test/<redacted-path>',
   );
   assert.ok(
     !Format.endpointForTelemetry('wss://ws.example.test/v1?api_key=sk-secret').includes('sk-secret'),
+  );
+  assert.ok(
+    !Format.endpointForTelemetry('wss://ws.example.test/secret-path').includes('secret-path'),
   );
 });
 

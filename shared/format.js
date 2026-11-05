@@ -17,9 +17,10 @@ globalThis.Format = (() => {
   }
 
   /**
-   * 遥测用的 endpoint 摘要：保留 scheme/host/path（分诊时用来判断是不是
-   * `https://` 残留或地址拼错），去掉 userinfo / query / fragment —— 用户
-   * 可能把 Key 直接拼进自定义 URL，`hasKey` 布尔挡不住这种泄漏。
+   * 遥测用的 endpoint 摘要：保留 scheme/host 和白名单内的已知协议路径
+   * （分诊时用来判断是不是 `https://` 残留或地址拼错），其余路径整体脱敏；
+   * 同时去掉 userinfo / query / fragment —— 用户可能把 Key 直接拼进自定义
+   * URL 的任意位置，`hasKey` 布尔挡不住这种泄漏。
    * @param {string} value
    * @returns {string} 空串保持空；无法解析时返回 `<unparseable>`
    */
@@ -28,7 +29,9 @@ globalThis.Format = (() => {
     if (!raw) return '';
     try {
       const url = new URL(raw);
-      return `${url.protocol}//${url.host}${url.pathname}`;
+      const safePaths = new Set(['', '/', '/api-ws/v1/inference', '/api-ws/v1/realtime']);
+      const path = safePaths.has(url.pathname) ? url.pathname : '/<redacted-path>';
+      return `${url.protocol}//${url.host}${path}`;
     } catch {
       return '<unparseable>';
     }
