@@ -203,7 +203,7 @@
 |---|---|---|
 | 点 Live Stream 无反应 | `start-blocked` | busy 护栏拦截（正常，再点一次） |
 | 同上 | `start-fail: no-provider / no-api-key / no-endpoint` | 对应配置项为空；`no-endpoint` = E4 守卫生效 |
-| 连不上 | `ws-error`（无 `ws-open`，握手期 `started:false`）→ `ws-ready-fail`（可能伴随 `ws-close`） | Key 与地域不匹配（401）/ URL 拼错 / 网络 |
+| 连不上 | `ws-error`（无 `ws-open`，握手期 `started:false`）→ `ws-ready-fail` | Key 与地域不匹配（401）/ URL 拼错 / 网络 |
 | 卡在等待 10s 超时 | `ready-timeout`，`Timed out waiting for task-started (check model / API key)` | Key 无效或模型不在白名单 |
 | 模型被换 | `model-fallback` + 状态 `Using fun-asr-realtime — …` | 填了非白名单名（**正常兜底**，见 E6） |
 | 8k 模型 task-failed | `run-task-sent.sampleRate` ≠ 8000 | 采样率元数据回退（应不可能，若现 = 回归，提 issue）|
