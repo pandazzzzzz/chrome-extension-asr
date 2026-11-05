@@ -6,6 +6,8 @@
  * 按顺序加载普通脚本（见 AGENTS.md「Global scripts」）。
  */
 globalThis.Format = (() => {
+  const CREDENTIAL_HOST_LABEL = /^(?:sk|pk|api[_-]?key|access[_-]?token|token|secret|credential)[-_]/i;
+
   /**
    * 文件名安全的时间戳：`2026-09-28T19-30-00`。
    * 冒号在 Windows 文件名中非法，故整体替换掉 `:` 与 `.`。
@@ -29,9 +31,14 @@ globalThis.Format = (() => {
     if (!raw) return '';
     try {
       const url = new URL(raw);
+      const hostname = url.hostname
+        .split('.')
+        .map((label) => (CREDENTIAL_HOST_LABEL.test(label) ? '<redacted>' : label))
+        .join('.');
+      const host = hostname + (url.port ? `:${url.port}` : '');
       const safePaths = new Set(['', '/', '/api-ws/v1/inference', '/api-ws/v1/realtime']);
       const path = safePaths.has(url.pathname) ? url.pathname : '/<redacted-path>';
-      return `${url.protocol}//${url.host}${path}`;
+      return `${url.protocol}//${host}${path}`;
     } catch {
       return '<unparseable>';
     }

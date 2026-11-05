@@ -82,7 +82,7 @@
 
 | # | 步骤 | 预期 | 覆盖 |
 |---|---|---|---|
-| E1 | Region=Beijing 跑流式 | `ws-open` 出现且无 `ws-error`（目标地址不经遥测上报：`endpoint` 只在 `config-saved` 里以配置原值出现；**导出日志前删掉 URL 里的 Key**） | 🤖 |
+| E1 | Region=Beijing 跑流式 | `ws-open` 出现且无 `ws-error`（`endpoint` 在 `config-saved` 里只出现脱敏摘要；**导出日志前仍建议检查 URL**） | 🤖 |
 | E2 | Region=Singapore + 新加坡 Key | 连 `dashscope-intl…`；**用北京 Key 时握手失败** —— 报 `Stream error`/`Cannot start streaming` 类网络错误属预期（Key 地域不符） | 🖐（有国际 Key 才跑，否则 N/A） |
 | E3 | Region=Custom + 合法 `wss://` URL | 实际拨所填 URL | 🤖（`probe-8k-custom.js` C2） |
 | E4 | **Region=Custom + Endpoint 留空 → 点 Live Stream** | 状态 `Custom region requires an endpoint URL.`；**麦克风不亮**、无任何 WS 事件（应见 `start-fail` 的 `reason: no-endpoint`）、按钮仍是 `Live Stream` 可点；**绝不连北京** | 🤖（C1/C1b/C8） |

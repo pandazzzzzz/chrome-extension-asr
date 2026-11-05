@@ -32,6 +32,8 @@ const NON_EVENT_TOKENS = new Set(['asr-crypto']);
 const MODEL_ID_SHAPE = /^(?:qwen|fun-asr|paraformer|cosyvoice)/i;
 const HYPHENATED_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/;
 const GROUPED_NAMES = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+\s*:\s*/;
+const HYPHENATED_GLOBAL = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g;
+const FILE_EXTENSIONS = new Set(['js', 'mjs', 'html', 'md', 'json', 'css']);
 
 let pass = 0;
 let fail = 0;
@@ -71,6 +73,19 @@ function producers() {
   return found;
 }
 
+function namesInSpan(code) {
+  const names = [];
+  if (GROUPED_NAMES.test(code)) {
+    names.push(...(code.match(HYPHENATED_GLOBAL) || []));
+  }
+  const field = /^([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\.([A-Za-z][A-Za-z0-9]*)$/.exec(code);
+  if (field && !FILE_EXTENSIONS.has(field[2].toLowerCase())) names.push(field[1]);
+  const reason = /\breason:\s*([a-z][a-z0-9]*(?:-[a-z0-9]+)+)/.exec(code);
+  if (reason) names.push(reason[1]);
+  if (!names.length && HYPHENATED_NAME.test(code)) names.push(code);
+  return [...new Set(names)];
+}
+
 function documentedCandidates() {
   const backtick = String.fromCharCode(96);
   const span = new RegExp(`${backtick}([^${backtick}\\n]+)${backtick}`, 'g');
@@ -90,10 +105,7 @@ function documentedCandidates() {
       if (!TELEMETRY_CONTEXT.test(line) && !inTriageTable) return;
       for (const match of line.matchAll(span)) {
         const code = match[1];
-        const names = GROUPED_NAMES.test(code)
-          ? (code.match(/[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g) || [])
-          : (HYPHENATED_NAME.test(code) ? [code] : []);
-        for (const name of names) {
+        for (const name of namesInSpan(code)) {
           if (MODEL_ID_SHAPE.test(name) || NON_EVENT_TOKENS.has(name)) continue;
           if (!candidates.has(name)) candidates.set(name, []);
           candidates.get(name).push(`${file}:${index + 1}`);
@@ -127,6 +139,17 @@ test('grouped reason spans are scanned', () => {
   const candidates = documentedCandidates();
   for (const name of ['start-fail', 'no-provider', 'no-api-key', 'no-endpoint']) {
     if (!candidates.has(name)) throw new Error(`grouped span name missing: ${name}`);
+  }
+});
+
+test('field and reason spans are scanned', () => {
+  const field = namesInSpan('run-task-sent.sampleRate');
+  const reason = namesInSpan('reason: no-endpoint');
+  if (JSON.stringify(field) !== '["run-task-sent"]') {
+    throw new Error(`field span extraction failed: ${JSON.stringify(field)}`);
+  }
+  if (JSON.stringify(reason) !== '["no-endpoint"]') {
+    throw new Error(`reason span extraction failed: ${JSON.stringify(reason)}`);
   }
 });
 

@@ -52,6 +52,17 @@ test('endpointForTelemetry drops query, fragment, userinfo and unknown paths', (
   );
 });
 
+test('endpointForTelemetry masks credential-shaped hostname labels', () => {
+  assert.strictEqual(
+    Format.endpointForTelemetry('wss://sk-secret.proxy.example/api-ws/v1/inference'),
+    'wss://<redacted>.proxy.example/api-ws/v1/inference',
+  );
+  assert.strictEqual(
+    Format.endpointForTelemetry('wss://ordinary.proxy.example/api-ws/v1/inference'),
+    'wss://ordinary.proxy.example/api-ws/v1/inference',
+  );
+});
+
 test('endpointForTelemetry flags unparseable input without echoing it', () => {
   assert.strictEqual(Format.endpointForTelemetry('https://'), '<unparseable>');
   assert.strictEqual(Format.endpointForTelemetry('not a url'), '<unparseable>');
