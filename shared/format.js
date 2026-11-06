@@ -6,7 +6,7 @@
  * 按顺序加载普通脚本（见 AGENTS.md「Global scripts」）。
  */
 globalThis.Format = (() => {
-  const CREDENTIAL_HOST_LABEL = /^(?:sk|pk|api[_-]?key|access[_-]?token|token|secret|credential)[-_]/i;
+  const credentialHostLabel = /^(?:sk|pk|api[_-]?key|access[_-]?token|token|secret|credential)[-_]/i;
 
   /**
    * 文件名安全的时间戳：`2026-09-28T19-30-00`。
@@ -33,7 +33,7 @@ globalThis.Format = (() => {
       const url = new URL(raw);
       const hostname = url.hostname
         .split('.')
-        .map((label) => (CREDENTIAL_HOST_LABEL.test(label) ? '<redacted>' : label))
+        .map((label) => (credentialHostLabel.test(label) ? '<redacted>' : label))
         .join('.');
       const host = hostname + (url.port ? `:${url.port}` : '');
       const safePaths = new Set(['', '/', '/api-ws/v1/inference', '/api-ws/v1/realtime']);

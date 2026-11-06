@@ -9,6 +9,8 @@ const fs = require('node:fs');
 const assert = require('node:assert');
 
 const root = path.resolve(__dirname, '..');
+require(path.join(root, 'shared/format.js'));
+const realFormat = globalThis.Format;
 
 async function flushAsync() {
   for (let i = 0; i < 12; i++) await Promise.resolve();
@@ -85,6 +87,7 @@ function makeSandbox() {
     },
     savedConfigs: [],
     debugEvents: [],
+    formatCalls: [],
   };
   const provider = {
     id: 'qwen',
@@ -165,7 +168,10 @@ function makeSandbox() {
     CryptoStore: { hasKey: async () => true },
     Format: {
       timestampForFile: () => 'x',
-      endpointForTelemetry: (value) => String(value || '').split('?')[0].split('#')[0],
+      endpointForTelemetry: (value) => {
+        page.formatCalls.push(value);
+        return realFormat.endpointForTelemetry(value);
+      },
     },
     emitDebug: (entry) => page.debugEvents.push(entry),
   };
@@ -428,6 +434,26 @@ function changeEvent(config) {
     assert.ok(
       !JSON.stringify(saved).includes('sk-secret'),
       'the API key must never be part of the telemetry payload',
+    );
+  });
+
+  await t('save sends endpoints through the real telemetry redactor', async () => {
+    const { sandbox, els, page } = await initPage();
+    const endpoint = 'wss://sk-secret.proxy.example/private-path?api_key=sk-query#frag';
+    els.region.value = 'custom';
+    els.endpoint.value = endpoint;
+    await sandbox.save();
+
+    const saved = page.debugEvents.find((e) => e.ev === 'config-saved');
+    assert.ok(saved, 'config-saved was not emitted');
+    assert.ok(page.formatCalls.includes(endpoint), 'options must call Format.endpointForTelemetry');
+    assert.strictEqual(
+      saved.detail.endpoint,
+      'wss://<redacted>.proxy.example/<redacted-path>',
+    );
+    assert.ok(
+      !JSON.stringify(saved).includes('sk-query') && !JSON.stringify(saved).includes('private-path'),
+      'raw endpoint path or query must not leak into telemetry',
     );
   });
 
