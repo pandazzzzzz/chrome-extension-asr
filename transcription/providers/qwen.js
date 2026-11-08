@@ -278,6 +278,11 @@ class QwenProvider extends BaseProvider {
             format: 'pcm',
             sample_rate: sampleRate,
             heartbeat: true, // 静音保活，防长时间无语音导致服务端超时断连
+            // message 模型默认只在 finish-task 后出全量结果；实时字幕/partial
+            // 必须显式开启，否则 UI 会一直等到 Stop 才有文字。
+            ...(streamModel === 'qwen-audio-3.1-asr-flash-message'
+              ? { intermediate_result_enabled: true }
+              : {}),
           },
           input: {},
         },
