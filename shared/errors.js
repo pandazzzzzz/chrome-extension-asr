@@ -33,6 +33,7 @@ globalThis.Errors = Object.freeze(
       NO_OFFSCREEN: { code: 'NO_OFFSCREEN', message: 'No offscreen document' },
       ALREADY_RECORDING: { code: 'ALREADY_RECORDING', message: 'Already recording' },
       NOT_RECORDING: { code: 'NOT_RECORDING', message: 'Not recording' },
+      STREAM_CANCELLED: { code: 'STREAM_CANCELLED', message: 'Streaming was cancelled' },
       RECORD_ERROR: { code: 'RECORD_ERROR', message: 'Recording failed' },
       OFFSCREEN_ERROR: { code: 'OFFSCREEN_ERROR', message: 'Offscreen error' },
 

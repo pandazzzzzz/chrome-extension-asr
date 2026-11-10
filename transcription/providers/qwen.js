@@ -157,6 +157,7 @@ class QwenProvider extends BaseProvider {
     }
 
     const streamModel = model || this.defaultStreamModel;
+    const maxBufferedBytes = this.maxBufferedBytes;
     if (!this.isStreamModel(streamModel)) {
       throw globalThis.createError(
         globalThis.Errors.UNKNOWN,
@@ -402,13 +403,31 @@ class QwenProvider extends BaseProvider {
       }
     };
 
+    let lastBackpressureAt = 0;
+
     return {
       ready,
       sendAudio(int16Data) {
-        // task-started 前丢弃（调用方应 await ready 后再采音）；非 Int16 拒发
-        if (!started || socket.readyState !== WebSocket.OPEN) return;
-        if (!(int16Data instanceof Int16Array)) return;
+        // task-started 前丢弃（调用方应 await ready 后再采音）；非 Int16 拒发。
+        // 返回 false 让调用方可观测丢帧，true 表示已交给 WebSocket。
+        if (!started || socket.readyState !== WebSocket.OPEN) return false;
+        if (!(int16Data instanceof Int16Array)) return false;
+        // 128 KiB ≈ 4s @16k / 8s @8k mono s16。弱网时宁可丢帧，也不让
+        // bufferedAmount 无界增长——后者会让识别延迟持续扩大且 Stop 排长队。
+        const buffered = Number(socket.bufferedAmount) || 0;
+        if (maxBufferedBytes > 0 && buffered > maxBufferedBytes) {
+          const now = Date.now();
+          if (now - lastBackpressureAt >= 5000) {
+            lastBackpressureAt = now;
+            track('audio-backpressure', {
+              bufferedBytes: buffered,
+              limit: maxBufferedBytes,
+            });
+          }
+          return false;
+        }
         socket.send(int16Data);
+        return true;
       },
       async stop() {
         if (finishedSettled) return;
@@ -481,5 +500,8 @@ class QwenProvider extends BaseProvider {
     });
   }
 }
+
+// 发送缓冲上限（字节）。可被测试/诊断读取，避免把调优常量散落在实现里。
+QwenProvider.maxBufferedBytes = 128 * 1024;
 
 globalThis.QwenProvider = QwenProvider;
