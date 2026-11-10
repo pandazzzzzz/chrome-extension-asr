@@ -285,9 +285,10 @@ async function run() {
     assert.strictEqual(state?.data?.streaming, false);
   });
 
-  await t('dropped audio frames are counted in finalize diagnostics', async () => {
+  await t('backpressure is surfaced to the UI and dropped frames reach finalize diagnostics', async () => {
     const { sandbox, sent, listeners } = makeSandbox();
     let onFrame = null;
+    let dropFrames = true;
     sandbox.createPcmCapture = (opts) => {
       onFrame = opts.onFrame;
       return { start: async () => {} };
@@ -300,7 +301,7 @@ async function run() {
       isStreamModel: () => true,
       createStreamSession: () => ({
         ready: Promise.resolve(),
-        sendAudio() { return false; },
+        sendAudio() { return dropFrames ? false : true; },
         stop: async () => {},
         close() {},
       }),
@@ -313,6 +314,16 @@ async function run() {
     assert.strictEqual(typeof onFrame, 'function', 'capture onFrame was not wired');
     sent.length = 0;
     onFrame(new Float32Array(256));
+    const warning = sent.find((m) =>
+      m.type === 'asr:stream-update' && m.payload?.kind === 'status' && /behind/i.test(m.payload.text || ''));
+    assert.ok(warning, 'backpressure must surface a user-visible status');
+
+    dropFrames = false;
+    onFrame(new Float32Array(256));
+    const recovered = sent.find((m) =>
+      m.type === 'asr:stream-update' && m.payload?.kind === 'status' && /back in sync/i.test(m.payload.text || ''));
+    assert.ok(recovered, 'recovering from backpressure must clear the warning');
+
     const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
     assert.ok(stopped?.ok, 'stream did not stop');
 

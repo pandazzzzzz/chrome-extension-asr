@@ -489,6 +489,27 @@ t('Qwen sendAudio: 缓冲超过上限时丢帧并返回 false', () => {
     session.close();
   });
 });
+t('Qwen sendAudio: 新帧自身也必须计入缓冲上限', () => {
+  withFakeSocket((sockets) => {
+    const session = Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      onResult() {},
+    });
+    sockets[0].onopen();
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    const frame = new Int16Array(64); // 128 bytes
+
+    sockets[0].bufferedAmount = Q.maxBufferedBytes - frame.byteLength + 1;
+    assert.strictEqual(session.sendAudio(frame), false,
+      'buffered + 新帧超过上限时必须拒发');
+
+    sockets[0].bufferedAmount = Q.maxBufferedBytes - frame.byteLength;
+    assert.strictEqual(session.sendAudio(frame), true,
+      'buffered + 新帧恰好等于上限时必须允许发送');
+    session.close();
+  });
+});
 t('Qwen run-task 报文: 显式空 endpoint 在建 socket 之前就被拦下', () => {
   // 与上面的探针互补：证明 NO_ENDPOINT 守卫位于 `new WebSocket` 之前，
   // 连 socket 都不会创建（不会有任何连接尝试）。

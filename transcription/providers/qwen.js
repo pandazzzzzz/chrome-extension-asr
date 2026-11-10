@@ -415,7 +415,7 @@ class QwenProvider extends BaseProvider {
         // 128 KiB ≈ 4s @16k / 8s @8k mono s16。弱网时宁可丢帧，也不让
         // bufferedAmount 无界增长——后者会让识别延迟持续扩大且 Stop 排长队。
         const buffered = Number(socket.bufferedAmount) || 0;
-        if (maxBufferedBytes > 0 && buffered > maxBufferedBytes) {
+        if (maxBufferedBytes > 0 && buffered + int16Data.byteLength > maxBufferedBytes) {
           const now = Date.now();
           if (now - lastBackpressureAt >= 5000) {
             lastBackpressureAt = now;

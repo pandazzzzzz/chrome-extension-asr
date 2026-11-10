@@ -141,6 +141,18 @@
     const int16 = globalThis.floatToInt16(resampled);
     if (s.wsSession.sendAudio(int16) === false) {
       s.droppedFrames = (s.droppedFrames || 0) + 1;
+      const now = Date.now();
+      if (!s.backpressureWarned || now - (s.lastBackpressureNotice || 0) >= 5000) {
+        s.backpressureWarned = true;
+        s.lastBackpressureNotice = now;
+        broadcastUpdate('status', {
+          text: 'Stream is behind — audio frames are being dropped.',
+          type: 'error',
+        });
+      }
+    } else if (s.backpressureWarned) {
+      s.backpressureWarned = false;
+      broadcastUpdate('status', { text: 'Stream is back in sync.', type: 'success' });
     }
   }
 
