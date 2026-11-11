@@ -1,5 +1,10 @@
 # Review Verification Matrix
 
+> **Historical snapshot — not current verification.** This matrix records the
+> 2026-10-27/28 review pass (baseline `b017a7c`). Re-run the commands in
+> `README.md` or check CI for current results; rows marked `NOT RUN` /
+> `NOT CONFIRMED` are not open work items.
+
 Baseline: `b017a7c`; remediation worktree: `fix/review-findings`. Windows,
 Node `v24.22.1`, npm `11.19.1`, local Google Chrome.
 
@@ -44,5 +49,5 @@ Node `v24.22.1`, npm `11.19.1`, local Google Chrome.
 | CodeRabbit | NOT RUN | CLI unavailable; installer requires Unix shell |
 
 The pre-existing untracked `tests/manual-test-plan.md` was not modified.
-Issue cross-check details are recorded in `docs/review-report.md`.
+Issue cross-check details are recorded in `docs/history/review-report.md`.
 

@@ -47,6 +47,8 @@ Other entry points: **Side panel** keeps the panel open for long sessions;
 - `tabCapture` — capture tab audio (pairs with an offscreen document)
 - `sidePanel` — open the persistent side panel
 - `offscreen` — create the offscreen document that hosts tab capture (MV3 service workers have no DOM)
+- `activeTab` — grant temporary access to the current tab for `Fill into page` and floating subtitles
+- `scripting` — inject the page dictation and subtitle scripts on demand, instead of a persistent `<all_urls>` content script
 - Host permissions: none. Live Stream opens its WebSocket from the offscreen document
   (`offscreen/offscreen-streaming.js`), so recording survives popup/side-panel closure.
   Extension pages are **not** subject to `host_permissions` for WebSocket connections;

@@ -1,5 +1,9 @@
 # Full Review Plan & Result
 
+> **Historical snapshot — not current verification.** This plan records the
+> 2026-10-27/28 review pass (baseline `b017a7c`). See `README.md` and CI for
+> current status; unchecked or unrun items below are not open work items.
+
 Status: **complete** for code, tests, and documentation; live/manual-only checks
 remain explicitly unrun below.
 
@@ -13,7 +17,7 @@ We are in a Git worktree `fix/review-findings` with production fixes and new tes
 1. ✅ Fix **issue #66**: add TOCTOU guard for delayed `ConfigStore.load()` in popup (`hasUnsavedEdits` check must also be done *after* the async load during `onChanged`).
 2. ✅ Fix **issue #69**: options page sync lacks an explicit regression test; fix offscreen subtitle payload shape.
 3. ✅ Complete **issue #73**/README **#48**: update remaining stale comments/docs about where WebSocket runs and where API key is relayed.
-4. ✅ Update review documents: `docs/review-report.md`, `docs/remediation-plan.md`, `docs/verification-matrix.md` to reflect completed changes.
+4. ✅ Update review documents: `docs/history/review-report.md`, `docs/history/remediation-plan.md`, `docs/history/verification-matrix.md` to reflect completed changes.
 
 ## Execution strategy (TDD-first)
 
@@ -86,9 +90,9 @@ Apply documentation updates only (no behavioral changes).
 
 ### Files to update
 
-- `docs/review-report.md`: add "Completed fixes" section summarizing P0–P3 resolutions.
-- `docs/remediation-plan.md`: mark batches 1–4 complete and summarize evidence (test counts, lint results).
-- `docs/verification-matrix.md`: update Node test count, browser smoke count, zip artifacts, and CI status.
+- `docs/history/review-report.md`: add "Completed fixes" section summarizing P0–P3 resolutions.
+- `docs/history/remediation-plan.md`: mark batches 1–4 complete and summarize evidence (test counts, lint results).
+- `docs/history/verification-matrix.md`: update Node test count, browser smoke count, zip artifacts, and CI status.
 
 ---
 
