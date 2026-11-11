@@ -654,6 +654,75 @@ async function makePopup(options = {}) {
   {
     const { sandbox } = await makePopup();
     const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    const ref = { file: 'tab-stale.audio', mime: 'audio/webm', size: 4 };
+    let stored = { [key]: ref };
+    let releaseRestore;
+    const removedFiles = [];
+    sandbox.chrome.storage.local = {
+      get: async (requested) => {
+        if (requested !== null) return stored;
+        return new Promise((resolve) => { releaseRestore = () => resolve(stored); });
+      },
+      remove: async (slot) => { delete stored[slot]; },
+    };
+    sandbox.RecordingStore = {
+      isRef: (value) => value === ref,
+      list: async () => [ref.file],
+      remove: async (value) => { removedFiles.push(value.file); return true; },
+      sweep: async () => 0,
+    };
+    const restoring = vm.runInContext('restorePendingTabRecording()', sandbox);
+    await flushAsync();
+    await vm.runInContext('startRecording()', sandbox);
+    await flushAsync();
+    releaseRestore();
+    await restoring;
+    await flushAsync();
+    assert.strictEqual(await vm.runInContext('audioRecording', sandbox), null,
+      'starting a recording must cancel a suspended startup restore');
+    assert.strictEqual(stored[key], undefined,
+      'the discarded recording slot must not be written back');
+    assert.deepStrictEqual(removedFiles, [ref.file],
+      'the discarded OPFS recording must be removed');
+    console.log('PASS | starting recording cancels suspended startup restore');
+  }
+
+  {
+    const { sandbox } = await makePopup();
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
+    const ref = { file: 'tab-late.audio', mime: 'audio/webm', size: 4 };
+    let stored = { [key]: ref };
+    let releaseList;
+    const removedFiles = [];
+    sandbox.chrome.storage.local = {
+      get: async () => stored,
+      remove: async (slot) => { delete stored[slot]; },
+    };
+    sandbox.RecordingStore = {
+      isRef: (value) => value === ref,
+      list: async () => new Promise((resolve) => {
+        releaseList = () => resolve([ref.file]);
+      }),
+      remove: async (value) => { removedFiles.push(value.file); return true; },
+      sweep: async () => 0,
+    };
+    const restoring = vm.runInContext('restorePendingTabRecording()', sandbox);
+    await flushAsync();
+    await vm.runInContext('startRecording()', sandbox);
+    await flushAsync();
+    releaseList();
+    await restoring;
+    await flushAsync();
+    assert.strictEqual(await vm.runInContext('audioRecording', sandbox), null,
+      'a restore paused after reading storage must still observe the cancel');
+    assert.strictEqual(stored[key], undefined);
+    assert.deepStrictEqual(removedFiles, [ref.file]);
+    console.log('PASS | startup restore cannot restore after late cancellation');
+  }
+
+  {
+    const { sandbox } = await makePopup();
+    const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
     const own = { file: 'tab-popup.audio', mime: 'audio/webm', size: 1 };
     const other = { file: 'tab-sidepanel.audio', mime: 'audio/webm', size: 2 };
     const stored = { [key]: own, 'pendingTabRecording:sidepanel': other };
