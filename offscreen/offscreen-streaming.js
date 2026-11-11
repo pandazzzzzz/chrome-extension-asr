@@ -176,18 +176,24 @@
   function onStreamResult({ text, sentenceEnd }) {
     const s = session;
     if (!s) return;
+    const reset = !s.textUpdateSent;
     if (sentenceEnd) {
       s.finalText = `${s.finalText} ${text}`.trim();
       s.partialText = '';
     } else {
       s.partialText = text;
     }
-    const parts = [s.finalText, s.partialText].filter(Boolean).join(' ');
-    broadcastUpdate('text', { text: parts.trim() });
-    if (s.subtitles && parts.trim()) {
+    s.textUpdateSent = true;
+    const update = {
+      finalDelta: sentenceEnd ? text : '',
+      partial: s.partialText,
+      reset,
+    };
+    broadcastUpdate('text', update);
+    if (s.subtitles && (update.finalDelta || update.partial)) {
       chrome.runtime.sendMessage({
         type: MESSAGES.SUBTITLE_SHOW,
-        payload: { text: parts.trim(), done: false, tabId: s.targetTabId },
+        payload: { ...update, done: false, tabId: s.targetTabId },
         target: TARGETS.BACKGROUND,
       }).catch(() => {});
     }
@@ -336,6 +342,7 @@
       targetTabId: payload.targetTabId ?? null,
       finalText: '',
       partialText: '',
+      textUpdateSent: false,
       targetSampleRate: 0,
       endedRemotely: false,
       finalSaved: false,
@@ -481,12 +488,14 @@
       //   关 → 显式发 SUBTITLE_HIDE 拆掉浮层（done:true 的自动淡出因 subtitles
       //        已置 false 被跳过，此前浮层会残留到最后一句 partial 直到刷新）。
       if (value) {
-        const parts = [session.finalText, session.partialText].filter(Boolean).join(' ');
-        const text = parts.trim();
-        if (text) {
+        const text = session.finalText.trim();
+        const partial = session.partialText;
+        if (text || partial) {
           chrome.runtime.sendMessage({
             type: MESSAGES.SUBTITLE_SHOW,
-            payload: { text, done: false, tabId: session.targetTabId },
+            payload: {
+              reset: true, text, partial, done: false, tabId: session.targetTabId,
+            },
             target: TARGETS.BACKGROUND,
           }).catch(() => {});
         }
@@ -513,6 +522,8 @@
         targetTabId: session.targetTabId,
         micFallback: session.micFallback || false,
         text: parts.trim(),
+        finalText: session.finalText,
+        partialText: session.partialText,
       },
     };
   }

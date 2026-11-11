@@ -333,6 +333,41 @@ async function run() {
       'dropped audio frames must be carried into finalize diagnostics');
   });
 
+  await t('stream text updates carry bounded deltas and a final full snapshot', async () => {
+    const { sandbox, sent, listeners } = makeSandbox();
+    await startSession(sandbox, listeners, { payload: { subtitles: true } });
+    const provider = sandbox.PROVIDERS[0];
+    sent.length = 0;
+
+    for (let i = 0; i < 1000; i += 1) {
+      provider.emitResult({ text: `sentence-${i}`, sentenceEnd: true });
+    }
+    provider.emitResult({ text: 'current partial', sentenceEnd: false });
+
+    const updates = sent.filter((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'text');
+    assert.strictEqual(updates.length, 1001);
+    const largest = Math.max(...updates.map((m) => JSON.stringify(m.payload).length));
+    assert.ok(largest < 200, `per-update payload must stay bounded (largest ${largest})`);
+    assert.strictEqual(updates[0].payload.reset, true,
+      'the first update must reset any stale local mirror');
+    assert.strictEqual(updates.at(-1).payload.partial, 'current partial');
+    assert.strictEqual(updates[1].payload.finalDelta, 'sentence-1');
+    assert.strictEqual(updates[1].payload.partial, '');
+    assert.strictEqual(updates[1].payload.reset, false);
+
+    const subtitle = sent.filter((m) => m.type === 'asr:subtitle-show').at(-1);
+    assert.strictEqual(subtitle.payload.finalDelta, '');
+    assert.strictEqual(subtitle.payload.partial, 'current partial');
+    assert.strictEqual(subtitle.payload.text, undefined);
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream did not stop');
+    const final = sent.find((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'final-text');
+    assert.ok(final, 'final full-text snapshot missing');
+    assert.ok(final.payload.text.startsWith('sentence-0 sentence-1'));
+    assert.ok(final.payload.text.endsWith('sentence-999 current partial'));
+  });
+
   await t('STREAM_STATE: responds even with the tab-record listener registered first (#58)', async () => {
     const { sandbox, listeners } = makeCoexistenceSandbox();
     await startSession(sandbox, listeners);
@@ -406,6 +441,7 @@ async function run() {
     // 让会话产生已确认文本（provider onResult 驱动）。
     const provider = sandbox.PROVIDERS[0];
     provider.emitResult?.({ text: 'hello', sentenceEnd: true });
+    provider.emitResult?.({ text: 'partial', sentenceEnd: false });
     sent.length = 0;
     const resp = await setSubtitles(listeners, true);
     assert.ok(resp?.ok);
@@ -413,6 +449,9 @@ async function run() {
     assert.ok(show, '开启字幕必须立即镜像当前文本，否则开关滞后到下一句话');
     assert.strictEqual(show.payload.done, false);
     assert.strictEqual(show.payload.tabId, 42);
+    assert.strictEqual(show.payload.text, 'hello');
+    assert.strictEqual(show.payload.partial, 'partial');
+    assert.strictEqual(show.payload.reset, true);
   });
 
   // ---- #60：STREAM_UPDATE 的 ended 广播 ----

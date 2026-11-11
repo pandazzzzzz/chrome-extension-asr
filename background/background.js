@@ -170,10 +170,17 @@ async function handleFillText(payload) {
 
 // 转发字幕浮层消息（asr:subtitle-show / asr:subtitle-hide，见 content/subtitle.js）
 async function handleSubtitleShow(payload) {
-  const text = payload?.text || '';
-  if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
+  const text = typeof payload?.text === 'string' ? payload.text : '';
+  const finalDelta = typeof payload?.finalDelta === 'string' ? payload.finalDelta : undefined;
+  const partial = typeof payload?.partial === 'string' ? payload.partial : undefined;
+  if (!text && finalDelta === undefined && partial === undefined) {
+    return { ok: false, error: globalThis.Errors.NO_TEXT };
+  }
   return forwardToTab(globalThis.MESSAGES.SUBTITLE_SHOW, {
     text,
+    ...(finalDelta !== undefined ? { finalDelta } : {}),
+    ...(partial !== undefined ? { partial } : {}),
+    reset: !!payload?.reset,
     done: !!payload?.done,
   }, payload?.tabId, true);
 }

@@ -199,6 +199,22 @@ async function makePopup(options = {}) {
     assert.strictEqual(els.streamBtn.disabled, true, 'mic path keeps stream path locked (#71)');
     assert.strictEqual(els.tabRecordBtn.disabled, true, 'mic path keeps tab path locked (#71)');
   }
+  {
+    const { els, listeners } = await makePopup();
+    listeners.runtime[0]({
+      target: 'ui', type: 'asr:stream-update', payload: { kind: 'text', reset: true, finalDelta: 'one', partial: 'temp' },
+    });
+    assert.strictEqual(els.resultText.value, 'one temp');
+    listeners.runtime[0]({
+      target: 'ui', type: 'asr:stream-update', payload: { kind: 'text', reset: false, finalDelta: 'two', partial: 'next' },
+    });
+    assert.strictEqual(els.resultText.value, 'one two next');
+    listeners.runtime[0]({
+      target: 'ui', type: 'asr:stream-update', payload: { kind: 'final-text', text: 'one two next done' },
+    });
+    assert.strictEqual(els.resultText.value, 'one two next done');
+    console.log('PASS | popup accumulates bounded stream deltas');
+  }
   console.log('PASS | ended broadcast resets only idle paths (#71)');
   {
     const { sandbox, els } = await makePopup();

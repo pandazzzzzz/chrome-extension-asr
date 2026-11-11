@@ -12,6 +12,8 @@ let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await）�
 let isTabRecordingBusy = false; // 标签页 start/stop 进行中（含 await），防重入
 let isStreaming = false;      // 真流式转录中（UI 镜像；真相在 background + offscreen）
 let isStreamingBusy = false;  // start/stop 消息往返进行中，防重入
+let streamFinalText = '';     // 本页已拼接的最终句（增量广播，不再每帧重发全文）
+let streamPartialText = '';   // 当前句的临时文本
 let micLeasePort = null;      // background 发放的麦克风录音所有权（长连接）
 let lastSavedConfigSnapshot = null; // 本页 persistConfig 成功后的字段快照（识别 storage 回声；null = 尚未初始化）
 
