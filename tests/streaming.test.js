@@ -462,6 +462,24 @@ t('Qwen run-task 报文: message 模型显式开启中间结果', () => {
     session.close();
   });
 });
+t('Qwen run-task 报文: message 快照同样开启中间结果', () => {
+  const snapshots = [
+    'qwen-audio-3.1-asr-flash-message-2026-02-28',
+  ];
+  for (const model of snapshots) {
+    withFakeSocket((sockets) => {
+      const session = Q.createStreamSession({ apiKey: 'k', model, onResult() {} });
+      sockets[0].onopen();
+      const parameters = JSON.parse(sockets[0].sent[0]).payload.parameters;
+      assert.strictEqual(
+        parameters.intermediate_result_enabled,
+        true,
+        `${model} 与主版本能力一致，必须显式开启中间结果`,
+      );
+      session.close();
+    });
+  }
+});
 t('Qwen sendAudio: 缓冲超过上限时丢帧并返回 false', () => {
   withFakeSocket((sockets) => {
     assert.ok(Number.isInteger(Q.maxBufferedBytes) && Q.maxBufferedBytes > 0,
