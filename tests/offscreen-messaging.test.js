@@ -633,6 +633,7 @@ async function run() {
         sendAudio() {},
         async stop() {
           opts.onError(new Error('server died'));
+          opts.onEnd?.('error');
         },
         close() {},
       }),

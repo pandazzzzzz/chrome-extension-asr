@@ -202,7 +202,8 @@
     // 启动失败时 startStreamingLocked 的 catch 也会走统一 endSession。
     if (reason === 'closed') return;
     session.endedRemotely = true;
-    session.streamError = 'Stream ended by the server or network.';
+    // onError 可能刚写入更具体的 provider 错误；通用文案只做兜底。
+    session.streamError ||= 'Stream ended by the server or network.';
     broadcastUpdate('error-status', { message: 'Stream ended by the server or network.' });
     void endSession('remote');
   }
