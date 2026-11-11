@@ -536,6 +536,8 @@ async function run() {
     sent.length = 0;
     const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
     assert.ok(stopped?.ok, 'stream must still stop cleanly');
+    assert.strictEqual(stopped.data?.historyError, 'disk full',
+      'history failure must travel with the stop response');
 
     const errorEvent = sent.find((m) => m.type === 'asr:debug' && m.payload?.ev === 'history-error');
     assert.ok(errorEvent, 'history-error diagnostic missing');

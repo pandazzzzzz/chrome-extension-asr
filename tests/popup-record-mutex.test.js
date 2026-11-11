@@ -118,6 +118,7 @@ async function makePopup(options = {}) {
     MessageClient: { send: async () => ({ streaming: false }) },
     MESSAGES: {
       STREAM_UPDATE: 'asr:stream-update',
+      STREAM_STOP: 'asr:stream-stop',
       STREAM_STATE: 'asr:stream-state',
       TAB_RECORD_STATE: 'asr:tab-record-state',
       TAB_RECORD_STOP: 'asr:tab-record-stop',
@@ -382,6 +383,25 @@ async function makePopup(options = {}) {
       (event) => event.ev === 'start-fail' && event.detail?.reason === 'no-endpoint',
     ));
     console.log('PASS | empty custom endpoint is rejected before streaming (#135)');
+  }
+
+  {
+    const { sandbox, els } = await makePopup();
+    sandbox.MessageClient.send = async (type) => (
+      type === 'asr:stream-stop'
+        ? { streaming: false, historyError: 'disk full' }
+        : { streaming: false }
+    );
+    vm.runInContext('isStreaming = true', sandbox);
+    await vm.runInContext('stopStreaming()', sandbox);
+    await flushAsync();
+    assert.strictEqual(
+      els.statusDiv.textContent,
+      'Streaming stopped, but saving history failed.',
+      'history failure must not be replaced by the success status',
+    );
+    assert.strictEqual(els.statusDiv.className, 'error');
+    console.log('PASS | history failure survives a manual stop (#143)');
   }
 
   {
