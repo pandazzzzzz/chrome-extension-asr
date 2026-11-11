@@ -141,6 +141,9 @@
     } catch {
       /* ignore */
     }
+    s.micTrackListeners?.forEach(({ track, listener }) => {
+      track.removeEventListener?.('ended', listener);
+    });
     s.stream?.getTracks().forEach((t) => t.stop());
     if (s.context) await s.context.close().catch(() => {});
   }
@@ -191,7 +194,7 @@
   }
 
   // 服务端/网络终止：offscreen 自行收尾（popup 可能已经不在了，等它救场只会丢历史）
-  function handleRemoteEnd(reason) {
+  function handleRemoteEnd(reason, errorMessage) {
     if (!session) return;
     if (reason === 'complete') {
       void endSession('complete');
@@ -204,8 +207,23 @@
     session.endedRemotely = true;
     // onError 可能刚写入更具体的 provider 错误；通用文案只做兜底。
     session.streamError ||= 'Stream ended by the server or network.';
-    broadcastUpdate('error-status', { message: 'Stream ended by the server or network.' });
+    broadcastUpdate('error-status', {
+      message: errorMessage || session.streamError,
+    });
     void endSession('remote');
+  }
+
+  function watchMicrophoneTracks(s) {
+    const tracks = s.stream?.getAudioTracks?.() || s.stream?.getTracks?.() || [];
+    s.micTrackListeners = tracks.map((track) => {
+      const listener = () => {
+        if (session !== s) return;
+        s.streamError = 'Microphone disconnected. Check the input device and start again.';
+        handleRemoteEnd('error', s.streamError);
+      };
+      track.addEventListener?.('ended', listener);
+      return { track, listener };
+    });
   }
 
   // 唯一收尾路径：finalize → teardown → 通知 background 清状态（它决定是否回收文档）
@@ -394,6 +412,7 @@
       });
       await s.capture.start();
       throwIfStartCancelled();
+      watchMicrophoneTracks(s);
       startPcmStats(context.sampleRate, s.targetSampleRate);
       debugEvt('streaming-active-offscreen', { model: s.model });
       broadcastUpdate('status', { text: 'Streaming: speak, results will appear as you go.', type: 'success' });
