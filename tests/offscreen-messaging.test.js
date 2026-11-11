@@ -620,6 +620,40 @@ async function run() {
     );
   });
 
+  await t('provider error during stop is carried in the stop response', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: (opts) => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        async stop() {
+          opts.onError(new Error('server died'));
+        },
+        close() {},
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    sent.length = 0;
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream did not stop');
+    assert.strictEqual(stopped.data?.streamError, 'server died',
+      'stop response must carry the provider failure');
+    assert.ok(
+      sent.some((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'error-status'),
+      'provider failure must still be broadcast immediately',
+    );
+  });
+
   console.log(`${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;
 }
