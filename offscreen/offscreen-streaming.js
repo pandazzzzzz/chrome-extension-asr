@@ -26,6 +26,8 @@
   let session = null; // 会话真身：null = 空闲
   let streamSeq = 0;  // 每次自增，跨会话竞态防护（延迟回调归属判断）
   let starting = false; // START 占用麦克风期间的并发防护
+  let startingPromise = null; // Stop 需要等待启动协程完成清理
+  let startCancelRequested = false; // 启动期间收到 Stop
   let ending = null;  // 收尾去重：graceful stop 期间 onEnd 可能重入
 
   function broadcastUpdate(kind, extra) {
@@ -62,6 +64,7 @@
     debugEvt(reason === 'remote' ? 'stream-pagehide-like-end' : 'stream-finalized', {
       len: finalText.length,
       reason,
+      droppedFrames: session.droppedFrames || 0,
     });
     if (finalText) {
       broadcastUpdate('final-text', { text: finalText });
@@ -119,6 +122,11 @@
     } catch {
       /* ignore */
     }
+    try {
+      s.capture?.stop?.();
+    } catch {
+      /* ignore */
+    }
     s.stream?.getTracks().forEach((t) => t.stop());
     if (s.context) await s.context.close().catch(() => {});
   }
@@ -131,7 +139,21 @@
       ? s.resampler.process(frame)
       : globalThis.resampleFloat32(frame, s.context.sampleRate, s.targetSampleRate);
     const int16 = globalThis.floatToInt16(resampled);
-    s.wsSession.sendAudio(int16);
+    if (s.wsSession.sendAudio(int16) === false) {
+      s.droppedFrames = (s.droppedFrames || 0) + 1;
+      const now = Date.now();
+      if (!s.backpressureWarned || now - (s.lastBackpressureNotice || 0) >= 5000) {
+        s.backpressureWarned = true;
+        s.lastBackpressureNotice = now;
+        broadcastUpdate('status', {
+          text: 'Stream is behind — audio frames are being dropped.',
+          type: 'error',
+        });
+      }
+    } else if (s.backpressureWarned) {
+      s.backpressureWarned = false;
+      broadcastUpdate('status', { text: 'Stream is back in sync.', type: 'success' });
+    }
   }
 
   function onStreamResult({ text, sentenceEnd }) {
@@ -201,13 +223,25 @@
     }
   }
 
-  async function startStreaming(payload) {
-    if (session || starting) return { ok: false, error: Errors.ALREADY_RECORDING };
+  function startStreaming(payload) {
+    if (session || starting) return Promise.resolve({ ok: false, error: Errors.ALREADY_RECORDING });
     starting = true;
-    try {
-      return await startStreamingLocked(payload);
-    } finally {
-      starting = false;
+    startCancelRequested = false;
+    startingPromise = (async () => {
+      try {
+        return await startStreamingLocked(payload);
+      } finally {
+        starting = false;
+        startingPromise = null;
+        startCancelRequested = false;
+      }
+    })();
+    return startingPromise;
+  }
+
+  function throwIfStartCancelled() {
+    if (startCancelRequested) {
+      throw globalThis.createError(Errors.STREAM_CANCELLED, 'Streaming was cancelled');
     }
   }
 
@@ -229,6 +263,13 @@
     }
     const fellBack = stream.fellBack === true;
     const micStream = stream.stream;
+    if (startCancelRequested) {
+      micStream?.getTracks?.().forEach((t) => t.stop());
+      return {
+        ok: false,
+        error: globalThis.createError(Errors.STREAM_CANCELLED, 'Streaming was cancelled'),
+      };
+    }
     if (fellBack) broadcastUpdate('status', { text: 'Selected microphone is unavailable — using system default.', type: 'error' });
 
     const myStreamSeq = ++streamSeq;
@@ -280,6 +321,7 @@
       // 跨帧保留相位；teardown 时随 session 一起丢弃。
       s.resampler = globalThis.createResampler(context.sampleRate, targetSampleRate);
       await context.resume();
+      throwIfStartCancelled();
 
       const wsSession = provider.createStreamSession({
         apiKey: s.apiKey,
@@ -320,6 +362,7 @@
         throw e;
       }
       s.wsSession = wsSession;
+      throwIfStartCancelled();
 
       s.capture = globalThis.createPcmCapture({
         stream: micStream,
@@ -328,6 +371,7 @@
         onFrame: onStreamFrame,
       });
       await s.capture.start();
+      throwIfStartCancelled();
       startPcmStats(context.sampleRate, s.targetSampleRate);
       debugEvt('streaming-active-offscreen', { model: s.model });
       broadcastUpdate('status', { text: 'Streaming: speak, results will appear as you go.', type: 'success' });
@@ -346,14 +390,33 @@
       };
     } catch (e) {
       // 启动失败：状态已挂上（session !== null），统一收尾保持不变式
-      debugEvt('start-error-offscreen', { message: e?.message || String(e) });
-      broadcastUpdate('error-status', { message: `Cannot start streaming: ${e.message}` });
+      const cancelled = e?.code === Errors.STREAM_CANCELLED.code;
+      if (cancelled) {
+        debugEvt('start-cancelled-offscreen', {});
+      } else {
+        debugEvt('start-error-offscreen', { message: e?.message || String(e) });
+        broadcastUpdate('error-status', { message: `Cannot start streaming: ${e.message}` });
+      }
       await endSession('user');
-      return { ok: false, error: globalThis.createError(Errors.OFFSCREEN_ERROR, e.message || '') };
+      return {
+        ok: false,
+        error: cancelled
+          ? e
+          : globalThis.createError(Errors.OFFSCREEN_ERROR, e.message || ''),
+      };
     }
   }
 
   async function stopStreaming() {
+    if (startingPromise) {
+      startCancelRequested = true;
+      try {
+        await startingPromise;
+      } catch {
+        /* start reports its own failure */
+      }
+      if (!session) return { ok: true, data: { streaming: false, cancelled: true } };
+    }
     if (!session) return { ok: false, error: Errors.NOT_RECORDING };
     await endSession('user');
     return { ok: true, data: { streaming: false } };

@@ -55,7 +55,7 @@ function makeSandbox() {
       HISTORY_ADD: 'asr:history-add', DEBUG_EVT: 'asr:debug',
     },
     TARGETS: { BACKGROUND: 'background', OFFSCREEN: 'offscreen', CONTENT: 'content', DEBUG: 'debug', UI: 'ui' },
-    Errors: { ALREADY_RECORDING: { code: 'ALREADY_RECORDING' }, API_ERROR: { code: 'API_ERROR' }, RECORD_ERROR: { code: 'RECORD_ERROR' }, OFFSCREEN_ERROR: { code: 'OFFSCREEN_ERROR' }, NOT_RECORDING: { code: 'NOT_RECORDING' }, UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION' } },
+    Errors: { ALREADY_RECORDING: { code: 'ALREADY_RECORDING' }, API_ERROR: { code: 'API_ERROR' }, RECORD_ERROR: { code: 'RECORD_ERROR' }, OFFSCREEN_ERROR: { code: 'OFFSCREEN_ERROR' }, NOT_RECORDING: { code: 'NOT_RECORDING' }, STREAM_CANCELLED: { code: 'STREAM_CANCELLED' }, UNKNOWN_ACTION: { code: 'UNKNOWN_ACTION' } },
     createError: (e, message) => ({ ...e, message: message || e.message }),
     withTimeout: (promise) => Promise.resolve(promise),
     PROVIDERS: [],
@@ -201,6 +201,136 @@ async function run() {
       'ALREADY_RECORDING',
       'the losing start must fail with ALREADY_RECORDING',
     );
+  });
+
+  await t('STREAM_STOP during microphone startup cancels before AudioContext/capture', async () => {
+    const { sandbox, sent, listeners } = makeSandbox();
+    lastAudioContextOptions = null;
+    let resolveMic;
+    let captureStarts = 0;
+    sandbox.openMicrophone = () => new Promise((resolve) => {
+      resolveMic = () => resolve({ stream: { getTracks: () => [] }, fellBack: false });
+    });
+    sandbox.createPcmCapture = () => {
+      captureStarts += 1;
+      return { start: async () => {} };
+    };
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: () => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        stop: async () => {},
+        close() {},
+      }),
+    });
+
+    const started = dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const stopped = dispatch(listeners, 'asr:stream-stop', {});
+    resolveMic();
+
+    const [startResult, stopResult] = await Promise.all([withTimeout(started), withTimeout(stopped)]);
+    assert.strictEqual(startResult?.ok, false, 'start must be cancelled');
+    assert.strictEqual(startResult?.error?.code, 'STREAM_CANCELLED');
+    assert.ok(stopResult?.ok, 'stop must acknowledge the cancellation');
+    assert.strictEqual(captureStarts, 0, 'capture must never start');
+    assert.strictEqual(lastAudioContextOptions, null, 'AudioContext must not be created');
+    assert.ok(
+      !sent.some((m) => m.type === 'asr:stream-update' && m.payload?.kind === 'active'),
+      'cancelled start must not broadcast active',
+    );
+    const state = await withTimeout(dispatch(listeners, 'asr:stream-state', {}));
+    assert.strictEqual(state?.data?.streaming, false);
+  });
+
+  await t('STREAM_STOP during task-started wait closes the pending WebSocket', async () => {
+    const { sandbox, listeners } = makeSandbox();
+    let resolveReady;
+    let closed = false;
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: () => ({
+        ready: new Promise((resolve) => { resolveReady = resolve; }),
+        sendAudio() {},
+        stop: async () => {},
+        close() { closed = true; },
+      }),
+    });
+
+    const started = dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.strictEqual(typeof resolveReady, 'function', 'provider must be waiting on ready');
+    const stopped = dispatch(listeners, 'asr:stream-stop', {});
+    resolveReady();
+
+    const [startResult, stopResult] = await Promise.all([withTimeout(started), withTimeout(stopped)]);
+    assert.strictEqual(startResult?.ok, false);
+    assert.strictEqual(startResult?.error?.code, 'STREAM_CANCELLED');
+    assert.ok(stopResult?.ok);
+    assert.strictEqual(closed, true, 'pending WebSocket must be closed during cancellation');
+    const state = await withTimeout(dispatch(listeners, 'asr:stream-state', {}));
+    assert.strictEqual(state?.data?.streaming, false);
+  });
+
+  await t('backpressure is surfaced to the UI and dropped frames reach finalize diagnostics', async () => {
+    const { sandbox, sent, listeners } = makeSandbox();
+    let onFrame = null;
+    let dropFrames = true;
+    sandbox.createPcmCapture = (opts) => {
+      onFrame = opts.onFrame;
+      return { start: async () => {} };
+    };
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: () => ({
+        ready: Promise.resolve(),
+        sendAudio() { return dropFrames ? false : true; },
+        stop: async () => {},
+        close() {},
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    assert.strictEqual(typeof onFrame, 'function', 'capture onFrame was not wired');
+    sent.length = 0;
+    onFrame(new Float32Array(256));
+    const warning = sent.find((m) =>
+      m.type === 'asr:stream-update' && m.payload?.kind === 'status' && /behind/i.test(m.payload.text || ''));
+    assert.ok(warning, 'backpressure must surface a user-visible status');
+
+    dropFrames = false;
+    onFrame(new Float32Array(256));
+    const recovered = sent.find((m) =>
+      m.type === 'asr:stream-update' && m.payload?.kind === 'status' && /back in sync/i.test(m.payload.text || ''));
+    assert.ok(recovered, 'recovering from backpressure must clear the warning');
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream did not stop');
+
+    const finalized = sent.find((m) => m.type === 'asr:debug' && m.payload?.ev === 'stream-finalized');
+    assert.ok(finalized, 'stream-finalized diagnostic missing');
+    assert.strictEqual(finalized.payload.droppedFrames, 1,
+      'dropped audio frames must be carried into finalize diagnostics');
   });
 
   await t('STREAM_STATE: responds even with the tab-record listener registered first (#58)', async () => {

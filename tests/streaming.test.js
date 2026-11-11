@@ -388,6 +388,7 @@ function withFakeSocket(fn) {
       this.url = url;
       this.readyState = 1; // OPEN
       this.sent = [];
+      this.bufferedAmount = 0;
       sockets.push(this);
     }
     send(data) { this.sent.push(data); }
@@ -458,6 +459,54 @@ t('Qwen run-task 报文: message 模型显式开启中间结果', () => {
       true,
       'message 模型默认不出中间结果，必须显式开启才能边说话边显示文字',
     );
+    session.close();
+  });
+});
+t('Qwen sendAudio: 缓冲超过上限时丢帧并返回 false', () => {
+  withFakeSocket((sockets) => {
+    assert.ok(Number.isInteger(Q.maxBufferedBytes) && Q.maxBufferedBytes > 0,
+      'provider 必须声明一个正整数缓冲上限');
+    const session = Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      onResult() {},
+    });
+    sockets[0].onopen();
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    const before = sockets[0].sent.length;
+
+    sockets[0].bufferedAmount = Q.maxBufferedBytes + 1;
+    assert.strictEqual(session.sendAudio(new Int16Array([1, 2, 3])), false,
+      '缓冲超限时必须返回 false');
+    assert.strictEqual(sockets[0].sent.length, before,
+      '缓冲超限时不得继续 socket.send()');
+
+    sockets[0].bufferedAmount = 0;
+    assert.strictEqual(session.sendAudio(new Int16Array([4, 5, 6])), true,
+      '恢复后必须返回 true');
+    assert.strictEqual(sockets[0].sent.length, before + 1,
+      '恢复后必须真正发送');
+    session.close();
+  });
+});
+t('Qwen sendAudio: 新帧自身也必须计入缓冲上限', () => {
+  withFakeSocket((sockets) => {
+    const session = Q.createStreamSession({
+      apiKey: 'k',
+      model: 'fun-asr-realtime',
+      onResult() {},
+    });
+    sockets[0].onopen();
+    sockets[0].onmessage({ data: JSON.stringify({ header: { event: 'task-started' } }) });
+    const frame = new Int16Array(64); // 128 bytes
+
+    sockets[0].bufferedAmount = Q.maxBufferedBytes - frame.byteLength + 1;
+    assert.strictEqual(session.sendAudio(frame), false,
+      'buffered + 新帧超过上限时必须拒发');
+
+    sockets[0].bufferedAmount = Q.maxBufferedBytes - frame.byteLength;
+    assert.strictEqual(session.sendAudio(frame), true,
+      'buffered + 新帧恰好等于上限时必须允许发送');
     session.close();
   });
 });
