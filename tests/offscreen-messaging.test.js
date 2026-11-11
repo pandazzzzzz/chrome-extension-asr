@@ -703,6 +703,40 @@ async function run() {
     'microphone loss must be visible to the user');
   });
 
+  await t('track ending during capture startup rolls back the stream', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    let closeCalls = 0;
+    const track = {
+      readyState: 'live',
+      addEventListener() {}, removeEventListener() {}, stop() {},
+    };
+    sandbox.openMicrophone = async () => ({
+      stream: { getTracks: () => [track] }, fellBack: false,
+    });
+    sandbox.createPcmCapture = () => ({
+      async start() { track.readyState = 'ended'; }, stop() {},
+    });
+    sandbox.PROVIDERS.push({
+      id: 'qwen', supportsStreaming: true, defaultStreamModel: 'model',
+      sampleRateFor: () => 16000, isStreamModel: () => true,
+      createStreamSession: () => ({
+        ready: Promise.resolve(), sendAudio() {}, async stop() {},
+        close() { closeCalls += 1; },
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.strictEqual(started?.ok, false);
+    assert.match(started?.error?.message || '', /microphone disconnected/i);
+    const state = await withTimeout(dispatch(listeners, 'asr:stream-state', {}));
+    assert.strictEqual(state?.data?.streaming, false);
+    assert.strictEqual(closeCalls, 1);
+    assert.ok(!sent.some((m) => m.type === 'asr:stream-update'
+      && m.payload?.kind === 'active'), 'failed startup must not publish active state');
+  });
+
   console.log(`${pass} passed, ${fail} failed`);
   if (fail) process.exitCode = 1;
 }

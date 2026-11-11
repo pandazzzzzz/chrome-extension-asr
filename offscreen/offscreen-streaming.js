@@ -215,6 +215,9 @@
 
   function watchMicrophoneTracks(s) {
     const tracks = s.stream?.getAudioTracks?.() || s.stream?.getTracks?.() || [];
+    if (tracks.some((track) => track.readyState === 'ended')) {
+      throw new Error('Microphone disconnected. Check the input device and start again.');
+    }
     s.micTrackListeners = tracks.map((track) => {
       const listener = () => {
         if (session !== s) return;
@@ -224,6 +227,9 @@
       track.addEventListener?.('ended', listener);
       return { track, listener };
     });
+    if (tracks.some((track) => track.readyState === 'ended')) {
+      throw new Error('Microphone disconnected. Check the input device and start again.');
+    }
   }
 
   // 唯一收尾路径：finalize → teardown → 通知 background 清状态（它决定是否回收文档）
