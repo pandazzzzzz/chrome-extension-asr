@@ -124,9 +124,12 @@ async function stopStreaming() {
       globalThis.TARGETS.BACKGROUND,
       20000,
     );
-    if (data?.historyError) {
-      // 历史写入失败必须比 "Streaming stopped." 优先级高，否则用户看不到丢历史（#143）。
-      showStatus('Streaming stopped, but saving history failed.', 'error', { sticky: true });
+    const problems = [];
+    if (data?.streamError) problems.push(`the connection failed: ${data.streamError}`);
+    if (data?.historyError) problems.push('saving history failed');
+    if (problems.length) {
+      // 失败必须比 "Streaming stopped." 优先级高，否则用户看不到断流/丢历史（#143/#144）。
+      showStatus(`Streaming stopped, but ${problems.join('; ')}.`, 'error', { sticky: true });
     } else {
       showStatus('Streaming stopped.', 'success');
     }

@@ -202,6 +202,8 @@
     // 启动失败时 startStreamingLocked 的 catch 也会走统一 endSession。
     if (reason === 'closed') return;
     session.endedRemotely = true;
+    // onError 可能刚写入更具体的 provider 错误；通用文案只做兜底。
+    session.streamError ||= 'Stream ended by the server or network.';
     broadcastUpdate('error-status', { message: 'Stream ended by the server or network.' });
     void endSession('remote');
   }
@@ -215,7 +217,10 @@
       const streamGeneration = session.streamGeneration;
       await drainSession();
       await finalizeSession(reason);
-      const historyError = session?.historyError || null;
+      const outcome = {
+        historyError: session?.historyError || null,
+        streamError: session?.streamError || null,
+      };
       await teardownSession();
       // fire-and-forget：先发消息让 background 收到并返回，stopStreaming 才能发
       // STREAM_STOP response；否则 closeDocument 在消息到达前杀死文档。
@@ -230,7 +235,7 @@
       // fire-and-forget：background 处理这个消息时会 closeDocument。若在这里
       // await 它，STREAM_STOP 的 sendResponse 还没发出文档就被杀，popup 拿到
       // 超时/断连；不 await 让 stopStreaming 先返回，文档自然由 background 收。
-      return historyError;
+      return outcome;
     })();
     try {
       return await ending;
@@ -353,6 +358,7 @@
             return;
           }
           debugEvt('ws-error', { message: e?.message || String(e) });
+          session.streamError = e?.message || String(e);
           broadcastUpdate('error-status', { message: `Stream error: ${e.message}` });
         },
         onComplete: () => {
@@ -434,11 +440,11 @@
       if (!session) return { ok: true, data: { streaming: false, cancelled: true } };
     }
     if (!session) return { ok: false, error: Errors.NOT_RECORDING };
-    const historyError = await endSession('user');
-    return {
-      ok: true,
-      data: historyError ? { streaming: false, historyError } : { streaming: false },
-    };
+    const outcome = await endSession('user') || {};
+    const data = { streaming: false };
+    if (outcome.historyError) data.historyError = outcome.historyError;
+    if (outcome.streamError) data.streamError = outcome.streamError;
+    return { ok: true, data };
   }
 
   function setSubtitles(subtitles) {

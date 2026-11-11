@@ -416,6 +416,26 @@ async function makePopup(options = {}) {
   }
 
   {
+    const { sandbox, els } = await makePopup();
+    sandbox.MessageClient.send = async (type) => (
+      type === 'asr:stream-stop'
+        ? { streaming: false, streamError: 'server died' }
+        : { streaming: false }
+    );
+    vm.runInContext('isStreaming = true', sandbox);
+    await vm.runInContext('stopStreaming()', sandbox);
+    await flushAsync();
+    assert.strictEqual(
+      els.statusDiv.textContent,
+      'Streaming stopped, but the connection failed: server died.',
+      'stream failure must not be replaced by the success status',
+    );
+    assert.strictEqual(els.statusDiv.className, 'error');
+    assert.strictEqual(sandbox.showStatus.sticky, true);
+    console.log('PASS | stream failure survives a manual stop (#144)');
+  }
+
+  {
     const { sandbox } = await makePopup();
     const ref = { file: 'tab-gone.audio', mime: 'audio/webm', size: 9 };
     const key = vm.runInContext('PENDING_TAB_RECORDING_KEY', sandbox);
