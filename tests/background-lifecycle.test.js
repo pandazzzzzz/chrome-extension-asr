@@ -351,6 +351,52 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     console.log('PASS | recovered STREAM_STOP cannot tear down a newer stream');
   });
 
+  await test('failed stream-ended close retains ownership and blocks restart', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      throw new Error('close failed');
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    const ended = await dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
+    assert.strictEqual(ended?.data?.stale, false);
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'stream');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'stream');
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.error?.code, 'ALREADY_RECORDING');
+    assert.strictEqual(page.contexts.length, 1);
+    console.log('PASS | failed close retains ownership and blocks restart');
+  });
+
+  await test('ownership read failure fails closed for a new capture', async () => {
+    const page = makeSandbox();
+    await vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    page.storage.session.get = async () => { throw new Error('storage unavailable'); };
+    const started = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(started?.error?.code, 'ALREADY_RECORDING');
+    assert.strictEqual(page.contexts.length, 0);
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    console.log('PASS | ownership read failure fails closed');
+  });
+
+  await test('failed tab stop close retains its ownership and state', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      throw new Error('close failed');
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    await dispatch(page, 'asr:tab-record-start', {});
+    const stopped = await dispatch(page, 'asr:tab-record-stop', {});
+    assert.strictEqual(stopped?.ok, true);
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'tab');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'tab');
+    assert.strictEqual(page.storage.session.values.tabRecording, true);
+    const restartedStream = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    assert.strictEqual(restartedStream?.error?.code, 'ALREADY_RECORDING');
+    assert.strictEqual(page.contexts.length, 1);
+    console.log('PASS | failed tab stop close retains ownership');
+  });
+
   process.exit(newTestFailures ? 1 : 0);
 })().catch((e) => {
   console.error(e);
