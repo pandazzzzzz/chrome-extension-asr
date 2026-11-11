@@ -45,6 +45,13 @@ function makeField(value, extra = {}) {
     appendChild() {},
     classList: { toggle() {} },
     matches: () => false, // 非 :focus
+    attributes: {},
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    getAttribute(name) {
+      return this.attributes[name];
+    },
     ...extra,
   };
   // bindEvents 会对控件绑定事件；保存回调便于测试直接触发用户操作。
@@ -227,10 +234,12 @@ async function makePage() {
   await t('Subtitles: idle toggle explains that Live Stream is required', async () => {
     const { els } = await makePage();
     assert.strictEqual(typeof els.subtitleBtn.listeners.click, 'function');
+    assert.strictEqual(els.subtitleBtn.getAttribute('aria-pressed'), 'false');
 
     await els.subtitleBtn.listeners.click();
     await flushAsync();
     assert.strictEqual(els.subtitleBtn.textContent, 'Subtitles on');
+    assert.strictEqual(els.subtitleBtn.getAttribute('aria-pressed'), 'true');
     assert.match(
       els.statusDiv.textContent,
       /Subtitles will appear when Live Stream is running\./,
@@ -239,6 +248,7 @@ async function makePage() {
     await els.subtitleBtn.listeners.click();
     await flushAsync();
     assert.strictEqual(els.subtitleBtn.textContent, 'Subtitles');
+    assert.strictEqual(els.subtitleBtn.getAttribute('aria-pressed'), 'false');
     assert.match(els.statusDiv.textContent, /Subtitles are off for future Live Streams\./);
   });
 

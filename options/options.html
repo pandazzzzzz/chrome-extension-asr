@@ -83,8 +83,8 @@
     .empty { color: var(--muted); font-size: 13px; }
     code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
     table.storage { width: 100%; border-collapse: collapse; font-size: 13px; }
-    table.storage td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
-    table.storage td:first-child { color: var(--muted); width: 40%; }
+    table.storage td, table.storage th { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+    table.storage th { color: var(--muted); font-weight: normal; width: 40%; }
   </style>
 </head>
 <body>
@@ -137,7 +137,7 @@
     </div>
 
     <h2>2. Transcription history</h2>
-    <div id="historyList"><div class="empty">No history yet.</div></div>
+    <div id="historyList" role="region" aria-label="Transcription history" aria-live="polite"><div class="empty">No history yet.</div></div>
     <div class="btn-row">
       <button id="clearHistoryBtn" class="danger">Clear history</button>
       <button id="exportHistoryBtn">Export JSON</button>
@@ -146,10 +146,10 @@
 
     <h2>3. Local storage status</h2>
     <table class="storage">
-      <tr><td>API key storage</td><td id="keyStatus">—</td></tr>
-      <tr><td>Crypto key (IndexedDB)</td><td id="cryptoKeyStatus">—</td></tr>
-      <tr><td>History entries</td><td id="historyCount">—</td></tr>
-      <tr><td>Cloud sync</td><td>disabled (all config is local)</td></tr>
+      <tr><th scope="row">API key storage</th><td id="keyStatus">—</td></tr>
+      <tr><th scope="row">Crypto key (IndexedDB)</th><td id="cryptoKeyStatus">—</td></tr>
+      <tr><th scope="row">History entries</th><td id="historyCount">—</td></tr>
+      <tr><th scope="row">Cloud sync</th><td>disabled (all config is local)</td></tr>
     </table>
 
     <div id="status" role="status"></div>
