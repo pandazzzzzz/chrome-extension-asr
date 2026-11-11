@@ -116,8 +116,8 @@ class QwenProvider extends BaseProvider {
    *     硬编码 ['zh'] 会把英文等强制当中文；Message 系列则支持最多 4 个值）
    *   - heartbeat=true：持续静音时保活连接（否则超时断开）；心跳包由上面第 4 步过滤
    *   - 不传 disfluency_removal_enabled（Paraformer 参数，Fun-ASR/Qwen-Audio 无此表项）
-   *   - 不传 intermediate_result_enabled：仅 Qwen-Audio-ASR-Flash-Message 需要它才有
-   *     中间结果（sentence_end=false），其余模型默认就回中间结果，故不传以保持通用
+   *   - intermediate_result_enabled 仅 Qwen-Audio-ASR-Flash-Message 主版本及日期快照
+   *     需要（sentence_end=false）；其余模型默认就回中间结果，故不传以保持通用
    *
    * 采样率：**按模型自适应** —— `sample_rate` 取自 `sampleRateFor(streamModel)`，
    * 8k 电话模型（`fun-asr-flash-8k-realtime` / `paraformer-realtime-8k-v2`）发 8000，
@@ -268,6 +268,9 @@ class QwenProvider extends BaseProvider {
 
     socket.onopen = () => {
       track('ws-open', { taskId });
+      const messageModel = 'qwen-audio-3.1-asr-flash-message';
+      const needsIntermediateResults = streamModel === messageModel
+        || streamModel.startsWith(`${messageModel}-`);
       socket.send(JSON.stringify({
         header: { action: 'run-task', task_id: taskId, streaming: 'duplex' },
         payload: {
@@ -281,7 +284,7 @@ class QwenProvider extends BaseProvider {
             heartbeat: true, // 静音保活，防长时间无语音导致服务端超时断连
             // message 模型默认只在 finish-task 后出全量结果；实时字幕/partial
             // 必须显式开启，否则 UI 会一直等到 Stop 才有文字。
-            ...(streamModel === 'qwen-audio-3.1-asr-flash-message'
+            ...(needsIntermediateResults
               ? { intermediate_result_enabled: true }
               : {}),
           },
