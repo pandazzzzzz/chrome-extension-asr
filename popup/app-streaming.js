@@ -118,13 +118,18 @@ async function stopStreaming() {
   try {
     // 收尾（finish-task、最终文本、历史、字幕 done）都在 offscreen 完成后由
     // STREAM_UPDATE 广播把最终文本回填本页。
-    await globalThis.MessageClient.send(
+    const data = await globalThis.MessageClient.send(
       globalThis.MESSAGES.STREAM_STOP,
       {},
       globalThis.TARGETS.BACKGROUND,
       20000,
     );
-    showStatus('Streaming stopped.', 'success');
+    if (data?.historyError) {
+      // 历史写入失败必须比 "Streaming stopped." 优先级高，否则用户看不到丢历史（#143）。
+      showStatus('Streaming stopped, but saving history failed.', 'error', { sticky: true });
+    } else {
+      showStatus('Streaming stopped.', 'success');
+    }
   } catch (error) {
     // offscreen 停止失败时会话可能仍在跑：以 background 为准重新对账（同 tab 录音模式）
     debugEvt('stop-error', { message: error?.message || String(error) });

@@ -68,14 +68,28 @@
     });
     if (finalText) {
       broadcastUpdate('final-text', { text: finalText });
+      const reportHistoryError = (detail) => {
+        const message = typeof detail === 'string'
+          ? detail
+          : (detail?.message || detail?.code || 'history write failed');
+        session.historyError = message;
+        debugEvt('history-error', { message });
+        broadcastUpdate('status', {
+          text: 'Transcript finished, but saving it to history failed.',
+          type: 'error',
+        });
+      };
       try {
-        await chrome.runtime.sendMessage({
+        const result = await chrome.runtime.sendMessage({
           type: MESSAGES.HISTORY_ADD,
           payload: { text: finalText, provider: session.providerId, model: session.model },
           target: TARGETS.BACKGROUND,
         });
+        // background 的 IndexedDB 失败是 { ok:false }，不是 reject —— 必须
+        // 显式检查，否则转录成功但历史静默丢失（issue #143）。
+        if (result && result.ok === false) reportHistoryError(result.error);
       } catch (e) {
-        debugEvt('history-error', { message: e?.message || String(e) });
+        reportHistoryError(e);
       }
       if (session.subtitles) {
         // done=true 让浮层自动淡出；失败只打点（chrome:// 页等本就无浮层）
@@ -201,6 +215,7 @@
       const streamGeneration = session.streamGeneration;
       await drainSession();
       await finalizeSession(reason);
+      const historyError = session?.historyError || null;
       await teardownSession();
       // fire-and-forget：先发消息让 background 收到并返回，stopStreaming 才能发
       // STREAM_STOP response；否则 closeDocument 在消息到达前杀死文档。
@@ -215,9 +230,10 @@
       // fire-and-forget：background 处理这个消息时会 closeDocument。若在这里
       // await 它，STREAM_STOP 的 sendResponse 还没发出文档就被杀，popup 拿到
       // 超时/断连；不 await 让 stopStreaming 先返回，文档自然由 background 收。
+      return historyError;
     })();
     try {
-      await ending;
+      return await ending;
     } finally {
       ending = null;
     }
@@ -418,8 +434,11 @@
       if (!session) return { ok: true, data: { streaming: false, cancelled: true } };
     }
     if (!session) return { ok: false, error: Errors.NOT_RECORDING };
-    await endSession('user');
-    return { ok: true, data: { streaming: false } };
+    const historyError = await endSession('user');
+    return {
+      ok: true,
+      data: historyError ? { streaming: false, historyError } : { streaming: false },
+    };
   }
 
   function setSubtitles(subtitles) {
