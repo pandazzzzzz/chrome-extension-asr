@@ -1,5 +1,9 @@
 # Full Review Report
 
+> **Historical snapshot — not current verification.** This report records the
+> 2026-10-27/28 review pass (baseline `b017a7c`). See `README.md` and CI for
+> current status.
+
 ## Scope and conclusion
 
 - Reviewed baseline `b017a7c` on 2026-10-27 and completed the remediation

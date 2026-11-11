@@ -141,8 +141,10 @@
 ├── content/                 # 〔已有〕页面听写注入（asr:fill-text）+ 浮动字幕（asr:subtitle-*）
 │   ├── content.js / content.css
 │   └── subtitle.js         # 浮动字幕浮层（closed Shadow DOM，可拖动）
-├── offscreen/               #  〔已有〕标签页采集宿主（tabCapture streamId + MediaRecorder + OPFS 写入）
-│   └── offscreen.html / offscreen.js
+├── offscreen/               #  〔已有〕标签页采集 + Live Stream 会话宿主（活过 popup 关闭）
+│   ├── offscreen.html       #  加载流式依赖后依次引入下面两个脚本
+│   ├── offscreen.js         #  tabCapture streamId + MediaRecorder + OPFS 写入
+│   └── offscreen-streaming.js  #  Live Stream 会话、麦克风 PCM、provider WebSocket、字幕镜像
 ├── background/
 │   └── background.js        # 〔已有〕消息路由 + offscreen 协调 + fill-text/字幕转发
 │

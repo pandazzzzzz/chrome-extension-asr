@@ -1,5 +1,9 @@
 # Review Remediation Plan
 
+> **Historical snapshot — not current verification.** This plan records the
+> 2026-10-27/28 review pass (baseline `b017a7c`). See `README.md` and CI for
+> current status.
+
 Work in small, test-first batches. Do not combine lifecycle fixes with unrelated
 refactoring. Reproduce each finding before changing behavior.
 
