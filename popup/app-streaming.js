@@ -241,6 +241,7 @@ async function toggleSubtitles() {
   subtitlesEnabled = !subtitlesEnabled;
   els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
   els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
+  els.subtitleBtn.setAttribute('aria-pressed', String(subtitlesEnabled));
   const saved = await persistConfig(); // 配置写失败会自行显示状态，浮层仍按用户点击立即切换
   if (isStreaming) {
     try {

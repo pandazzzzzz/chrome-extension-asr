@@ -59,6 +59,7 @@ function applyConfigToUI(config) {
   if (els.subtitleBtn) {
     els.subtitleBtn.textContent = subtitlesEnabled ? 'Subtitles on' : 'Subtitles';
     els.subtitleBtn.classList.toggle('active', subtitlesEnabled);
+    els.subtitleBtn.setAttribute('aria-pressed', String(subtitlesEnabled));
   }
   // 音频输入设备：仅当该入口页有下拉框时回填；设备已不在列表时由
   // syncAudioInputOptions 在下次枚举时回退到默认。
