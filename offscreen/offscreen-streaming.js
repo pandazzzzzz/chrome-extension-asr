@@ -68,14 +68,27 @@
     });
     if (finalText) {
       broadcastUpdate('final-text', { text: finalText });
+      const reportHistoryError = (detail) => {
+        const message = typeof detail === 'string'
+          ? detail
+          : (detail?.message || detail?.code || 'history write failed');
+        debugEvt('history-error', { message });
+        broadcastUpdate('status', {
+          text: 'Transcript finished, but saving it to history failed.',
+          type: 'error',
+        });
+      };
       try {
-        await chrome.runtime.sendMessage({
+        const result = await chrome.runtime.sendMessage({
           type: MESSAGES.HISTORY_ADD,
           payload: { text: finalText, provider: session.providerId, model: session.model },
           target: TARGETS.BACKGROUND,
         });
+        // background 的 IndexedDB 失败是 { ok:false }，不是 reject —— 必须
+        // 显式检查，否则转录成功但历史静默丢失（issue #143）。
+        if (result && result.ok === false) reportHistoryError(result.error);
       } catch (e) {
-        debugEvt('history-error', { message: e?.message || String(e) });
+        reportHistoryError(e);
       }
       if (session.subtitles) {
         // done=true 让浮层自动淡出；失败只打点（chrome:// 页等本就无浮层）

@@ -501,6 +501,50 @@ async function run() {
     assert.match(history?.payload?.text || '', /final words/);
   });
 
+  await t('failed history write is surfaced as history-error and a status', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    sandbox.chrome.runtime.sendMessage = (msg) => {
+      sent.push(msg);
+      if (msg?.type === 'asr:history-add') {
+        return Promise.resolve({
+          ok: false,
+          error: { code: 'STORAGE_ERROR', message: 'disk full' },
+        });
+      }
+      return Promise.resolve();
+    };
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: (opts) => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        async stop() {
+          opts.onResult({ text: 'final words', sentenceEnd: true });
+        },
+        close() {},
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    sent.length = 0;
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream must still stop cleanly');
+
+    const errorEvent = sent.find((m) => m.type === 'asr:debug' && m.payload?.ev === 'history-error');
+    assert.ok(errorEvent, 'history-error diagnostic missing');
+    assert.match(errorEvent.payload.message || '', /disk full/);
+    const status = sent.find((m) =>
+      m.type === 'asr:stream-update' && m.payload?.kind === 'status' && /history/i.test(m.payload.text || ''));
+    assert.ok(status, 'history failure must be visible in the streaming status');
+  });
+
   await t('graceful task-finished onEnd does not surface a network error', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
     let callbacks;
