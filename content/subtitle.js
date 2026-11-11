@@ -32,6 +32,8 @@
     host: null,
     text: null,   // 字幕文本节点
     hideTimer: null,
+    finalText: '',
+    partialText: '',
   };
 
   /** 惰性创建浮层：closed Shadow DOM + 全内联样式（一次性注入 <style>）。 */
@@ -112,23 +114,37 @@
 
   /** 拆掉浮层（hide 消息 / 自动淡出 / 页面卸载）。幂等。 */
   function detach() {
-    if (!state.host) return;
     if (state.hideTimer) {
       clearTimeout(state.hideTimer);
       state.hideTimer = null;
     }
-    state.host.remove();
+    state.host?.remove();
     state.host = null;
     state.text = null;
+    state.finalText = '';
+    state.partialText = '';
   }
 
   /**
    * 显示/更新字幕文本。
-   * @param {{text:string, done?:boolean}} payload  done=true：会话已结束，
-   *        2s 内无新 show 消息则自动隐藏（给用户读完最后一句的时间）。
+   * @param {{text?:string, finalDelta?:string, partial?:string, reset?:boolean,
+   *          done?:boolean}} payload  text 是完整快照；其余字段是增量更新。
+   *        done=true：会话已结束，2s 内无新 show 消息则自动隐藏。
    */
   function show(payload) {
-    var text = payload?.text || '';
+    if (payload?.reset) {
+      state.finalText = '';
+      state.partialText = '';
+    }
+    if (typeof payload?.text === 'string' && payload.text) {
+      state.finalText = payload.text;
+      state.partialText = '';
+    }
+    if (typeof payload?.finalDelta === 'string' && payload.finalDelta) {
+      state.finalText = [state.finalText, payload.finalDelta].filter(Boolean).join(' ').trim();
+    }
+    if (typeof payload?.partial === 'string') state.partialText = payload.partial;
+    var text = [state.finalText, state.partialText].filter(Boolean).join(' ').trim();
     if (!text) return { ok: false, error: globalThis.Errors.NO_TEXT };
 
     if (state.hideTimer) {
@@ -142,6 +158,8 @@
         state.hideTimer = null;
         detach();
       }, TEXT_TIMEOUT_MS);
+      state.finalText = '';
+      state.partialText = '';
     }
     return { ok: true, data: true };
   }

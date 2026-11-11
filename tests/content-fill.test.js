@@ -248,5 +248,63 @@ t('subtitles: a page-removed host is recreated on the next show (#116)', () => {
   });
 });
 
+t('subtitles: incremental stream updates accumulate without full snapshots', () => {
+  const listeners = [];
+  function makeEl(tag) {
+    const el = {
+      tagName: tag,
+      style: {},
+      dataset: {},
+      children: [],
+      isConnected: false,
+      appendChild(child) {
+        this.children.push(child);
+        child.isConnected = this.isConnected;
+      },
+      addEventListener() {},
+      setPointerCapture() {},
+      releasePointerCapture() {},
+      getBoundingClientRect() { return { left: 0, top: 0 }; },
+      attachShadow() {
+        const shadow = { children: [], appendChild(child) { this.children.push(child); } };
+        this.shadow = shadow;
+        return shadow;
+      },
+      remove() { this.isConnected = false; },
+    };
+    return el;
+  }
+  const documentElement = makeEl('html');
+  documentElement.isConnected = true;
+  const sandbox = {
+    document: {
+      documentElement,
+      createElement: makeEl,
+      createTextNode: (text) => ({ nodeValue: text }),
+    },
+    window: { innerWidth: 1024, innerHeight: 768 },
+    setTimeout,
+    clearTimeout,
+    chrome: { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } },
+    TARGETS: { CONTENT: 'content' },
+    MESSAGES: { SUBTITLE_SHOW: 'asr:subtitle-show', SUBTITLE_HIDE: 'asr:subtitle-hide' },
+    Errors: { NO_TEXT: { code: 'NO_TEXT' } },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(root, 'content/subtitle.js'), 'utf8'), sandbox);
+
+  const dispatch = (payload) => listeners[0](
+    { target: 'content', type: 'asr:subtitle-show', payload }, {}, () => {},
+  );
+  const visibleText = () => {
+    const overlay = documentElement.children[0].shadow.children.find((c) => c.className === 'overlay');
+    return overlay.children[0].nodeValue;
+  };
+  dispatch({ reset: true, finalDelta: 'first', partial: 'temp' });
+  dispatch({ finalDelta: 'second', partial: 'next' });
+  assert.strictEqual(visibleText(), 'first second next');
+});
+
 console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);
 process.exit(fail === 0 ? 0 : 1);

@@ -72,6 +72,8 @@ async function startStreaming() {
   }
 
   els.resultText.value = '';
+  streamFinalText = '';
+  streamPartialText = '';
   syncResultButtons(); // 清空后同步禁用 Copy/Fill
 
   try {
@@ -162,6 +164,8 @@ async function syncStreamingState() {
         8000,
       );
       if (detail?.streaming && typeof detail.text === 'string') {
+        streamFinalText = typeof detail.finalText === 'string' ? detail.finalText : detail.text;
+        streamPartialText = typeof detail.partialText === 'string' ? detail.partialText : '';
         els.resultText.value = detail.text;
         syncResultButtons();
       }
@@ -193,9 +197,24 @@ globalThis.chrome?.runtime?.onMessage?.addListener((request) => {
   //   status → { text, type }；error-status → { message }；ended → {}
   // 此前这里读 message（offscreen 从不发送该字段），成功提示与麦克风回退
   // 警告全部被静默丢弃（#60）。
-  const { kind, text, type, message } = request.payload || {};
+  const {
+    kind, text, type, message, finalDelta, partial, reset,
+  } = request.payload || {};
   const statusText = typeof text === 'string' ? text : '';
-  if ((kind === 'text' || kind === 'final-text') && typeof text === 'string') {
+  if (kind === 'text') {
+    if (reset) {
+      streamFinalText = '';
+      streamPartialText = '';
+    }
+    if (typeof finalDelta === 'string' && finalDelta) {
+      streamFinalText = `${streamFinalText} ${finalDelta}`.trim();
+    }
+    if (typeof partial === 'string') streamPartialText = partial;
+    els.resultText.value = [streamFinalText, streamPartialText].filter(Boolean).join(' ').trim();
+    syncResultButtons();
+  } else if (kind === 'final-text' && typeof text === 'string') {
+    streamFinalText = text;
+    streamPartialText = '';
     els.resultText.value = text;
     syncResultButtons();
   } else if (kind === 'status' && statusText) {
