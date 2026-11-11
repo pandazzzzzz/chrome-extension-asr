@@ -401,6 +401,17 @@ async function makePopup(options = {}) {
       'history failure must not be replaced by the success status',
     );
     assert.strictEqual(els.statusDiv.className, 'error');
+    assert.strictEqual(sandbox.showStatus.sticky, true,
+      'history failure warning must be sticky');
+    assert.strictEqual(sandbox.showStatus.timer, null,
+      'sticky warning must not schedule an auto-hide');
+
+    els.resultText.value = 'final words';
+    await vm.runInContext('handleCopy()', sandbox);
+    await flushAsync();
+    assert.strictEqual(els.statusDiv.textContent, 'Copied to clipboard.');
+    assert.strictEqual(sandbox.showStatus.sticky, false,
+      'copying the transcript clears the sticky warning');
     console.log('PASS | history failure survives a manual stop (#143)');
   }
 

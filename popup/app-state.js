@@ -63,10 +63,17 @@ const els = {};
 
 // ---------- Helpers ----------
 
-function showStatus(message, type) {
+function showStatus(message, type, options) {
   els.statusDiv.textContent = message;
   els.statusDiv.className = type;
   clearTimeout(showStatus.timer);
+  showStatus.timer = null;
+  showStatus.sticky = false;
+  if (options?.sticky) {
+    // 粘性提示不自动消失：用户必须复制/填充结果或发起新动作后才被替换。
+    showStatus.sticky = true;
+    return;
+  }
   showStatus.timer = setTimeout(() => {
     els.statusDiv.className = '';
   }, 3500);
