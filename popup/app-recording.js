@@ -94,6 +94,7 @@ async function toggleRecording() {
 
 
 function discardAudioResult() {
+  cancelPendingTabRecordingRestore();
   const stale = audioRecording;
   audioBlob = null;
   audioRecording = null;
