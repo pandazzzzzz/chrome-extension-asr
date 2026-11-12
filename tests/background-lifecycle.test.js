@@ -368,6 +368,24 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     console.log('PASS | failed close retains ownership and blocks restart');
   });
 
+  await test('close failure for an already-closed document releases stream ownership', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      page.contexts.pop();
+      throw new Error('No current offscreen document');
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    const ended = await dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
+    assert.strictEqual(ended?.data?.closeFailed, undefined);
+    assert.strictEqual(page.contexts.length, 0);
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.ok, true);
+    console.log('PASS | already-closed document release does not leak stream ownership');
+  });
+
   await test('ownership read failure fails closed for a new capture', async () => {
     const page = makeSandbox();
     await vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
