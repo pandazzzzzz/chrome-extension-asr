@@ -243,6 +243,19 @@ async function closeOffscreenDocument() {
     debugEvt('offscreen-closed', {});
     return true;
   } catch (error) {
+    // closeDocument also rejects when the document is already gone. Verify
+    // before assuming the old session is still alive: keeping its lease in
+    // that case has no reconciliation path and blocks every new capture.
+    try {
+      const ctxs = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+        documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
+      });
+      if (ctxs.length === 0) {
+        debugEvt('offscreen-close-already-closed', { message: error?.message || String(error) });
+        return true;
+      }
+    } catch { /* context lookup failed: stay conservative */ }
     debugEvt('offscreen-close-failed', { message: error?.message || String(error) });
     return false;
   }
