@@ -127,7 +127,7 @@ async function sendToContent(tabId, type, payload) {
   };
 }
 
-async function forwardToTab(type, payload, tabId, injectOnDemand = false) {
+async function forwardToTab(type, payload, tabId, injectOnDemand = false, freshPayload = null) {
   let resolvedTabId = tabId;
   if (resolvedTabId == null) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -154,7 +154,13 @@ async function forwardToTab(type, payload, tabId, injectOnDemand = false) {
       target: { tabId: resolvedTabId },
       files: bundle.files,
     });
-    return await sendToContent(resolvedTabId, type, payload);
+    let delivered = payload;
+    if (typeof freshPayload === 'function') {
+      try {
+        delivered = (await freshPayload()) || payload;
+      } catch { /* resync is best-effort; fall back to the delta */ }
+    }
+    return await sendToContent(resolvedTabId, type, delivered);
   } catch {
     // chrome://、Web Store 等受限页面无法注入，保持原有的明确失败。
     return { ok: false, error: globalThis.Errors.NO_CONTENT };
@@ -176,13 +182,27 @@ async function handleSubtitleShow(payload) {
   if (!text && finalDelta === undefined && partial === undefined) {
     return { ok: false, error: globalThis.Errors.NO_TEXT };
   }
+  // A page reload/navigation drops the content script and its locally
+  // accumulated transcript. When injecting a fresh overlay, replace the delta
+  // with the session's full snapshot (the same shape STREAM_SET_SUBTITLES uses).
+  const resync = !payload?.done && !payload?.reset ? async () => {
+    const result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STATE, {}, 3000);
+    const state = result?.ok ? result.data : null;
+    if (!state?.streaming || typeof state.text !== 'string') return null;
+    return {
+      text: typeof state.finalText === 'string' ? state.finalText : state.text,
+      partial: typeof state.partialText === 'string' ? state.partialText : '',
+      reset: true,
+      done: false,
+    };
+  } : null;
   return forwardToTab(globalThis.MESSAGES.SUBTITLE_SHOW, {
     text,
     ...(finalDelta !== undefined ? { finalDelta } : {}),
     ...(partial !== undefined ? { partial } : {}),
     reset: !!payload?.reset,
     done: !!payload?.done,
-  }, payload?.tabId, true);
+  }, payload?.tabId, true, resync);
 }
 
 async function handleSubtitleHide(payload) {
