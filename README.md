@@ -90,7 +90,9 @@ floating subtitles, fill-text, history, and Record Tab, without network access.
 Install the browser once with
 `npx browsers install chrome@stable --path .cache/chrome`, or set
 `E2E_CHROME_PATH`. Set `ASR_TEST_API_KEY` to add the real-network handshake
-suite; set `ASR_TEST_SPEECH` to a local audio file to require a real transcript.
+suite; set `ASR_TEST_SPEECH` to a local WAV to require a real transcript. The
+real-network suite runs in a fresh browser so earlier mock-offscreen documents
+cannot disturb fake microphone capture.
 
 ## WebSocket authentication note
 
