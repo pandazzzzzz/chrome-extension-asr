@@ -386,6 +386,27 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     console.log('PASS | already-closed document release does not leak stream ownership');
   });
 
+  await test('close retries after a transient failure and releases stream ownership', async () => {
+    const page = makeSandbox();
+    let closeCalls = 0;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      closeCalls++;
+      if (closeCalls === 1) throw new Error('Cannot close while the document is being created');
+      page.contexts.pop();
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    const ended = await dispatch(page, 'asr:stream-ended', { streamGeneration: 1 });
+    assert.strictEqual(ended?.data?.closeFailed, undefined);
+    assert.ok(closeCalls >= 2, 'close must be retried after a transient failure');
+    assert.strictEqual(page.contexts.length, 0);
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.ok, true);
+    console.log('PASS | transient close failure is retried');
+  });
+
   await test('ownership read failure fails closed for a new capture', async () => {
     const page = makeSandbox();
     await vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });

@@ -237,28 +237,42 @@ async function ensureOffscreenDocument() {
 
 // 录音结束后显式关闭 offscreen 文档：它的 JS 上下文（含已加载脚本）会常驻内存,
 // MV3 不会自动回收。关闭失败时不能释放所有权：旧会话可能仍在采集。
+// 短暂失败（如文档仍在校建/并发关闭）用有界重试；一直失败则保持保守，等下一次
+// 显式操作再次尝试，避免在没有对账路径时误开第二路采集。
+const OFFSCREEN_CLOSE_RETRY_DELAYS_MS = [0, 150, 400];
+
 async function closeOffscreenDocument() {
-  try {
-    await chrome.offscreen.closeDocument();
-    debugEvt('offscreen-closed', {});
-    return true;
-  } catch (error) {
-    // closeDocument also rejects when the document is already gone. Verify
-    // before assuming the old session is still alive: keeping its lease in
-    // that case has no reconciliation path and blocks every new capture.
+  let lastError = null;
+  for (let attempt = 0; attempt < OFFSCREEN_CLOSE_RETRY_DELAYS_MS.length; attempt++) {
+    if (OFFSCREEN_CLOSE_RETRY_DELAYS_MS[attempt]) {
+      await new Promise((resolve) => setTimeout(resolve, OFFSCREEN_CLOSE_RETRY_DELAYS_MS[attempt]));
+    }
     try {
-      const ctxs = await chrome.runtime.getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-        documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
-      });
-      if (ctxs.length === 0) {
-        debugEvt('offscreen-close-already-closed', { message: error?.message || String(error) });
-        return true;
-      }
-    } catch { /* context lookup failed: stay conservative */ }
-    debugEvt('offscreen-close-failed', { message: error?.message || String(error) });
-    return false;
+      await chrome.offscreen.closeDocument();
+      debugEvt('offscreen-closed', { attempt });
+      return true;
+    } catch (error) {
+      lastError = error;
+      // closeDocument also rejects when the document is already gone. Verify
+      // before assuming the old session is still alive: keeping its lease in
+      // that case has no reconciliation path and blocks every new capture.
+      try {
+        const ctxs = await chrome.runtime.getContexts({
+          contextTypes: ['OFFSCREEN_DOCUMENT'],
+          documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
+        });
+        if (ctxs.length === 0) {
+          debugEvt('offscreen-close-already-closed', { message: error?.message || String(error), attempt });
+          return true;
+        }
+      } catch { /* context lookup failed: retry */ }
+    }
   }
+  debugEvt('offscreen-close-failed', {
+    message: lastError?.message || String(lastError),
+    attempts: OFFSCREEN_CLOSE_RETRY_DELAYS_MS.length,
+  });
+  return false;
 }
 
 // 文档"代际"计数：popup 客户端超时（10/20s）不取消 background 里仍在跑的 handler,
