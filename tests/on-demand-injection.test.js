@@ -29,7 +29,14 @@ function makeSandbox() {
         onMessage: { addListener: (fn) => listeners.push(fn) },
         onConnect: { addListener() {} },
         onInstalled: { addListener() {} },
-        sendMessage: async () => ({ ok: true }),
+        sendMessage: (message, callback) => {
+          const response = { ok: true, data: { streaming: false } };
+          if (typeof callback === 'function') {
+            callback(response);
+            return;
+          }
+          return Promise.resolve(response);
+        },
         getURL: (p) => 'chrome-extension://test/' + p,
         getContexts: async () => [],
       },
@@ -146,6 +153,60 @@ async function test(name, fn) {
     assert.strictEqual(response.ok, true);
     assert.strictEqual(page.scripts.length, 1);
     assert.strictEqual(page.tabsSent.length, 2);
+  });
+
+  await test('subtitle injection resyncs the full session text', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.runtime.sendMessage = (message, callback) => {
+      const response = message?.type === 'asr:stream-state'
+        ? {
+            ok: true,
+            data: { streaming: true, text: 'first second', finalText: 'first', partialText: 'second' },
+          }
+        : { ok: true };
+      if (typeof callback === 'function') {
+        callback(response);
+        return;
+      }
+      return Promise.resolve(response);
+    };
+
+    const response = await dispatch(page, 'asr:subtitle-show', {
+      finalDelta: 'second',
+      partial: 'third',
+      tabId: 7,
+    });
+    assert.strictEqual(response.ok, true);
+    assert.strictEqual(page.tabsSent.length, 2);
+    const delivered = page.tabsSent[1].message.payload;
+    assert.strictEqual(delivered.reset, true);
+    assert.strictEqual(delivered.text, 'first');
+    assert.strictEqual(delivered.partial, 'second');
+  });
+
+  await test('subtitle done injection keeps the final snapshot without resync', async () => {
+    const page = makeSandbox();
+    let stateQueries = 0;
+    page.sandbox.chrome.runtime.sendMessage = (message, callback) => {
+      if (message?.type === 'asr:stream-state') stateQueries++;
+      const response = { ok: true };
+      if (typeof callback === 'function') {
+        callback(response);
+        return;
+      }
+      return Promise.resolve(response);
+    };
+
+    const response = await dispatch(page, 'asr:subtitle-show', {
+      text: 'final text',
+      done: true,
+      tabId: 7,
+    });
+    assert.strictEqual(response.ok, true);
+    assert.strictEqual(stateQueries, 0);
+    const delivered = page.tabsSent[1].message.payload;
+    assert.strictEqual(delivered.done, true);
+    assert.strictEqual(delivered.text, 'final text');
   });
 
   await test('subtitle hide never injects into an otherwise untouched page', async () => {
