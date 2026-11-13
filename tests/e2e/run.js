@@ -342,6 +342,9 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
   try {
     await configurePopup(popup, { apiKey, model, endpoint });
     await targetPage.bringToFront();
+    // Pre-create the host document so the real network run does not depend on
+    // the offscreen creation path that follows the mock WebSocket suites.
+    await createOffscreen(popup);
     await popup.evaluate(() => document.getElementById('streamBtn').click());
     await H.pollPage(
       popup,
@@ -364,9 +367,10 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
     if (process.env.ASR_TEST_SPEECH) {
       await H.waitFor(
         () => popup.evaluate(() => document.getElementById('result').value.trim().length > 0),
-        { timeout: 15000, label: 'real transcript' },
+        { timeout: 30000, label: 'real transcript' },
       );
-      H.check('real audio produces transcript text', true);
+      const transcript = await popup.evaluate(() => document.getElementById('result').value);
+      H.check('real audio produces transcript text', transcript.trim().length > 0, transcript.slice(0, 120));
     }
 
     await targetPage.bringToFront();
@@ -468,8 +472,20 @@ async function main() {
           `run-task-sent=${runTask.length} pcm-stats=${pcmStats.length}`,
         );
       }
-      await runRealNetworkSuite({ browser, extensionId, targetPage });
     });
+
+    // Run the real-network suite in its own browser: after the mock suites have
+    // created and closed offscreen documents, Chrome's fake microphone can stop
+    // exposing a usable track to createMediaStreamSource().
+    if (process.env.ASR_TEST_API_KEY) {
+      await withExtensionBrowser(executablePath, { fakeMedia: true }, async ({ browser, extensionId }) => {
+        const targetPage = await browser.newPage();
+        await targetPage.bringToFront();
+        await runRealNetworkSuite({ browser, extensionId, targetPage });
+      });
+    } else {
+      console.log('  SKIP | real network (ASR_TEST_API_KEY is not set)');
+    }
 
     // The download folder belongs to this browser: Chrome keeps it open while it
     // runs, so removal is deferred to the afterClose hook. The outer finally also
