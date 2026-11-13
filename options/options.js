@@ -268,41 +268,47 @@ function hasUnsavedConfigEdits() {
 }
 
 async function refreshHistory() {
-  let items;
+  els.historyList.setAttribute('aria-busy', 'true');
   try {
-    items = await globalThis.HistoryStore.list(20);
-  } catch (error) {
-    els.historyList.textContent = '';
-    const failed = document.createElement('div');
-    failed.className = 'empty';
-    failed.textContent = `Cannot read history: ${error.message}`;
-    els.historyList.appendChild(failed);
-    show(`Cannot read history: ${error.message}`, 'error');
-    return false;
-  }
-  els.historyList.textContent = '';
+    let items;
+    try {
+      items = await globalThis.HistoryStore.list(20);
+    } catch (error) {
+      const failed = document.createElement('div');
+      failed.className = 'empty';
+      failed.textContent = `Cannot read history: ${error.message}`;
+      els.historyList.replaceChildren(failed);
+      show(`Cannot read history: ${error.message}`, 'error');
+      return false;
+    }
 
-  if (!items.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.textContent = 'No history yet.';
-    els.historyList.appendChild(empty);
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No history yet.';
+      els.historyList.replaceChildren(empty);
+      return true;
+    }
+
+    // Build the whole list first, then swap it in once: appending 20 nodes to a
+    // live region individually makes screen readers announce each mutation.
+    const nodes = items.map((item) => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      const meta = document.createElement('div');
+      meta.className = 'history-meta';
+      meta.textContent = `${new Date(item.createdAt).toLocaleString()} · ${item.provider || '?'} · ${item.model || '?'}`;
+      const text = document.createElement('div');
+      text.className = 'history-text';
+      text.textContent = item.text;
+      div.append(meta, text);
+      return div;
+    });
+    els.historyList.replaceChildren(...nodes);
     return true;
+  } finally {
+    els.historyList.setAttribute('aria-busy', 'false');
   }
-
-  for (const item of items) {
-    const div = document.createElement('div');
-    div.className = 'history-item';
-    const meta = document.createElement('div');
-    meta.className = 'history-meta';
-    meta.textContent = `${new Date(item.createdAt).toLocaleString()} · ${item.provider || '?'} · ${item.model || '?'}`;
-    const text = document.createElement('div');
-    text.className = 'history-text';
-    text.textContent = item.text;
-    div.append(meta, text);
-    els.historyList.appendChild(div);
-  }
-  return true;
 }
 
 async function clearHistory() {

@@ -35,10 +35,17 @@ function makeField(value = '') {
     style: {},
     listeners,
     children: [],
+    attributes: {},
     get textContent() { return textContent; },
     set textContent(text) {
       textContent = String(text);
       this.children = [];
+    },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    getAttribute(name) { return this.attributes[name]; },
+    replaceChildren(...nodes) {
+      this.textContent = '';
+      this.children.push(...nodes);
     },
     addEventListener(type, fn) { listeners[type] = fn; },
     appendChild(child) { this.children.push(child); },
@@ -204,6 +211,12 @@ function changeEvent(config) {
 }
 
 (async () => {
+  await t('History refresh clears aria-busy after a single swap', async () => {
+    const { els } = await initPage();
+    assert.strictEqual(els.historyList.getAttribute('aria-busy'), 'false');
+    assert.strictEqual(els.historyList.children.length, 1);
+  });
+
   await t('Test model: tests draft settings and reports provider errors', async () => {
     const { sandbox, els } = await initPage();
     let observed;
