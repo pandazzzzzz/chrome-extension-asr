@@ -341,6 +341,7 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
   const popup = await H.openPopup(browser, extensionId);
   try {
     await configurePopup(popup, { apiKey, model, endpoint });
+    await enableSubtitles(popup);
     await targetPage.bringToFront();
     // Pre-create the host document so the real network run does not depend on
     // the offscreen creation path that follows the mock WebSocket suites.
@@ -371,6 +372,42 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
       );
       const transcript = await popup.evaluate(() => document.getElementById('result').value);
       H.check('real audio produces transcript text', transcript.trim().length > 0, transcript.slice(0, 120));
+      let subtitleText = '';
+      const subtitleSeen = await H.waitFor(async () => {
+        subtitleText = await H.axText(targetPage);
+        return subtitleText.includes(transcript);
+      }, { timeout: 10000, label: 'real subtitle overlay' }).then(() => true, () => false);
+      H.check('real transcript reaches the subtitle overlay', subtitleSeen, subtitleText.slice(0, 160));
+
+      await targetPage.evaluate(() => {
+        document.querySelector('details').open = true;
+        document.getElementById('in1').focus();
+      });
+      await popup.evaluate(() => document.getElementById('fillBtn').click());
+      const fillStatus = await H.pollPage(
+        popup,
+        () => {
+          const status = document.getElementById('status').textContent;
+          return status === 'Filled into page input.' || status.startsWith('Fill failed:') ? status : '';
+        },
+        10000,
+        'real transcript fill',
+      );
+      const filled = await targetPage.evaluate(() => document.getElementById('in1').value);
+      H.check('real transcript fills the active page input', fillStatus === 'Filled into page input.' && filled === transcript, fillStatus);
+
+      // Reopening the UI must reconcile from the offscreen session, not an
+      // empty in-memory mirror, while the real stream is still running.
+      const reopened = await H.openPopup(browser, extensionId);
+      await H.sleep(400);
+      const restored = await reopened.evaluate(() => ({
+        button: document.getElementById('streamBtn').textContent,
+        text: document.getElementById('result').value,
+      }));
+      // Real ASR can produce more text while the UI is being reopened. Require
+      // the state to be active and non-empty, not a snapshot from seconds ago.
+      H.check('reopened popup restores the real stream state', restored.button === 'Stop Stream' && restored.text.length > 0, JSON.stringify(restored));
+      await reopened.close();
     }
 
     await targetPage.bringToFront();
@@ -381,7 +418,17 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
       15000,
       'real network stop',
     );
-    H.check('real provider stops cleanly', true);
+    const stopped = await popup.evaluate(() => document.getElementById('status').textContent);
+    H.check('real provider stops cleanly', stopped === 'Streaming stopped.', stopped);
+    await H.sleep(500);
+    const saved = await popup.evaluate(async () => ({
+      history: await globalThis.HistoryStore.list(),
+      result: document.getElementById('result').value,
+    }));
+    H.check('real stream writes one history entry', saved.history.some((item) => item.text === saved.result), JSON.stringify({ count: saved.history.length }));
+    await waitForOffscreenClosed(browser);
+    H.check('real stream reclaims the offscreen document', true);
+    H.check('real popup has no page or console errors', popup.__e2eErrors.length === 0, popup.__e2eErrors.join(' | '));
   } finally {
     await popup.close().catch(() => {});
   }
@@ -478,9 +525,13 @@ async function main() {
     // created and closed offscreen documents, Chrome's fake microphone can stop
     // exposing a usable track to createMediaStreamSource().
     if (process.env.ASR_TEST_API_KEY) {
-      await withExtensionBrowser(executablePath, { fakeMedia: true }, async ({ browser, extensionId }) => {
-        const targetPage = await browser.newPage();
+      await withExtensionBrowser(executablePath, { fakeMedia: true }, async ({ browser, extension, extensionId }) => {
+        const targetPage = await H.openDiagnosticPage(browser, PORT);
         await targetPage.bringToFront();
+        // Give the real suite the same activeTab grant as the mock suites;
+        // subtitle injection and Fill into page require it.
+        await targetPage.triggerExtensionAction(extension);
+        await H.sleep(400);
         await runRealNetworkSuite({ browser, extensionId, targetPage });
       });
     } else {
