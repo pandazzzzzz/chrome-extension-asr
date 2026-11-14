@@ -192,6 +192,8 @@ async function launchExtension(executablePath, { fakeMedia = true, extraArgs = [
   if (fakeMedia) {
     args.push('--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream');
     if (speech && fs.existsSync(path.resolve(ROOT, speech))) {
+      // Chrome resolves a bare --use-file-for-fake-audio-capture path against
+      // its process CWD, not the repository. Pass an absolute path explicitly.
       args.push(`--use-file-for-fake-audio-capture=${path.resolve(ROOT, speech)}`);
     }
   }
