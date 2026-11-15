@@ -2,10 +2,10 @@
  * 诊断页本地静态服务器 —— 让 tests/stream-debug.html 走 http:// 打开。
  *
  * 为什么需要 http 而非 file://：
- *   manifest 的 content_scripts matches 是 <all_urls>，它注入 http/https 页面；
- *   Chrome 默认**不向 file:// 页面注入 content script**（除非用户在扩展详情里
- *   手动勾选"允许访问文件网址"）。诊断页依赖 content script（debug/bridge.js）
- *   转发扩展遥测，所以必须走 http://。
+ *   manifest 的 content_scripts 只匹配回环诊断页
+ *   （localhost / 127.0.0.1:18923/tests/stream-debug.html*），不会注入普通
+ *   http/https 页面或 file:// 页面。诊断页依赖 content script（debug/bridge.js）
+ *   转发扩展遥测，所以必须走 http:// 且使用精确的 localhost/端口/路径。
  *
  * 用法：
  *   node tests/serve-debug.js            # 默认端口 18923
