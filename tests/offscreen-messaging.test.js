@@ -586,6 +586,53 @@ async function run() {
     assert.ok(status, 'history failure must be visible in the streaming status');
   });
 
+  await t('hung history write times out and STREAM_STOP still completes', async () => {
+    const { sandbox, sent, listeners } = makeCoexistenceSandbox();
+    sandbox.withTimeout = (promise, ms, label = '') => {
+      if (label !== 'HISTORY_ADD') return Promise.resolve(promise);
+      return Promise.race([
+        Promise.resolve(promise),
+        new Promise((_, reject) => setTimeout(() => {
+          const error = new Error(`Timeout: ${label} did not settle within ${ms}ms`);
+          error.code = 'TIMEOUT';
+          reject(error);
+        }, 5)),
+      ]);
+    };
+    sandbox.chrome.runtime.sendMessage = (msg) => {
+      sent.push(msg);
+      if (msg?.type === 'asr:history-add') return new Promise(() => {});
+      return Promise.resolve();
+    };
+    sandbox.PROVIDERS.push({
+      id: 'qwen',
+      supportsStreaming: true,
+      defaultStreamModel: 'model',
+      sampleRateFor: () => 16000,
+      isStreamModel: () => true,
+      createStreamSession: (opts) => ({
+        ready: Promise.resolve(),
+        sendAudio() {},
+        async stop() {
+          opts.onResult({ text: 'final words', sentenceEnd: true });
+        },
+        close() {},
+      }),
+    });
+
+    const started = await withTimeout(dispatch(listeners, 'asr:stream-start', {
+      providerId: 'qwen', apiKey: 'sk-x', model: 'model', audioInput: '',
+    }));
+    assert.ok(started?.ok, 'stream did not start');
+    sent.length = 0;
+
+    const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
+    assert.ok(stopped?.ok, 'stream must stop even when history persistence hangs');
+    assert.match(stopped.data?.historyError || '', /HISTORY_ADD/);
+    const errorEvent = sent.find((m) => m.type === 'asr:debug' && m.payload?.ev === 'history-error');
+    assert.ok(errorEvent, 'hung history write must surface a history-error diagnostic');
+  });
+
   await t('graceful task-finished onEnd does not surface a network error', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
     let callbacks;

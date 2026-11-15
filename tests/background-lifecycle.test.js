@@ -20,7 +20,7 @@ async function test(name, fn) {
   }
 }
 
-function makeSandbox() {
+function makeSandbox({ hangStreamStop = false, hangTabStop = false } = {}) {
   const sent = [];
   const tabsSent = [];
   const listeners = [];
@@ -52,6 +52,10 @@ function makeSandbox() {
         sendMessage: (msg, callback) => {
           sent.push(msg);
           if (callback) {
+            const hungStop = msg.target === 'offscreen'
+              && ((msg.type === 'asr:stream-stop' && hangStreamStop)
+                || (msg.type === 'asr:tab-record-stop' && hangTabStop));
+            if (hungStop) return; // Never answer: model a wedged offscreen document.
             const response = msg.target === 'offscreen' && msg.type === 'asr:stream-start'
               ? { ok: true, data: { streaming: true } }
               : { ok: true };
@@ -434,6 +438,48 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     assert.strictEqual(restartedStream?.error?.code, 'ALREADY_RECORDING');
     assert.strictEqual(page.contexts.length, 1);
     console.log('PASS | failed tab stop close retains ownership');
+  });
+
+  await test('STREAM_STOP timeout closes the document and releases the stream lease', async () => {
+    const page = makeSandbox({ hangStreamStop: true });
+    page.sandbox.setTimeout = (fn, ms) => setTimeout(fn, Math.min(ms, 5));
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    const started = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    assert.strictEqual(started?.ok, true);
+    assert.strictEqual(page.contexts.length, 1);
+
+    const stopped = await dispatch(page, 'asr:stream-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 0, 'timed-out STOP must close the offscreen document');
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    assert.strictEqual(page.storage.session.values.streaming, false);
+
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.ok, true, 'a stream must be able to start after a timed-out STOP');
+    console.log('PASS | STREAM_STOP timeout releases the stream lease');
+  });
+
+  await test('TAB_RECORD_STOP timeout closes the document and releases the tab lease', async () => {
+    const page = makeSandbox({ hangTabStop: true });
+    page.sandbox.setTimeout = (fn, ms) => setTimeout(fn, Math.min(ms, 5));
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    const started = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(started?.ok, true);
+    assert.strictEqual(page.contexts.length, 1);
+
+    const stopped = await dispatch(page, 'asr:tab-record-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 0, 'timed-out STOP must close the offscreen document');
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    assert.strictEqual(page.storage.session.values.tabRecording, false);
+
+    const restarted = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(restarted?.ok, true, 'Tab recording must be able to start after a timed-out STOP');
+    console.log('PASS | TAB_RECORD_STOP timeout releases the tab lease');
   });
 
   process.exit(newTestFailures ? 1 : 0);

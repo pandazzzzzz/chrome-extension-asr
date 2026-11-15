@@ -458,7 +458,29 @@ async function handleStreamStop() {
   const tokenAtStart = activeOffscreenToken;
   const ownerAtStart = audioOwner?.kind === 'stream' ? audioOwner : null;
   debugEvt('stream-stop-relay', { token: tokenAtStart });
-  const result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STOP, {}, 15000);
+  let result;
+  try {
+    result = await sendToOffscreen(globalThis.MESSAGES.STREAM_STOP, {}, 15000);
+  } catch (error) {
+    // The offscreen document did not answer. Its state is unknown, so it is
+    // unsafe to keep the audio lease: force-close the document and clear the
+    // stream state unless a newer session already owns it. Without this, a
+    // timed-out STOP leaves streaming=true + audioOwner='stream' forever.
+    if (hasNewerStreamToken(tokenAtStart)) throw error;
+    if (tokenAtStart === null && await isTabRecording()) throw error;
+    const closed = await closeOffscreenDocument();
+    if (!closed) throw error;
+    if (!hasNewerStreamToken(tokenAtStart)) {
+      activeOffscreenToken = null;
+      // After an SW restart there is no captured owner to release. A later
+      // isStreaming() check reconciles the persisted flag and closes the lease.
+      if (ownerAtStart) {
+        await clearStreamingFlagUnlessReplaced(tokenAtStart);
+        releaseAudio('stream', null, ownerAtStart);
+      }
+    }
+    throw error;
+  }
   // 代际守卫与 handleTabRecordStop 同构（流式与 tab 录音共享文档）
   let reclaimed = false;
   const ownsStream = tokenAtStart?.kind === 'stream'
@@ -669,7 +691,37 @@ async function handleTabRecordStart(payload) {
 // 停止录标签页：offscreen 写入 OPFS 并返回 { file, mime, size }，随后回收文档
 async function handleTabRecordStop() {
   const tokenAtStart = activeOffscreenToken;
-  const result = await sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_STOP, {}, 19000);
+  let result;
+  try {
+    result = await sendToOffscreen(globalThis.MESSAGES.TAB_RECORD_STOP, {}, 19000);
+  } catch (error) {
+    // Same fail-safe as Live Stream: a STOP that never settles means the
+    // offscreen document is wedged. Close it and release the Tab-recording
+    // lease so a retry cannot deadlock on ALREADY_RECORDING.
+    const ownerAtStart = audioOwner?.kind === 'tab' ? audioOwner : null;
+    const ownsTab = tokenAtStart?.kind === 'tab'
+      && tokenAtStart === activeOffscreenToken;
+    const newerSession = tokenAtStart === null
+      ? activeOffscreenToken !== null
+      : !ownsTab;
+    if (newerSession) throw error;
+    if (tokenAtStart === null && await isStreaming()) throw error;
+    if (tokenAtStart === null && activeOffscreenToken !== null) throw error;
+    const closed = await closeOffscreenDocument();
+    if (!closed) throw error;
+    if (tokenAtStart === null ? activeOffscreenToken !== null : activeOffscreenToken !== tokenAtStart) {
+      throw error; // A newer session won the race; leave its state alone.
+    }
+    activeOffscreenToken = null;
+    // Normal case: the lease is held in memory, so no newer capture can start
+    // until we release it. After an SW restart the lease is already gone; let
+    // isTabRecording() reconcile the persisted flag on the next state query.
+    if (ownerAtStart) {
+      await setTabRecording(false);
+      releaseAudio('tab', null, ownerAtStart);
+    }
+    throw error;
+  }
   // 代际守卫——只在"本 stop 仍归属当前有效代"时回收文档：
   //   token 匹配且非 null：本代正常收尾（成败都关：stop 失败意味着文档内状态不可信）。
   //   两边皆 null：SW 挂起重启丢了 token 但文档还在——仅当 STOP 确实送达（result.ok，

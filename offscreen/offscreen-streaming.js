@@ -22,6 +22,10 @@
 
   // 与 popup 时代的 STREAM.frameSize 一致（16kHz = 16ms/帧，调优常量，勿改）。
   const FRAME_SIZE = 256;
+  // History is an enhancement, not a prerequisite for a successful stop. Bound
+  // the background round trip so a stuck IndexedDB transaction cannot keep the
+  // offscreen document from answering STOP (background times out at 15s).
+  const HISTORY_WRITE_TIMEOUT_MS = 3000;
 
   let session = null; // 会话真身：null = 空闲
   let streamSeq = 0;  // 每次自增，跨会话竞态防护（延迟回调归属判断）
@@ -80,11 +84,15 @@
         });
       };
       try {
-        const result = await chrome.runtime.sendMessage({
-          type: MESSAGES.HISTORY_ADD,
-          payload: { text: finalText, provider: session.providerId, model: session.model },
-          target: TARGETS.BACKGROUND,
-        });
+        const result = await globalThis.withTimeout(
+          chrome.runtime.sendMessage({
+            type: MESSAGES.HISTORY_ADD,
+            payload: { text: finalText, provider: session.providerId, model: session.model },
+            target: TARGETS.BACKGROUND,
+          }),
+          HISTORY_WRITE_TIMEOUT_MS,
+          'HISTORY_ADD',
+        );
         // background 的 IndexedDB 失败是 { ok:false }，不是 reject —— 必须
         // 显式检查，否则转录成功但历史静默丢失（issue #143）。
         if (result && result.ok === false) reportHistoryError(result.error);
