@@ -26,6 +26,7 @@
 
   var HOST_ID = 'asr-subtitle-host';
   var TEXT_TIMEOUT_MS = 2000; // done=true 后无新文本的自动隐藏延时
+  var DRAG_STEP_PX = 16;
 
   // 浮层状态（host/shadow 闭包内，本模块外不可达）
   var state = {
@@ -54,13 +55,21 @@
       ':host { all: initial; }',
       '.overlay {',
       '  position: fixed; left: 24px; bottom: 48px; z-index: 2147483647;',
-      '  max-width: 70vw; min-width: 120px; padding: 10px 16px;',
+      '  max-width: 70vw; min-width: 120px; padding: 10px 34px 10px 16px;',
       '  background: rgba(8, 15, 26, 0.82); color: #fff;',
       '  font: 16px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;',
       '  border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);',
-      '  cursor: move; user-select: none; -webkit-user-select: none;',
       '  white-space: pre-wrap; word-break: break-word;',
       '}',
+      '.handle {',
+      '  position: absolute; top: 3px; right: 3px; width: 24px; height: 24px;',
+      '  display: flex; align-items: center; justify-content: center;',
+      '  padding: 0; margin: 0; border: 0; border-radius: 5px;',
+      '  background: transparent; color: rgba(255, 255, 255, 0.72);',
+      '  font: 14px/1 sans-serif; cursor: move;',
+      '  user-select: none; -webkit-user-select: none;',
+      '}',
+      '.handle:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; }',
     ].join('\n');
     shadow.appendChild(style);
 
@@ -68,14 +77,60 @@
     overlay.className = 'overlay';
     var text = document.createTextNode('');
     overlay.appendChild(text);
+
+    var handle = document.createElement('button');
+    handle.className = 'handle';
+    handle.type = 'button';
+    handle.textContent = '⠿';
+    handle.setAttribute('aria-label', 'Move subtitles');
+    handle.setAttribute('title', 'Drag or use arrow keys to move subtitles');
+    overlay.appendChild(handle);
     shadow.appendChild(overlay);
 
-    // 拖动：pointer 事件比 mouse 事件覆盖触摸笔/触摸屏；setPointerCapture 保证
-    // 指针移出元素后仍能持续收到 move。只改 left/top，不碰页面布局。
-    overlay.addEventListener('pointerdown', function (e) {
+    // 位置约束：只改 left/top，不碰页面布局；留 8px 余量，别把字幕拖没了找不回。
+    function clampPosition(nx, ny) {
+      var maxX = Math.max(8, window.innerWidth - overlay.offsetWidth - 8);
+      var maxY = Math.max(8, window.innerHeight - overlay.offsetHeight - 8);
+      return {
+        left: Math.max(8, Math.min(nx, maxX)),
+        top: Math.max(8, Math.min(ny, maxY)),
+      };
+    }
+
+    /** 从当前位置移动浮层；首次移动会把 left/bottom 固化成 left/top。 */
+    function moveBy(dx, dy) {
+      var rect = overlay.getBoundingClientRect();
+      var currentLeft = parseFloat(overlay.style.left);
+      var currentTop = parseFloat(overlay.style.top);
+      if (!Number.isFinite(currentLeft)) currentLeft = rect.left;
+      if (!Number.isFinite(currentTop)) currentTop = rect.top;
+      var next = clampPosition(currentLeft + dx, currentTop + dy);
+      overlay.style.left = next.left + 'px';
+      overlay.style.top = next.top + 'px';
+      overlay.style.bottom = 'auto';
+    }
+
+    // 键盘拖动：手柄是唯一可聚焦的拖动入口，方向键与鼠标拖动等价。
+    handle.addEventListener('keydown', function (e) {
+      var dx = 0;
+      var dy = 0;
+      if (e.key === 'ArrowLeft') dx = -DRAG_STEP_PX;
+      else if (e.key === 'ArrowRight') dx = DRAG_STEP_PX;
+      else if (e.key === 'ArrowUp') dy = -DRAG_STEP_PX;
+      else if (e.key === 'ArrowDown') dy = DRAG_STEP_PX;
+      else return;
       e.preventDefault();
+      moveBy(dx, dy);
+    });
+
+    // 拖动：仅鼠标主键从手柄启动；setPointerCapture 保证指针移出元素后仍能
+    // 持续收到 move。只改 left/top，不碰页面布局。
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      handle.focus();
       host.dataset.dragging = 'true';
-      overlay.setPointerCapture(e.pointerId);
+      handle.setPointerCapture(e.pointerId);
       var startX = e.clientX;
       var startY = e.clientY;
       // 初始样式用的是 left/bottom，fixed 元素的 offsetTop 不可靠 —— 以当前视口
@@ -88,23 +143,21 @@
         if (host.dataset.dragging !== 'true') return;
         var nx = originLeft + (ev.clientX - startX);
         var ny = originTop + (ev.clientY - startY);
-        // 限制在视口内（留 8px 余量，别把字幕拖没了找不回）
-        var maxX = window.innerWidth - overlay.offsetWidth - 8;
-        var maxY = window.innerHeight - overlay.offsetHeight - 8;
-        overlay.style.left = Math.max(8, Math.min(nx, maxX)) + 'px';
-        overlay.style.top = Math.max(8, Math.min(ny, maxY)) + 'px';
+        var next = clampPosition(nx, ny);
+        overlay.style.left = next.left + 'px';
+        overlay.style.top = next.top + 'px';
         overlay.style.bottom = 'auto';
       }
       function onUp(ev) {
         host.dataset.dragging = 'false';
-        overlay.releasePointerCapture(ev.pointerId);
-        overlay.removeEventListener('pointermove', onMove);
-        overlay.removeEventListener('pointerup', onUp);
-        overlay.removeEventListener('pointercancel', onUp);
+        handle.releasePointerCapture(ev.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
       }
-      overlay.addEventListener('pointermove', onMove);
-      overlay.addEventListener('pointerup', onUp);
-      overlay.addEventListener('pointercancel', onUp);
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
     });
 
     document.documentElement.appendChild(host);
