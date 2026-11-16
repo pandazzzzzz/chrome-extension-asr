@@ -132,10 +132,12 @@
 | 4b.1 | 开一个普通 http(s) 页面（如诊断页）→ 点 **Subtitles** | 按钮变 **Subtitles on**（高亮），状态栏提示 `Subtitles will appear when Live Stream is running.`；空闲时**不创建空浮层** | 无提示 = 开关未走到空闲态反馈；出现空浮层 = 字幕生命周期未绑定流式会话 |
 | 4b.2 | 开着 Subtitles 跑一次 **Live Stream** | 说话时浮层文本**随 partial 实时刷新**，停顿定稿后仍在 | 只更新结果区不见浮层 = `renderStreamText` 未镜像 |
 | 4b.3 | 点击 **Stop Stream** | 浮层保留约 2s 后**自动淡出**（`done=true` 超时） | 不消失 = 自动超时未生效 |
-| 4b.4 | 拖动浮层 | 浮层跟随指针移动，松手后停在原处；位置限制在视口内 | 拖不动 = pointer 事件/host 定位问题 |
-| 4b.5 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（字幕绑定点击 Live Stream 时的 tab，不跟随切 tab，也不会在新页面再开一份） | 新页面出现浮层 = 字幕未绑定起始 tab |
-| 4b.6 | 关闭 **Subtitles** 开关 | 状态栏提示 `Subtitles are off for future Live Streams.`；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
-| 4b.7 | 在 `chrome://` 页面开 Subtitles 跑流式 | 结果区照常工作，浮层不出现且**不报错**（旁路输出失败被静默） | 主流程被字幕失败打断 = pushSubtitle 未吞错 |
+| 4b.4 | 只按住浮层右上角的拖动手柄用鼠标主键拖动 | 浮层跟随指针移动，松手后停在原处；位置限制在视口内；点击字幕正文不会拖动 | 拖不动 = pointer 事件/host 定位问题；正文也能拖 = 拖动入口未限定在手柄 |
+| 4b.5 | Tab 聚焦拖动手柄后按方向键 | 浮层按 16px 步进移动；手柄有可见焦点环 | 方向键无效 = 键盘路径缺失；无焦点环 = 手柄不可发现 |
+| 4b.6 | 在拖动手柄上按鼠标右键 | 浮层不进入拖动状态，正常弹出页面右键菜单 | 进入拖动 = 未过滤 `event.button` |
+| 4b.7 | 流式过程中切到另一个标签页 | 浮层留在**原标签页**（字幕绑定点击 Live Stream 时的 tab，不跟随切 tab，也不会在新页面再开一份） | 新页面出现浮层 = 字幕未绑定起始 tab |
+| 4b.8 | 关闭 **Subtitles** 开关 | 状态栏提示 `Subtitles are off for future Live Streams.`；开关状态**持久化**（重开 popup 仍为关闭） | 状态不保留 = `asrConfig.subtitles` 未读写 |
+| 4b.9 | 在 `chrome://` 页面开 Subtitles 跑流式 | 结果区照常工作，浮层不出现且**不报错**（旁路输出失败被静默） | 主流程被字幕失败打断 = pushSubtitle 未吞错 |
 ---
 
 ## 5. Side panel 与 Options

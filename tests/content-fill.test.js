@@ -199,6 +199,8 @@ t('subtitles: a page-removed host is recreated on the next show (#116)', () => {
         child.isConnected = this.isConnected;
       },
       addEventListener() {},
+      setAttribute() {},
+      focus() {},
       setPointerCapture() {},
       releasePointerCapture() {},
       getBoundingClientRect() { return { left: 0, top: 0 }; },
@@ -262,6 +264,8 @@ t('subtitles: incremental stream updates accumulate without full snapshots', () 
         child.isConnected = this.isConnected;
       },
       addEventListener() {},
+      setAttribute() {},
+      focus() {},
       setPointerCapture() {},
       releasePointerCapture() {},
       getBoundingClientRect() { return { left: 0, top: 0 }; },
@@ -304,6 +308,143 @@ t('subtitles: incremental stream updates accumulate without full snapshots', () 
   dispatch({ reset: true, finalDelta: 'first', partial: 'temp' });
   dispatch({ finalDelta: 'second', partial: 'next' });
   assert.strictEqual(visibleText(), 'first second next');
+});
+
+function makeSubtitlePage(rect = { left: 24, top: 100, width: 200, height: 48 }) {
+  const listeners = [];
+
+  function makeEl(tag) {
+    const el = {
+      tagName: tag.toUpperCase(),
+      style: {},
+      dataset: {},
+      children: [],
+      listeners: {},
+      attributes: {},
+      isConnected: false,
+      offsetWidth: rect.width,
+      offsetHeight: rect.height,
+      appendChild(child) {
+        this.children.push(child);
+        child.isConnected = this.isConnected;
+      },
+      addEventListener(type, fn) {
+        (this.listeners[type] ||= []).push(fn);
+      },
+      removeEventListener(type, fn) {
+        this.listeners[type] = (this.listeners[type] || []).filter((item) => item !== fn);
+      },
+      setAttribute(name, value) {
+        this.attributes[name] = String(value);
+      },
+      getAttribute(name) {
+        return this.attributes[name] ?? null;
+      },
+      setPointerCapture(pointerId) {
+        this.capturedPointerId = pointerId;
+      },
+      releasePointerCapture(pointerId) {
+        this.releasedPointerId = pointerId;
+      },
+      focus() {
+        this.focused = true;
+      },
+      getBoundingClientRect() {
+        return { ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height };
+      },
+      attachShadow() {
+        const shadow = { children: [], appendChild(child) { this.children.push(child); } };
+        this.shadow = shadow;
+        return shadow;
+      },
+      remove() {
+        this.isConnected = false;
+      },
+    };
+    return el;
+  }
+
+  const documentElement = makeEl('html');
+  documentElement.isConnected = true;
+  const sandbox = {
+    document: {
+      documentElement,
+      createElement: makeEl,
+      createTextNode: (text) => ({ nodeValue: text }),
+    },
+    window: { innerWidth: 1024, innerHeight: 768 },
+    setTimeout,
+    clearTimeout,
+    chrome: { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } },
+    TARGETS: { CONTENT: 'content' },
+    MESSAGES: { SUBTITLE_SHOW: 'asr:subtitle-show', SUBTITLE_HIDE: 'asr:subtitle-hide' },
+    Errors: { NO_TEXT: { code: 'NO_TEXT' } },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(root, 'content/subtitle.js'), 'utf8'), sandbox);
+
+  const dispatch = (payload) => listeners[0](
+    { target: 'content', type: 'asr:subtitle-show', payload }, {}, () => {},
+  );
+  dispatch({ text: 'caption' });
+  const host = documentElement.children[0];
+  const overlay = host.shadow.children.find((c) => c.className === 'overlay');
+  const handle = overlay.children.find((c) => c.className === 'handle');
+  return { host, overlay, handle };
+}
+
+t('subtitles: primary pointer button starts dragging from the handle', () => {
+  const { host, overlay, handle } = makeSubtitlePage();
+  assert.ok(handle, 'the overlay must expose a dedicated drag handle');
+  let prevented = false;
+  for (const fn of handle.listeners.pointerdown || []) {
+    fn({ button: 0, pointerId: 7, clientX: 24, clientY: 100, preventDefault() { prevented = true; } });
+  }
+  assert.strictEqual(prevented, true);
+  assert.strictEqual(host.dataset.dragging, 'true');
+  assert.strictEqual(handle.capturedPointerId, 7);
+  for (const fn of handle.listeners.pointermove || []) {
+    fn({ pointerId: 7, clientX: 44, clientY: 124 });
+  }
+  assert.strictEqual(overlay.style.left, '44px');
+  assert.strictEqual(overlay.style.top, '124px');
+  assert.strictEqual(overlay.style.bottom, 'auto');
+});
+
+t('subtitles: non-primary pointer button does not start dragging', () => {
+  const { host, handle } = makeSubtitlePage();
+  assert.ok(handle, 'the overlay must expose a dedicated drag handle');
+  for (const fn of handle.listeners.pointerdown || []) {
+    fn({ button: 2, pointerId: 9, clientX: 24, clientY: 100, preventDefault() {} });
+  }
+  assert.strictEqual(host.dataset.dragging, 'false');
+  assert.strictEqual(handle.capturedPointerId, undefined);
+  assert.strictEqual((handle.listeners.pointermove || []).length, 0);
+});
+
+t('subtitles: arrow keys move the focused handle', () => {
+  const { overlay, handle } = makeSubtitlePage();
+  assert.ok(handle, 'the overlay must expose a dedicated drag handle');
+  assert.strictEqual(handle.tagName, 'BUTTON');
+  assert.ok(handle.getAttribute('aria-label'));
+
+  const press = (key) => {
+    let prevented = false;
+    for (const fn of handle.listeners.keydown || []) {
+      fn({ key, preventDefault() { prevented = true; } });
+    }
+    assert.strictEqual(prevented, true, `${key} must be handled`);
+  };
+
+  press('ArrowRight');
+  assert.strictEqual(overlay.style.left, '40px');
+  assert.strictEqual(overlay.style.top, '100px');
+  assert.strictEqual(overlay.style.bottom, 'auto');
+
+  press('ArrowDown');
+  assert.strictEqual(overlay.style.left, '40px');
+  assert.strictEqual(overlay.style.top, '116px');
 });
 
 console.log('\n' + (fail === 0 ? 'ALL PASS' : fail + ' FAIL') + ` (${pass}/${pass + fail})`);

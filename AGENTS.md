@@ -79,6 +79,11 @@ CI (`.github/workflows/`): `ci.yml` runs the syntax check, manifest check, `npm 
 
 If you add lint/format tooling, keep rules aligned with the existing style and update `npm run lint`.
 
+## Interaction & Accessibility Scope
+- Target desktop mouse and keyboard interaction only. Do not add touch gestures, touch-target sizing, mobile breakpoints, or `touch-action` handling unless this policy changes.
+- Every mouse-driven interaction needs a keyboard-equivalent path. A draggable overlay needs a focusable handle with keyboard movement or a non-drag alternative.
+- Start dragging only from the primary mouse button (`event.button === 0`); context-menu clicks must not initiate a drag.
+
 ## Testing Guidelines
 Manual validation before PR (each surface):
 - **Popup**: record → stop → **Save audio** downloads a file; config fields save; API key appears encrypted in `chrome.storage.local`.
@@ -87,13 +92,13 @@ Manual validation before PR (each surface):
 - **Side panel**: open panel; mic/tab/stream recording works; status persists.
 - **Options**: settings save; history lists streaming results; storage status shows key present.
 - **Content**: paste text into Result → `Fill into page` inserts it into a focused input; with an empty Result, Copy/Fill are disabled (nothing to act on).
-- **Floating subtitles**: with **Subtitles** on, run a Live Stream and confirm the overlay appears on the active page, updates with partial/final text, and fades ~2s after Stop.
+- **Floating subtitles**: with **Subtitles** on, run a Live Stream and confirm the overlay appears on the active page, updates with partial/final text, and fades ~2s after Stop. Drag it only from the focusable handle with the primary mouse button; the handle must also move the overlay with the arrow keys, and a right-click must not start dragging.
 - **Tab capture**: `Record Tab` keeps tab audio audible (must not mute the tab), writes the recording to OPFS, and `Save audio` downloads then removes it.
 - Re-test install/update by reloading the extension.
 
 This is the short version. For a step-by-step procedure with expected status strings, failure triage (debug event names) and pass criteria, see [`docs/manual-verification.md`](docs/manual-verification.md) — use it for manual validation; automated Live Stream coverage is provided by `npm run test:e2e`.
 
-Known environment constraints: MV3 service worker has no DOM (`FileReader`/`MediaRecorder` unavailable there — use `Blob.arrayBuffer()`); tab capture must run in the offscreen document.
+Known environment constraints: MV3 service worker has no DOM (`FileReader`/`MediaRecorder` unavailable there — use `Blob.arrayBuffer()`); tab capture must run in the offscreen document. In the sandboxed agent environment, `gh auth status` and GitHub API calls can report an invalid token when network access is blocked; retry with network access before treating the stored GitHub credentials as invalid. Logged-in status and `gh api user` must be verified outside the restricted-network run.
 
 ## Commit & Pull Request Guidelines
 The full spec is **[`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)** — follow it.

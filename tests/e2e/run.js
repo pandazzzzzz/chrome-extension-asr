@@ -47,6 +47,54 @@ async function enableSubtitles(popup) {
   H.check('Subtitles toggled on', enabled);
 }
 
+async function runSubtitleInteractionChecks(page) {
+  const cdp = await page.createCDPSession();
+  await cdp.send('DOM.enable');
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+  const findNode = (node, predicate) => {
+    if (predicate(node)) return node;
+    for (const child of [...(node.children || []), ...(node.shadowRoots || [])]) {
+      const found = findNode(child, predicate);
+      if (found) return found;
+    }
+    return null;
+  };
+  const handle = findNode(root, (node) => {
+    const attrs = node.attributes || [];
+    return node.nodeName === 'BUTTON'
+      && attrs[attrs.indexOf('class') + 1] === 'handle';
+  });
+  const overlay = findNode(root, (node) => {
+    const attrs = node.attributes || [];
+    return node.nodeName === 'DIV'
+      && attrs[attrs.indexOf('class') + 1] === 'overlay';
+  });
+  H.check('subtitle overlay exposes a focusable drag handle', !!handle && !!overlay);
+  if (!handle || !overlay) return;
+
+  const centerOf = async (nodeId) => {
+    const { model } = await cdp.send('DOM.getBoxModel', { nodeId });
+    const border = model.border;
+    return { x: (border[0] + border[2]) / 2, y: (border[1] + border[5]) / 2 };
+  };
+  const before = await centerOf(overlay.nodeId);
+  await cdp.send('DOM.focus', { nodeId: handle.nodeId });
+  await page.keyboard.press('ArrowRight');
+  await H.sleep(50);
+  const after = await centerOf(overlay.nodeId);
+  H.check(
+    'arrow keys move the subtitle overlay',
+    after.x >= before.x + 15,
+    JSON.stringify({ beforeX: before.x, afterX: after.x }),
+  );
+
+  const handleCenter = await centerOf(handle.nodeId);
+  await page.mouse.click(handleCenter.x, handleCenter.y, { button: 'right' });
+  await H.sleep(50);
+  const dragging = await page.evaluate(() => document.querySelector('#asr-subtitle-host')?.dataset.dragging);
+  H.check('right click does not start subtitle dragging', dragging === 'false', String(dragging));
+}
+
 async function createOffscreen(popup) {
   const result = await popup.evaluate(async () => {
     const url = chrome.runtime.getURL('offscreen/offscreen.html');
@@ -191,6 +239,8 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
       return subtitleText.includes(finalText);
     }, { timeout: 10000, label: 'subtitle overlay text' }).then(() => true, () => false);
     H.check('subtitle overlay reaches the active page', subtitleSeen, subtitleSeen ? '' : subtitleText);
+    await targetPage.bringToFront();
+    await runSubtitleInteractionChecks(targetPage);
 
     await targetPage.bringToFront();
     await targetPage.evaluate(() => {
