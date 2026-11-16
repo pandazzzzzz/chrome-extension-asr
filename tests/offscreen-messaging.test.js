@@ -588,16 +588,16 @@ async function run() {
 
   await t('hung history write times out and STREAM_STOP still completes', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
-    sandbox.withTimeout = (promise, ms, label = '') => {
-      if (label !== 'HISTORY_ADD') return Promise.resolve(promise);
-      return Promise.race([
-        Promise.resolve(promise),
-        new Promise((_, reject) => setTimeout(() => {
-          const error = new Error(`Timeout: ${label} did not settle within ${ms}ms`);
-          error.code = 'TIMEOUT';
-          reject(error);
-        }, 5)),
-      ]);
+    vm.runInContext(
+      fs.readFileSync(path.join(root, 'shared/timeout.js'), 'utf8'),
+      sandbox,
+      { filename: 'shared/timeout.js' },
+    );
+    const timeoutHits = [];
+    const timer = setTimeout;
+    sandbox.setTimeout = (fn, ms, ...args) => {
+      if (ms === 3000) timeoutHits.push(ms);
+      return timer(fn, ms === 3000 ? 5 : ms, ...args);
     };
     sandbox.chrome.runtime.sendMessage = (msg) => {
       sent.push(msg);
@@ -629,6 +629,7 @@ async function run() {
     const stopped = await withTimeout(dispatch(listeners, 'asr:stream-stop', {}));
     assert.ok(stopped?.ok, 'stream must stop even when history persistence hangs');
     assert.match(stopped.data?.historyError || '', /HISTORY_ADD/);
+    assert.deepStrictEqual(timeoutHits, [3000], 'history writes must use the 3s production budget');
     const errorEvent = sent.find((m) => m.type === 'asr:debug' && m.payload?.ev === 'history-error');
     assert.ok(errorEvent, 'hung history write must surface a history-error diagnostic');
   });

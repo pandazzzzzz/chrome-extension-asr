@@ -89,6 +89,44 @@ async function waitForOffscreenClosed(browser) {
   );
 }
 
+async function wakeExtensionServiceWorker(popup) {
+  const response = await H.waitFor(
+    () => popup.evaluate(() => new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 1000);
+      chrome.runtime.sendMessage({
+        type: globalThis.MESSAGES.STREAM_STATE,
+        payload: {},
+        target: globalThis.TARGETS.BACKGROUND,
+      }, (reply) => {
+        clearTimeout(timer);
+        resolve(reply || { ok: false, error: chrome.runtime.lastError?.message || 'no response' });
+      });
+    })),
+    { timeout: 15000, interval: 200, label: 'extension service worker wake' },
+  );
+  if (!response?.ok) throw new Error(`service worker did not wake: ${JSON.stringify(response)}`);
+  return response.data;
+}
+
+async function waitForRestartedWorker(browser, extensionId, oldWorker) {
+  const worker = await H.waitFor(async () => {
+    const target = browser.targets().find(
+      (candidate) => candidate.type() === 'service_worker'
+        && candidate.url() === `chrome-extension://${extensionId}/background/background.js`,
+    );
+    if (!target) return null;
+    try {
+      const candidate = await target.worker();
+      if (candidate === oldWorker) return null;
+      if (await candidate.evaluate(() => globalThis.__e2eWorkerProbe === undefined)) return candidate;
+    } catch {
+      // The old worker can remain listed briefly while Chrome tears it down.
+    }
+    return null;
+  }, { timeout: 10000, label: 'restarted service worker' });
+  return worker;
+}
+
 async function runMockStreamSuite({ browser, extension, extensionId, targetPage, model, finalText, sampleRate }) {
   const popup = await H.openPopup(browser, extensionId);
   try {
@@ -198,6 +236,64 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
     await waitForOffscreenClosed(browser);
     H.check('offscreen document is reclaimed after stop', true);
     H.check('popup has no page or console errors', popup.__e2eErrors.length === 0, popup.__e2eErrors.join(' | '));
+  } finally {
+    await popup.close().catch(() => {});
+  }
+}
+
+async function runWorkerRestartSuite({ browser, extensionId, targetPage }) {
+  const popup = await H.openPopup(browser, extensionId);
+  try {
+    await configurePopup(popup, {
+      apiKey: 'sk-e2e-mock',
+      model: 'paraformer-realtime-8k-v2',
+    });
+    await createOffscreen(popup);
+    await injectMock(browser, {
+      partialText: 'restart partial',
+      finalText: 'restart final transcript',
+    });
+    await targetPage.bringToFront();
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('streamBtn').textContent === 'Stop Stream',
+      15000,
+      'worker-restart stream start',
+    );
+
+    const oldWorker = await H.waitForExtension(browser).then(({ worker }) => worker);
+    await oldWorker.evaluate(() => { globalThis.__e2eWorkerProbe = 'old generation'; });
+    await oldWorker.close();
+    const stateAfterRestart = await wakeExtensionServiceWorker(popup);
+    H.check(
+      'woken service worker recovers the active stream from storage',
+      stateAfterRestart.streaming === true,
+      JSON.stringify(stateAfterRestart),
+    );
+    const restartedWorker = await waitForRestartedWorker(browser, extensionId, oldWorker);
+    const probe = await restartedWorker.evaluate(() => globalThis.__e2eWorkerProbe);
+    H.check('STOP is relayed by a genuinely new worker generation', probe === undefined, String(probe));
+
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    await H.pollPage(
+      popup,
+      () => document.getElementById('status').textContent === 'Streaming stopped.',
+      20000,
+      'worker-restart stream stop',
+    );
+    await waitForOffscreenClosed(browser);
+    const finalState = await wakeExtensionServiceWorker(popup);
+    H.check(
+      'restart recovery leaves no stale streaming state',
+      finalState.streaming === false,
+      JSON.stringify(finalState),
+    );
+    H.check(
+      'worker-restart popup has no page or console errors',
+      popup.__e2eErrors.length === 0,
+      popup.__e2eErrors.join(' | '),
+    );
   } finally {
     await popup.close().catch(() => {});
   }
@@ -505,6 +601,7 @@ async function main() {
         finalText: MOCK_8K_FINAL,
         sampleRate: 8000,
       });
+      await runWorkerRestartSuite({ browser, extensionId, targetPage });
       if (PORT === 18923) {
         // Offscreen/provider events are flattened ({ ev, ...fields }), not nested
         // under detail. The panel used to drop those fields, which made the 8 kHz

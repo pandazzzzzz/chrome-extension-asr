@@ -98,6 +98,17 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
   return results.find((r) => r !== undefined);
 }
 
+function shortenLongTimeouts(page) {
+  const timeoutHits = [];
+  const timer = setTimeout;
+  const shortened = new Set([9000, 15000, 19000]);
+  page.sandbox.setTimeout = (fn, ms, ...args) => {
+    if (shortened.has(ms)) timeoutHits.push(ms);
+    return timer(fn, shortened.has(ms) ? 5 : ms, ...args);
+  };
+  return timeoutHits;
+}
+
 (async () => {
   {
     const page = makeSandbox();
@@ -442,7 +453,7 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
 
   await test('STREAM_STOP timeout closes the document and releases the stream lease', async () => {
     const page = makeSandbox({ hangStreamStop: true });
-    page.sandbox.setTimeout = (fn, ms) => setTimeout(fn, Math.min(ms, 5));
+    const timeoutHits = shortenLongTimeouts(page);
     vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
 
     const started = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
@@ -451,6 +462,7 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
 
     const stopped = await dispatch(page, 'asr:stream-stop');
     assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.deepStrictEqual(timeoutHits, [19000, 15000], 'START/STOP must keep their timeout budgets');
     assert.strictEqual(page.contexts.length, 0, 'timed-out STOP must close the offscreen document');
     assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
     assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
@@ -463,7 +475,7 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
 
   await test('TAB_RECORD_STOP timeout closes the document and releases the tab lease', async () => {
     const page = makeSandbox({ hangTabStop: true });
-    page.sandbox.setTimeout = (fn, ms) => setTimeout(fn, Math.min(ms, 5));
+    const timeoutHits = shortenLongTimeouts(page);
     vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
 
     const started = await dispatch(page, 'asr:tab-record-start', {});
@@ -472,6 +484,7 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
 
     const stopped = await dispatch(page, 'asr:tab-record-stop');
     assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.deepStrictEqual(timeoutHits, [9000, 19000], 'Tab START/STOP must keep their timeout budgets');
     assert.strictEqual(page.contexts.length, 0, 'timed-out STOP must close the offscreen document');
     assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
     assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
@@ -480,6 +493,236 @@ async function dispatch(sandbox, type, payload = {}, sender = {}) {
     const restarted = await dispatch(page, 'asr:tab-record-start', {});
     assert.strictEqual(restarted?.ok, true, 'Tab recording must be able to start after a timed-out STOP');
     console.log('PASS | TAB_RECORD_STOP timeout releases the tab lease');
+  });
+
+  await test('STREAM_STOP timeout close failure retains ownership until a retry succeeds', async () => {
+    const page = makeSandbox({ hangStreamStop: true });
+    const closeDocument = page.sandbox.chrome.offscreen.closeDocument;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      throw new Error('close failed');
+    };
+    shortenLongTimeouts(page);
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    const stopped = await dispatch(page, 'asr:stream-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 1, 'failed close must leave the possibly-active document alive');
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'stream');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'stream');
+    assert.strictEqual(page.storage.session.values.streaming, true);
+
+    const blocked = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(blocked?.error?.code, 'ALREADY_RECORDING', 'failed close must block a second capture');
+
+    page.sandbox.chrome.offscreen.closeDocument = closeDocument;
+    const retried = await dispatch(page, 'asr:stream-stop');
+    assert.strictEqual(retried?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 0, 'retry must close the recovered document');
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    assert.strictEqual(page.storage.session.values.streaming, false);
+
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm3' });
+    assert.strictEqual(restarted?.ok, true, 'a successful retry must restore capture capability');
+    console.log('PASS | STREAM_STOP timeout close failure retains ownership until retry');
+  });
+
+  await test('TAB_RECORD_STOP timeout close failure retains ownership until a retry succeeds', async () => {
+    const page = makeSandbox({ hangTabStop: true });
+    const closeDocument = page.sandbox.chrome.offscreen.closeDocument;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      throw new Error('close failed');
+    };
+    shortenLongTimeouts(page);
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    await dispatch(page, 'asr:tab-record-start', {});
+    const stopped = await dispatch(page, 'asr:tab-record-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 1, 'failed close must leave the possibly-active document alive');
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'tab');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'tab');
+    assert.strictEqual(page.storage.session.values.tabRecording, true);
+
+    const blocked = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(blocked?.error?.code, 'ALREADY_RECORDING', 'failed close must block a second capture');
+
+    page.sandbox.chrome.offscreen.closeDocument = closeDocument;
+    const retried = await dispatch(page, 'asr:tab-record-stop');
+    assert.strictEqual(retried?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 0, 'retry must close the recovered document');
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    assert.strictEqual(page.storage.session.values.tabRecording, false);
+
+    const restarted = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(restarted?.ok, true, 'a successful retry must restore capture capability');
+    console.log('PASS | TAB_RECORD_STOP timeout close failure retains ownership until retry');
+  });
+
+  await test('STREAM_STOP timeout cleanup cannot tear down a replacement stream', async () => {
+    const page = makeSandbox({ hangStreamStop: true });
+    const closeDocument = page.sandbox.chrome.offscreen.closeDocument;
+    let replacement;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      page.contexts.pop();
+      replacement = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'new' });
+    };
+    shortenLongTimeouts(page);
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'old' });
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null;', page.sandbox);
+    const stopped = await dispatch(page, 'asr:stream-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(replacement?.ok, true, 'new stream must start during the timeout cleanup');
+    const token = await vm.runInContext('activeOffscreenToken', page.sandbox);
+    assert.strictEqual(token?.kind, 'stream');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'stream');
+    assert.strictEqual(page.contexts.length, 1);
+    assert.strictEqual(page.storage.session.values.streaming, true);
+    page.sandbox.chrome.offscreen.closeDocument = closeDocument;
+    console.log('PASS | STREAM_STOP timeout cleanup preserves a replacement stream');
+  });
+
+  await test('TAB_RECORD_STOP timeout cleanup cannot tear down a replacement tab recording', async () => {
+    const page = makeSandbox({ hangTabStop: true });
+    const closeDocument = page.sandbox.chrome.offscreen.closeDocument;
+    let replacement;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      page.contexts.pop();
+      replacement = await dispatch(page, 'asr:tab-record-start', {});
+    };
+    shortenLongTimeouts(page);
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    await dispatch(page, 'asr:tab-record-start', {});
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null;', page.sandbox);
+    const stopped = await dispatch(page, 'asr:tab-record-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(replacement?.ok, true, 'new tab recording must start during the timeout cleanup');
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'tab');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'tab');
+    assert.strictEqual(page.contexts.length, 1);
+    assert.strictEqual(page.storage.session.values.tabRecording, true);
+    page.sandbox.chrome.offscreen.closeDocument = closeDocument;
+    console.log('PASS | TAB_RECORD_STOP timeout cleanup preserves a replacement tab recording');
+  });
+
+  await test('STREAM_STOP timeout cleanup cannot tear down a replacement tab recording', async () => {
+    const page = makeSandbox({ hangStreamStop: true });
+    const closeDocument = page.sandbox.chrome.offscreen.closeDocument;
+    let replacement;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      page.contexts.pop();
+      replacement = await dispatch(page, 'asr:tab-record-start', {});
+    };
+    shortenLongTimeouts(page);
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'old' });
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null;', page.sandbox);
+    const stopped = await dispatch(page, 'asr:stream-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(replacement?.ok, true, 'tab recording must start during the stream timeout cleanup');
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'tab');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'tab');
+    assert.strictEqual(page.contexts.length, 1);
+    assert.strictEqual(page.storage.session.values.tabRecording, true);
+    assert.strictEqual(page.storage.session.values.streaming, false);
+    page.sandbox.chrome.offscreen.closeDocument = closeDocument;
+    console.log('PASS | STREAM_STOP timeout cleanup preserves a replacement tab recording');
+  });
+
+  await test('TAB_RECORD_STOP timeout cleanup cannot tear down a replacement stream', async () => {
+    const page = makeSandbox({ hangTabStop: true });
+    const closeDocument = page.sandbox.chrome.offscreen.closeDocument;
+    let replacement;
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      page.contexts.pop();
+      replacement = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'new' });
+    };
+    shortenLongTimeouts(page);
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    await dispatch(page, 'asr:tab-record-start', {});
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null;', page.sandbox);
+    const stopped = await dispatch(page, 'asr:tab-record-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(replacement?.ok, true, 'stream must start during the tab timeout cleanup');
+    assert.strictEqual((await vm.runInContext('activeOffscreenToken', page.sandbox))?.kind, 'stream');
+    assert.strictEqual((await vm.runInContext('audioOwner', page.sandbox))?.kind, 'stream');
+    assert.strictEqual(page.contexts.length, 1);
+    assert.strictEqual(page.storage.session.values.streaming, true);
+    assert.strictEqual(page.storage.session.values.tabRecording, false);
+    page.sandbox.chrome.offscreen.closeDocument = closeDocument;
+    console.log('PASS | TAB_RECORD_STOP timeout cleanup preserves a replacement stream');
+  });
+
+  await test('STREAM_STOP timeout after SW restart self-heals before restart', async () => {
+    const page = makeSandbox();
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    const started = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    assert.strictEqual(started?.ok, true);
+    assert.strictEqual(page.contexts.length, 1);
+    assert.strictEqual(page.storage.session.values.streaming, true);
+
+    // SW restart: the offscreen document and persisted flag survive, but the
+    // in-memory token/owner are gone.
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null;', page.sandbox);
+    const originalSend = page.sandbox.chrome.runtime.sendMessage;
+    page.sandbox.chrome.runtime.sendMessage = (msg, callback) => {
+      page.sent.push(msg);
+      if (msg.target === 'offscreen' && msg.type === 'asr:stream-stop') return;
+      return originalSend(msg, callback);
+    };
+    shortenLongTimeouts(page);
+
+    const stopped = await dispatch(page, 'asr:stream-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 0, 'timed-out STOP must close the recovered document');
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    assert.strictEqual(page.storage.session.values.streaming, true, 'stale flag is reconciled by the next state check');
+
+    const restarted = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.strictEqual(restarted?.ok, true, 'isStreaming must clear the stale flag before granting the new stream');
+    assert.strictEqual(page.storage.session.values.streaming, true);
+    console.log('PASS | STREAM_STOP timeout after SW restart self-heals');
+  });
+
+  await test('TAB_RECORD_STOP timeout after SW restart self-heals state and restart', async () => {
+    const page = makeSandbox();
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    const started = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(started?.ok, true);
+    assert.strictEqual(page.storage.session.values.tabRecording, true);
+
+    await vm.runInContext('activeOffscreenToken = null; audioOwner = null;', page.sandbox);
+    const originalSend = page.sandbox.chrome.runtime.sendMessage;
+    page.sandbox.chrome.runtime.sendMessage = (msg, callback) => {
+      page.sent.push(msg);
+      if (msg.target === 'offscreen' && msg.type === 'asr:tab-record-stop') return;
+      return originalSend(msg, callback);
+    };
+    shortenLongTimeouts(page);
+
+    const stopped = await dispatch(page, 'asr:tab-record-stop');
+    assert.strictEqual(stopped?.error?.code, 'TIMEOUT');
+    assert.strictEqual(page.contexts.length, 0, 'timed-out STOP must close the recovered document');
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+    assert.strictEqual(page.storage.session.values.tabRecording, true, 'stale flag awaits reconciliation');
+
+    const state = await dispatch(page, 'asr:tab-record-state');
+    assert.strictEqual(state?.data?.recording, false, 'state query must reconcile the missing document');
+    assert.strictEqual(page.storage.session.values.tabRecording, false);
+
+    const restarted = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(restarted?.ok, true, 'tab recording must restart after timed-out recovery');
+    assert.strictEqual(page.storage.session.values.tabRecording, true);
+    console.log('PASS | TAB_RECORD_STOP timeout after SW restart self-heals');
   });
 
   process.exit(newTestFailures ? 1 : 0);
