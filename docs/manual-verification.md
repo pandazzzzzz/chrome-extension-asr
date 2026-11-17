@@ -20,7 +20,8 @@
 **开始前记录基线**：popup 初始文案应为 `Start Recording` / `Record Tab` / `Save audio` /
 `Live Stream` / `Copy text` / `Fill into page` / `Subtitles` / `Options` / `Side panel`，
 且 **Copy/Fill 为禁用**（`syncResultButtons()` 在结果为空时禁用）、**Subtitles 为关闭态**
-（`subtitlesEnabled=false`，非高亮）。
+（`subtitlesEnabled=false`，非高亮）。Provider、API Key、Region、Microphone、Audio format
+和 Model 位于默认折叠的 **Provider & audio settings** 中；首次配置或修改前先展开该区域。
 
 ---
 

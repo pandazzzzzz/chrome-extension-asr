@@ -86,7 +86,7 @@ If you add lint/format tooling, keep rules aligned with the existing style and u
 
 ## Testing Guidelines
 Manual validation before PR (each surface):
-- **Popup**: record → stop → **Save audio** downloads a file; config fields save; API key appears encrypted in `chrome.storage.local`.
+- **Popup**: record → stop → **Save audio** downloads a file; expand **Provider & audio settings**, edit config fields, and confirm they save; API key appears encrypted in `chrome.storage.local`.
 - **Microphone selection**: the **Microphone** dropdown lists input devices (labels appear after the first permission grant); the choice applies to both recording and Live Stream and survives a reload; unplugging the chosen device falls back to the system default with a status message.
 - **Live Stream**: select Qwen + enter API key → **Live Stream** → partial text appears while speaking, final text locks after each sentence → stop → result copyable / fillable → history shows one entry.
 - **Side panel**: open panel; mic/tab/stream recording works; status persists.

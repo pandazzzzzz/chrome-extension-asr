@@ -47,6 +47,33 @@ async function enableSubtitles(popup) {
   H.check('Subtitles toggled on', enabled);
 }
 
+async function runPopupLayoutChecks(popup) {
+  await popup.setViewport({ width: 360, height: 600 });
+  const layout = await popup.evaluate(() => {
+    const bottom = (id) => Math.round(document.getElementById(id).getBoundingClientRect().bottom);
+    const primary = ['recordBtn', 'streamBtn', 'tabRecordBtn', 'saveBtn']
+      .map((id) => ({ id, height: Math.round(document.getElementById(id).getBoundingClientRect().height) }));
+    return {
+      primary,
+      belowFold: ['copyBtn', 'fillBtn', 'subtitleBtn', 'optionsBtn', 'panelBtn']
+        .filter((id) => bottom(id) > innerHeight + 1)
+        .map((id) => ({ id, bottom: bottom(id) })),
+      settingsOpen: document.querySelector('details.settings')?.open,
+    };
+  });
+  H.check(
+    'popup recording actions use readable two-row layout',
+    layout.primary.every((button) => button.height <= 44),
+    JSON.stringify(layout.primary),
+  );
+  H.check(
+    'popup result actions fit above the 360x600 fold',
+    layout.belowFold.length === 0,
+    JSON.stringify(layout.belowFold),
+  );
+  H.check('popup starts with one-time settings collapsed', layout.settingsOpen === false, String(layout.settingsOpen));
+}
+
 async function runSubtitleInteractionChecks(page) {
   const cdp = await page.createCDPSession();
   await cdp.send('DOM.enable');
@@ -178,6 +205,7 @@ async function waitForRestartedWorker(browser, extensionId, oldWorker) {
 async function runMockStreamSuite({ browser, extension, extensionId, targetPage, model, finalText, sampleRate }) {
   const popup = await H.openPopup(browser, extensionId);
   try {
+    await runPopupLayoutChecks(popup);
     await configurePopup(popup, { apiKey: 'sk-e2e-mock', model });
     await enableSubtitles(popup);
     await createOffscreen(popup);
