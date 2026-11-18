@@ -10,73 +10,79 @@
   <div class="container">
     <h1>ASR Demo</h1>
 
-    <label for="provider">Provider</label>
-    <select id="provider"></select>
-
-    <label for="apiKey">API Key</label>
-    <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
-
-    <div class="field">
-      <label for="region">Region</label>
-      <select id="region"></select>
-    </div>
-
-    <div id="endpointRow" class="field">
-      <label for="endpoint">Endpoint URL</label>
-      <input id="endpoint" type="text" placeholder="wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference">
-    </div>
-
-    <div class="field" id="audioInputRow">
-      <label for="audioInput">Microphone</label>
-      <select id="audioInput"></select>
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label for="audioType">Audio format</label>
-        <select id="audioType">
-          <option value="audio/webm">webm</option>
-          <option value="audio/mp4">mp4</option>
-          <option value="audio/wav">wav</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="model">Model</label>
-        <select id="model"></select>
-      </div>
-    </div>
-
-    <p class="hint">Need another model? Choose Custom... and enter its exact model name.</p>
-
-    <div id="modelCustomRow" class="field">
-      <label for="modelCustom">Model name</label>
-      <input id="modelCustom" type="text" placeholder="e.g. fun-asr-realtime">
-    </div>
-
-    <div class="btn-row">
-      <button id="testModelBtn" class="secondary">Test model</button>
-    </div>
-
-    <div class="btn-row">
+    <div class="btn-row record-actions">
       <button id="recordBtn" class="primary">Start Recording</button>
+      <button id="streamBtn" class="primary">Live Stream</button>
+    </div>
+    <div class="btn-row recording-actions">
       <button id="tabRecordBtn" class="secondary">Record Tab</button>
       <button id="saveBtn" class="secondary">Save audio</button>
-      <button id="streamBtn" class="primary">Live Stream</button>
     </div>
 
     <label for="result">Result</label>
-    <textarea id="result" rows="6" placeholder="Live Stream transcripts appear here. Recording produces audio only."></textarea>
+    <textarea id="result" rows="4" placeholder="Live Stream transcripts appear here. Recording produces audio only."></textarea>
 
-    <div class="btn-row">
+    <div class="btn-row result-actions">
       <button id="copyBtn" class="ghost">Copy text</button>
       <button id="fillBtn" class="ghost">Fill into page</button>
     </div>
-    <div class="btn-row">
+    <div class="btn-row utility-actions">
       <button id="subtitleBtn" class="ghost" aria-pressed="false">Subtitles</button>
       <button id="optionsBtn" class="ghost">Options</button>
       <button id="panelBtn" class="ghost">Side panel</button>
     </div>
     <div id="status" role="status"></div>
+
+    <details class="settings">
+      <summary>Provider &amp; audio settings</summary>
+
+      <label for="provider">Provider</label>
+      <select id="provider"></select>
+
+      <label for="apiKey">API Key</label>
+      <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+
+      <div class="field">
+        <label for="region">Region</label>
+        <select id="region"></select>
+      </div>
+
+      <div id="endpointRow" class="field">
+        <label for="endpoint">Endpoint URL</label>
+        <input id="endpoint" type="text" placeholder="wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference">
+      </div>
+
+      <div class="field" id="audioInputRow">
+        <label for="audioInput">Microphone</label>
+        <select id="audioInput"></select>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="audioType">Audio format</label>
+          <select id="audioType">
+            <option value="audio/webm">webm</option>
+            <option value="audio/mp4">mp4</option>
+            <option value="audio/wav">wav</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="model">Model</label>
+          <select id="model"></select>
+        </div>
+      </div>
+
+      <p class="hint">Need another model? Choose Custom... and enter its exact model name.</p>
+
+      <div id="modelCustomRow" class="field">
+        <label for="modelCustom">Model name</label>
+        <input id="modelCustom" type="text" placeholder="e.g. fun-asr-realtime">
+      </div>
+
+      <div class="btn-row settings-actions">
+        <button id="testModelBtn" class="secondary">Test model</button>
+      </div>
+    </details>
   </div>
 
   <script src="../shared/errors.js"></script>

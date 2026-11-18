@@ -3,6 +3,7 @@
   --card: #ffffff;
   --surface-2: #f1f5fb; /* 次级按钮/内联代码底色 */
   --border: #d8e0ec;
+  --control-border: #7d8a9c; /* 控件边界需 ≥3:1（非文本对比度） */
   --text: #10233a;
   --muted: #57708d;
   --primary: #0e6dfd;
@@ -26,6 +27,7 @@
     --card: #1a2029;
     --surface-2: #232c38;
     --border: #2d3746;
+    --control-border: #6f8098;
     --text: #e6edf5;
     --muted: #94a6bd;
     --primary: #2563eb; /* 深色下需更深：白色按钮文字要 ≥4.5:1（#3b82f6 仅 3.76:1） */
@@ -71,7 +73,7 @@ button {
   box-sizing: border-box;
   width: 100%;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   font-size: 13px;
 }
 
@@ -145,6 +147,27 @@ button.ghost.active {
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
+}
+
+.settings {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.settings summary {
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings summary:hover {
+  color: var(--text);
+}
+
+.settings[open] summary {
+  margin-bottom: 4px;
 }
 
 #status {
