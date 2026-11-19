@@ -16,6 +16,14 @@
       display: block;
       min-height: 20px;
     }
+    /* 侧栏宽度可变：按钮按 120px 最小宽度换行，避免文案挤成多行 */
+    .btn-row {
+      flex-wrap: wrap;
+    }
+    .btn-row > button {
+      flex: 1 1 120px;
+      min-width: 0;
+    }
   </style>
 </head>
 <body>
@@ -73,11 +81,14 @@
       <button id="testModelBtn" class="secondary">Test model</button>
     </div>
 
-    <div class="btn-row">
+    <div class="btn-row record-actions">
       <button id="recordBtn" class="primary">Start Recording</button>
+      <button id="streamBtn" class="primary">Live Stream</button>
+    </div>
+
+    <div class="btn-row recording-actions">
       <button id="tabRecordBtn" class="secondary">Record Tab</button>
       <button id="saveBtn" class="secondary">Save audio</button>
-      <button id="streamBtn" class="primary">Live Stream</button>
     </div>
 
     <label for="result">Result</label>
