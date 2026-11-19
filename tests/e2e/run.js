@@ -512,6 +512,8 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
   }
   const model = process.env.ASR_TEST_MODEL || 'qwen-audio-3.1-asr-flash-streaming';
   const endpoint = process.env.ASR_TEST_ENDPOINT || '';
+  const expectedText = process.env.ASR_TEST_EXPECT || '';
+  const normalizeTranscript = (text) => text.replace(/[\s，。！？,.!?、；：:;"'“”‘’（）()]/g, '');
   const popup = await H.openPopup(browser, extensionId);
   try {
     await configurePopup(popup, { apiKey, model, endpoint });
@@ -541,7 +543,11 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
 
     if (process.env.ASR_TEST_SPEECH) {
       await H.waitFor(
-        () => popup.evaluate(() => document.getElementById('result').value.trim().length > 0),
+        () => popup.evaluate((expected) => {
+          const text = document.getElementById('result').value;
+          if (!expected) return text.trim().length > 0;
+          return text.replace(/[\s，。！？,.!?、；：:;"'“”‘’（）()]/g, '') === expected;
+        }, normalizeTranscript(expectedText)),
         { timeout: 30000, label: 'real transcript' },
       );
       const transcript = await popup.evaluate(() => document.getElementById('result').value);
@@ -599,6 +605,16 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
       history: await globalThis.HistoryStore.list(),
       result: document.getElementById('result').value,
     }));
+    if (expectedText) {
+      const finalTextMatches = normalizeTranscript(saved.result) === normalizeTranscript(expectedText);
+      const history = saved.history.find((item) => item.text === saved.result);
+      const historyTextMatches = !!history && normalizeTranscript(history.text) === normalizeTranscript(expectedText);
+      H.check(
+        'real stream preserves the complete expected transcript after stop',
+        finalTextMatches && historyTextMatches,
+        JSON.stringify({ expected: expectedText, result: saved.result, history: history?.text || '' }),
+      );
+    }
     H.check('real stream writes one history entry', saved.history.some((item) => item.text === saved.result), JSON.stringify({ count: saved.history.length }));
     await waitForOffscreenClosed(browser);
     H.check('real stream reclaims the offscreen document', true);
