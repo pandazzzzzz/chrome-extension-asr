@@ -8,6 +8,7 @@ const assert = require('node:assert');
 
 const root = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'popup/popup.html'), 'utf8');
+const sidepanelHtml = fs.readFileSync(path.join(root, 'sidepanel/sidepanel.html'), 'utf8');
 
 let pass = 0;
 let fail = 0;
@@ -53,6 +54,21 @@ t('provider and audio settings live in a collapsed disclosure', () => {
   for (const id of ['provider', 'apiKey', 'region', 'audioInput', 'audioType', 'model', 'testModelBtn']) {
     assert.match(match[1], new RegExp(`id="${id}"`), `${id} must stay available inside the disclosure`);
   }
+});
+
+t('sidepanel groups recording actions the same way as the popup', () => {
+  const sidepanelRow = (className) => {
+    const match = sidepanelHtml.match(new RegExp(`<div class="${className}">([\\s\\S]*?)</div>`));
+    assert.ok(match, `${className} row is missing from the side panel`);
+    return match[1];
+  };
+  const recording = sidepanelRow('btn-row record-actions');
+  const recordingSecondary = sidepanelRow('btn-row recording-actions');
+  assert.match(recording, /id="recordBtn"/);
+  assert.match(recording, /id="streamBtn"/);
+  assert.doesNotMatch(recording, /id="tabRecordBtn"|id="saveBtn"/);
+  assert.match(recordingSecondary, /id="tabRecordBtn"/);
+  assert.match(recordingSecondary, /id="saveBtn"/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

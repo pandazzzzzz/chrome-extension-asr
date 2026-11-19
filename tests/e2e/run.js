@@ -74,6 +74,40 @@ async function runPopupLayoutChecks(popup) {
   H.check('popup starts with one-time settings collapsed', layout.settingsOpen === false, String(layout.settingsOpen));
 }
 
+async function runSidepanelLayoutChecks(browser, extensionId) {
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width: 320, height: 800 });
+    await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`, { waitUntil: 'load' });
+    await H.sleep(800);
+    const layout = await page.evaluate(() => {
+      const lineCount = (element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      };
+      return ['recordBtn', 'streamBtn', 'tabRecordBtn', 'saveBtn', 'copyBtn', 'fillBtn', 'subtitleBtn', 'optionsBtn']
+        .map((id) => {
+          const element = document.getElementById(id);
+          const rect = element.getBoundingClientRect();
+          return {
+            id,
+            height: Math.round(rect.height),
+            lines: lineCount(element),
+            overflow: element.scrollWidth > element.clientWidth + 1,
+          };
+        });
+    });
+    H.check(
+      'sidepanel actions stay on one line at 320px',
+      layout.every((button) => button.lines <= 1 && button.height <= 48 && !button.overflow),
+      JSON.stringify(layout),
+    );
+  } finally {
+    await page.close();
+  }
+}
+
 async function runSubtitleInteractionChecks(page) {
   const cdp = await page.createCDPSession();
   await cdp.send('DOM.enable');
@@ -206,6 +240,7 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
   const popup = await H.openPopup(browser, extensionId);
   try {
     await runPopupLayoutChecks(popup);
+    await runSidepanelLayoutChecks(browser, extensionId);
     await configurePopup(popup, { apiKey: 'sk-e2e-mock', model });
     await enableSubtitles(popup);
     await createOffscreen(popup);
