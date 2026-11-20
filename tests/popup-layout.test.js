@@ -74,7 +74,7 @@ t('sidepanel groups recording actions the same way as the popup', () => {
 
 t('audio format and model fields stack instead of clipping the model label', () => {
   assert.match(css, /\.row\s*\{[^}]*flex-wrap:\s*wrap;/, '.row must wrap at narrow widths');
-  assert.match(css, /\.field\s*\{[^}]*flex:\s*1 1 250px;/, '.field must grow to full width below 500px');
+  assert.match(css, /\.field\s*\{[^}]*flex:\s*1 1 280px;/, '.field must grow to full width below 600px');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

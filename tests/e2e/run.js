@@ -111,16 +111,25 @@ async function runSidepanelLayoutChecks(browser, extensionId) {
 function selectLabelWidthProbe(id) {
   const select = document.getElementById(id);
   if (!select) return { id, missing: true, url: location.href };
-  const text = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
-  const probe = document.createElement('span');
-  probe.style.visibility = 'hidden';
-  probe.style.font = getComputedStyle(select).font;
-  probe.textContent = text;
-  document.body.appendChild(probe);
-  const textWidth = Math.round(probe.getBoundingClientRect().width);
-  probe.remove();
+  const label = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
+  // A native select cannot wrap; its max-content width includes padding and
+  // the dropdown arrow, so it is the width needed to show the label in full.
+  const clone = select.cloneNode(true);
+  clone.style.position = 'absolute';
+  clone.style.width = 'auto';
+  clone.style.visibility = 'hidden';
+  clone.style.left = '-9999px';
+  document.body.appendChild(clone);
+  const requiredWidth = clone.getBoundingClientRect().width;
+  clone.remove();
   const width = Math.round(select.getBoundingClientRect().width);
-  return { id, text, selectWidth: width, textWidth, clipped: width > 0 && textWidth > width - 22 };
+  return {
+    id,
+    label,
+    selectWidth: width,
+    requiredWidth: Math.round(requiredWidth),
+    clipped: width > 0 && width + 0.5 < requiredWidth,
+  };
 }
 
 async function runFieldWidthChecks(browser, extensionId) {
@@ -146,6 +155,9 @@ async function runFieldWidthChecks(browser, extensionId) {
   const cases = [
     { name: 'sidepanel 320px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 320, false)) },
     { name: 'sidepanel 400px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 400, false)) },
+    { name: 'sidepanel 560px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 560, false)) },
+    { name: 'sidepanel 600px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 600, false)) },
+    { name: 'sidepanel 700px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 700, false)) },
     { name: 'popup 360px', ...(await measure(`${base}/popup/popup.html`, 360, true)) },
   ];
   H.check(
