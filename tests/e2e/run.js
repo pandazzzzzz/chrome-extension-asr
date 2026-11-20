@@ -167,6 +167,72 @@ async function runFieldWidthChecks(browser, extensionId) {
   );
 }
 
+async function runEmptyStateChecks(browser, extensionId) {
+  const popup = await H.openPopup(browser, extensionId);
+  try {
+    const fresh = await popup.evaluate(() => ({
+      copy: document.getElementById('copyBtn').disabled,
+      fill: document.getElementById('fillBtn').disabled,
+    }));
+    H.check('copy and fill are disabled with an empty result', fresh.copy && fresh.fill, JSON.stringify(fresh));
+
+    await popup.evaluate(() => document.getElementById('saveBtn').click());
+    const saveStatus = await H.waitFor(
+      () => popup.evaluate(() => {
+        const text = document.getElementById('status').textContent;
+        return text || null;
+      }),
+      { timeout: 5000, label: 'save with no recording status' },
+    );
+    H.check(
+      'Save audio with no recording explains what to do',
+      saveStatus === 'No recording yet. Record something first.',
+      saveStatus,
+    );
+
+    await popup.evaluate(() => document.getElementById('subtitleBtn').click());
+    const subtitleStatus = await H.waitFor(
+      () => popup.evaluate(() => {
+        const text = document.getElementById('status').textContent;
+        return text.startsWith('Subtitles will appear') ? text : null;
+      }),
+      { timeout: 5000, label: 'idle subtitles status' },
+    );
+    H.check('Subtitles toggle while idle explains when it applies', /when Live Stream is running/.test(subtitleStatus), subtitleStatus);
+
+    await popup.evaluate(() => {
+      const details = document.querySelector('details.settings');
+      details.open = true;
+      document.getElementById('apiKey').value = 'sk-invalid-e2e-key';
+      const region = document.getElementById('region');
+      region.value = 'custom';
+      region.dispatchEvent(new Event('change', { bubbles: true }));
+      document.getElementById('endpoint').value = 'wss://127.0.0.1:9/api-ws/v1/inference';
+      const result = document.getElementById('result');
+      result.value = 'PREVIOUS TRANSCRIPT';
+      result.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await H.sleep(200);
+    await popup.evaluate(() => document.getElementById('streamBtn').click());
+    const failed = await H.waitFor(
+      () => popup.evaluate(() => {
+        const text = document.getElementById('status').textContent;
+        if (!text.startsWith('Cannot start streaming')) return null;
+        return {
+          status: text,
+          result: document.getElementById('result').value,
+          copyDisabled: document.getElementById('copyBtn').disabled,
+        };
+      }),
+      { timeout: 20000, label: 'failed stream start' },
+    );
+    H.check('failed stream start keeps the previous transcript', failed.result === 'PREVIOUS TRANSCRIPT', JSON.stringify(failed));
+    H.check('failed stream start re-enables copy for the kept transcript', failed.copyDisabled === false, JSON.stringify(failed));
+  } finally {
+    await popup.close().catch(() => {});
+  }
+}
+
 async function runSubtitleInteractionChecks(page) {
   const cdp = await page.createCDPSession();
   await cdp.send('DOM.enable');
@@ -255,6 +321,10 @@ async function waitForOffscreenClosed(browser) {
     () => browser.targets().every((target) => !target.url().includes('/offscreen/offscreen.html')),
     { timeout: 10000, label: 'offscreen document cleanup' },
   );
+}
+
+function offscreenClosed(browser) {
+  return browser.targets().every((target) => !target.url().includes('/offscreen/offscreen.html'));
 }
 
 async function wakeExtensionServiceWorker(popup) {
@@ -407,7 +477,7 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
       JSON.stringify({ result: ended.result, history: ended.history[0] }),
     );
     await waitForOffscreenClosed(browser);
-    H.check('offscreen document is reclaimed after stop', true);
+    H.check('offscreen document is reclaimed after stop', offscreenClosed(browser));
     H.check('popup has no page or console errors', popup.__e2eErrors.length === 0, popup.__e2eErrors.join(' | '));
   } finally {
     await popup.close().catch(() => {});
@@ -590,7 +660,7 @@ async function runRecordTabSuite({ browser, extension, extensionId, targetPage, 
     H.check('saved OPFS recording is removed', beforeFiles === 1 && afterFiles === 0,
       JSON.stringify({ beforeFiles, afterFiles }));
     await waitForOffscreenClosed(browser);
-    H.check('tab-recording offscreen document is reclaimed', true);
+    H.check('tab-recording offscreen document is reclaimed', offscreenClosed(browser));
     H.check('record-tab popup has no page or console errors',
       reopened.__e2eErrors.length === 0, reopened.__e2eErrors.join(' | '));
   } finally {
@@ -709,10 +779,12 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
         finalTextMatches && historyTextMatches,
         JSON.stringify({ expected: expectedText, result: saved.result, history: history?.text || '' }),
       );
+    } else {
+      console.log('  SKIP | strict transcript check (ASR_TEST_EXPECT is not set)');
     }
     H.check('real stream writes one history entry', saved.history.some((item) => item.text === saved.result), JSON.stringify({ count: saved.history.length }));
     await waitForOffscreenClosed(browser);
-    H.check('real stream reclaims the offscreen document', true);
+    H.check('real stream reclaims the offscreen document', offscreenClosed(browser));
     H.check('real popup has no page or console errors', popup.__e2eErrors.length === 0, popup.__e2eErrors.join(' | '));
   } finally {
     await popup.close().catch(() => {});
@@ -805,6 +877,13 @@ async function main() {
           `run-task-sent=${runTask.length} pcm-stats=${pcmStats.length}`,
         );
       }
+    });
+
+    // Empty-state and failed-start UI feedback, in its own browser: the suite
+    // deliberately stores a broken custom endpoint and must not leak it into
+    // the mock streaming suites.
+    await withExtensionBrowser(executablePath, { fakeMedia: true }, async ({ browser, extensionId }) => {
+      await runEmptyStateChecks(browser, extensionId);
     });
 
     // Run the real-network suite in its own browser: after the mock suites have

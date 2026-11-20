@@ -314,6 +314,10 @@ async function probeOpfsHandoff(browser, port) {
       console.error('✗ unrecognized summary format: ' + summaryText);
       process.exit(1);
     }
+    if (Number(m[1]) === 0) {
+      console.error('✗ smoke page reported zero passing tests — refusing to treat it as a pass');
+      process.exit(1);
+    }
     const mediaProbe = await probeDebugLocalMedia(browser, PORT);
     console.log(`debug local media: ${JSON.stringify(mediaProbe.result)}`);
     if (mediaProbe.failures.length) {

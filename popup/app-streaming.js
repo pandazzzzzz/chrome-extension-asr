@@ -71,6 +71,7 @@ async function startStreaming() {
     targetTabId = null;
   }
 
+  const previousText = els.resultText.value;
   els.resultText.value = '';
   streamFinalText = '';
   streamPartialText = '';
@@ -100,6 +101,12 @@ async function startStreaming() {
   } catch (error) {
     debugEvt('start-error', { message: error?.message || String(error) });
     showStatus('Cannot start streaming: ' + error.message, 'error');
+    // 启动失败没有新文本可显示：把上一段结果放回去，别让一次失败的点击
+    // 把用户还没复制的转录清空。会话若已产生文本则不覆盖。
+    if (!els.resultText.value && previousText) {
+      els.resultText.value = previousText;
+      syncResultButtons();
+    }
   } finally {
     isStreamingBusy = false;
     if (!isStreaming) enableAllRecordButtons();
