@@ -108,6 +108,53 @@ async function runSidepanelLayoutChecks(browser, extensionId) {
   }
 }
 
+function selectLabelWidthProbe(id) {
+  const select = document.getElementById(id);
+  if (!select) return { id, missing: true, url: location.href };
+  const text = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
+  const probe = document.createElement('span');
+  probe.style.visibility = 'hidden';
+  probe.style.font = getComputedStyle(select).font;
+  probe.textContent = text;
+  document.body.appendChild(probe);
+  const textWidth = Math.round(probe.getBoundingClientRect().width);
+  probe.remove();
+  const width = Math.round(select.getBoundingClientRect().width);
+  return { id, text, selectWidth: width, textWidth, clipped: width > 0 && textWidth > width - 22 };
+}
+
+async function runFieldWidthChecks(browser, extensionId) {
+  const measure = async (url, width, expandSettings) => {
+    const page = await browser.newPage();
+    try {
+      await page.setViewport({ width, height: 800 });
+      await page.goto(url, { waitUntil: 'load' });
+      await H.sleep(800);
+      if (expandSettings) {
+        await page.evaluate(() => {
+          const details = document.querySelector('details.settings');
+          if (details && !details.open) details.open = true;
+        });
+        await H.sleep(200);
+      }
+      return page.evaluate(selectLabelWidthProbe, 'model');
+    } finally {
+      await page.close();
+    }
+  };
+  const base = `chrome-extension://${extensionId}`;
+  const cases = [
+    { name: 'sidepanel 320px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 320, false)) },
+    { name: 'sidepanel 400px', ...(await measure(`${base}/sidepanel/sidepanel.html`, 400, false)) },
+    { name: 'popup 360px', ...(await measure(`${base}/popup/popup.html`, 360, true)) },
+  ];
+  H.check(
+    'model labels are never clipped in their select boxes',
+    cases.every((item) => !item.clipped),
+    JSON.stringify(cases),
+  );
+}
+
 async function runSubtitleInteractionChecks(page) {
   const cdp = await page.createCDPSession();
   await cdp.send('DOM.enable');
@@ -241,6 +288,7 @@ async function runMockStreamSuite({ browser, extension, extensionId, targetPage,
   try {
     await runPopupLayoutChecks(popup);
     await runSidepanelLayoutChecks(browser, extensionId);
+    await runFieldWidthChecks(browser, extensionId);
     await configurePopup(popup, { apiKey: 'sk-e2e-mock', model });
     await enableSubtitles(popup);
     await createOffscreen(popup);
