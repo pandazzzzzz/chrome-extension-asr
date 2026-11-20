@@ -92,11 +92,14 @@ textarea {
 
 .row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .field {
-  flex: 1;
+  /* 250px 基准让 Audio format 与 Model 在窄宽度下各占整行，
+     否则 Model 的标签会被原生 select 截断。 */
+  flex: 1 1 250px;
 }
 
 .hint {

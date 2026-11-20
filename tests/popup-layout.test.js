@@ -9,6 +9,7 @@ const assert = require('node:assert');
 const root = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'popup/popup.html'), 'utf8');
 const sidepanelHtml = fs.readFileSync(path.join(root, 'sidepanel/sidepanel.html'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'popup/popup.css'), 'utf8');
 
 let pass = 0;
 let fail = 0;
@@ -69,6 +70,11 @@ t('sidepanel groups recording actions the same way as the popup', () => {
   assert.doesNotMatch(recording, /id="tabRecordBtn"|id="saveBtn"/);
   assert.match(recordingSecondary, /id="tabRecordBtn"/);
   assert.match(recordingSecondary, /id="saveBtn"/);
+});
+
+t('audio format and model fields stack instead of clipping the model label', () => {
+  assert.match(css, /\.row\s*\{[^}]*flex-wrap:\s*wrap;/, '.row must wrap at narrow widths');
+  assert.match(css, /\.field\s*\{[^}]*flex:\s*1 1 250px;/, '.field must grow to full width below 500px');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
