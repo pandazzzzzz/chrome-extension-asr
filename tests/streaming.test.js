@@ -61,6 +61,7 @@ t('resampleFloat32: 48k -> 16k 长度缩为1/3', () => {
 });
 t('resampleFloat32: 恒定值重采样后仍为常数', () => {
   const out = globalThis.resampleFloat32(new Float32Array(1000).fill(0.7), 48000, 16000);
+  assert.ok(out.length > 0, 'resampled output must not be empty');
   assert.ok(out.every(v => Math.abs(v - 0.7) < 1e-6));
 });
 t('resampleFloat32: 16k -> 48k 升采样', () => {
@@ -82,6 +83,7 @@ t('createResampler: constant signal survives frame edges', () => {
   const rs = globalThis.createResampler(48000, 16000);
   const a = rs.process(new Float32Array(1280).fill(0.7));
   const b = rs.process(new Float32Array(1280).fill(0.7));
+  assert.ok(a.length > 0 && b.length > 0, 'each frame must produce samples');
   assert.ok([...a, ...b].every((v) => Math.abs(v - 0.7) < 1e-6));
 });
 
