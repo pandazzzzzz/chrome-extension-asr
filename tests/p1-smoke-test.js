@@ -11,7 +11,7 @@
  */
 const results = document.getElementById('results');
 const summary = document.getElementById('summary');
-let passed = 0, failed = 0;
+let passed = 0, failed = 0, skipped = 0;
 
 function addResult(name, ok, detail) {
   const div = document.createElement('div');
@@ -22,8 +22,18 @@ function addResult(name, ok, detail) {
   ok ? passed++ : failed++;
 }
 
+// 环境不满足时记为跳过：不计入通过，也不计入失败，避免"跳过"被当成"通过"。
+function addSkip(name, reason) {
+  const div = document.createElement('div');
+  div.className = 'case skip';
+  div.innerHTML = `<div class="name">– ${name}</div>` +
+    `<div class="detail">${reason}</div>`;
+  results.appendChild(div);
+  skipped++;
+}
+
 function finish() {
-  summary.textContent = `${passed} passed, ${failed} failed (${passed + failed} total)`;
+  summary.textContent = `${passed} passed, ${failed} failed, ${skipped} skipped (${passed + failed + skipped} total)`;
   summary.style.color = failed ? '#8a2430' : '#1b6f3d';
   summary.style.fontWeight = 'bold';
 }
@@ -203,7 +213,7 @@ async function runTests() {
   // --- 12. RecordingStore: OPFS roundtrip (real browser storage) ---
   try {
     if (!navigator.storage?.getDirectory) {
-      addResult('RecordingStore: OPFS roundtrip', true, 'skipped — OPFS unavailable in this context');
+      addSkip('RecordingStore: OPFS roundtrip', 'OPFS unavailable in this context');
     } else {
       const payload = new Uint8Array(1000).map((_, i) => i % 251);
       const ref = await globalThis.RecordingStore.save(new Blob([payload], { type: 'audio/mp4' }));
@@ -224,7 +234,7 @@ async function runTests() {
   // --- 13. RecordingStore: save/remove lifecycle ---
   try {
     if (!navigator.storage?.getDirectory) {
-      addResult('RecordingStore: save/remove lifecycle', true, 'skipped — OPFS unavailable in this context');
+      addSkip('RecordingStore: save/remove lifecycle', 'OPFS unavailable in this context');
     } else {
       const ref = await globalThis.RecordingStore.save(new Blob(['x'], { type: 'audio/webm' }));
       const removed = await globalThis.RecordingStore.remove(ref);
