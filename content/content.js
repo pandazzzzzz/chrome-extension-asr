@@ -92,6 +92,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     : { ok: false, error: globalThis.Errors.NO_FIELD });
   return true;
 });
-
-console.log('Content script loaded (ASR fill-text)');
 })();
