@@ -89,6 +89,20 @@ function contrast(a, b) {
     );
   });
 
+  await t('popup and options share every palette variable in both themes', () => {
+    const popup = read('popup/popup.css');
+    const options = read('options/options.html');
+    for (const [mode, index] of [['light', 0], ['dark', 1]]) {
+      const popupColors = palette(popup, index);
+      const optionsColors = palette(options, index);
+      const keys = new Set([...Object.keys(popupColors), ...Object.keys(optionsColors)]);
+      const drifted = [...keys]
+        .filter((key) => popupColors[key] !== optionsColors[key])
+        .map((key) => `${key} (popup ${popupColors[key]}, options ${optionsColors[key]})`);
+      assert.deepStrictEqual(drifted, [], `${mode} palette drifted: ${drifted.join(', ')}`);
+    }
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
 })();

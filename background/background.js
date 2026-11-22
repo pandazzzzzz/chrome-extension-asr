@@ -52,9 +52,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   debugSubscribers.delete(tabId);
 });
 
-// 插件安装/更新时的初始化
+// 插件安装/更新时的初始化。不打印 reason：安装期日志对用户是噪声，
+// 诊断走 debug 事件通道。
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('Extension installed:', details.reason);
   if (details.reason === 'install') {
     // 首次安装：清理早期模板遗留的 storage.sync 演示数据
     chrome.storage.sync.get(['data'], (result) => {
