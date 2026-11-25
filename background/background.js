@@ -429,7 +429,8 @@ async function handleStreamStart(payload) {
       // START 超时：offscreen 失联且未开始会话（后台已代为清理，见 offscreen 侧）。
       // 但若它实际已开始（结果丢失），标记与文档对账会自愈，这里只回收文档。
       if (!(await closeOffscreenDocument())) {
-        return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
+        // 文档关闭失败不能吞掉原始启动错误，更不能让本次租约永久占用音频互斥。
+        releaseAudio('stream');
       }
       activeOffscreenToken = null;
       throw e;
@@ -441,7 +442,8 @@ async function handleStreamStart(payload) {
     } else {
       if (result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
         if (!(await closeOffscreenDocument())) {
-          return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
+          // 清理失败只影响文档生命周期，本次启动已失败，必须释放租约。
+          releaseAudio('stream');
         }
         activeOffscreenToken = null;
       }
@@ -660,18 +662,20 @@ async function handleTabRecordStart(payload) {
   } catch (e) {
     // START 超时：offscreen 失联。此刻可证明它没有活跃录音（ALREADY_RECORDING 是
     // 同步早退,不会挂起）,销毁重建是唯一安全路径。rethrow 交给统一 catch → TIMEOUT。
-    if (await closeOffscreenDocument()) {
-      activeOffscreenToken = null;
+    if (!(await closeOffscreenDocument())) {
+      // 关闭失败不能把租约永久留给一个已经失败的启动请求。
       releaseAudio('tab');
     }
+    activeOffscreenToken = null;
     throw e;
   }
-  // start 失败时回收文档，但 **ALREADY_RECORDING 除外**：那是另一路（如 sidepanel）
-  // 正在录音的良性信号，此刻关文档 = 杀掉人家活跃的录音。其余失败（getUserMedia
-  // 被拒等）意味着文档内状态不可信，销毁重建更安全。
   if (!result.ok && result.error?.code !== globalThis.Errors.ALREADY_RECORDING.code) {
+    // start 失败时回收文档，但 **ALREADY_RECORDING 除外**：那是另一路（如 sidepanel）
+    // 正在录音的良性信号，此刻关文档 = 杀掉人家活跃的录音。其余失败（getUserMedia
+    // 被拒等）意味着文档内状态不可信，销毁重建更安全。
     if (!(await closeOffscreenDocument())) {
-      return { ok: false, error: globalThis.Errors.ALREADY_RECORDING };
+      // 清理失败不影响本次启动已经失败的事实，必须释放租约。
+      releaseAudio('tab');
     }
     activeOffscreenToken = null;
   }
