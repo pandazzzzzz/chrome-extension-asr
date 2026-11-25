@@ -85,6 +85,17 @@ t('redact: credential-shaped hostname labels', () => {
   );
 });
 
+t('redact: credential-shaped URL path segments', () => {
+  assert.strictEqual(
+    redact('endpoint=wss://host/sk-live-abc123/api-ws/v1/inference'),
+    'endpoint=wss://host/<redacted>/api-ws/v1/inference',
+  );
+  assert.strictEqual(
+    redact('wss://host/api-ws/v1/inference'),
+    'wss://host/api-ws/v1/inference',
+  );
+});
+
 t('redact: generic secret fields', () => {
   assert.strictEqual(
     redact('{"client_secret":"abc","password":"def","credential":"ghi"}'),

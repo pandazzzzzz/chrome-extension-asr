@@ -30,6 +30,7 @@ globalThis.createError = (def, msg) => {
 
 const root = path.resolve(__dirname, '..');
 require(path.join(root, 'audio/convert.js'));
+require(path.join(root, 'shared/format.js'));
 require(path.join(root, 'transcription/providers/base.js'));
 require(path.join(root, 'transcription/providers/qwen.js'));
 require(path.join(root, 'transcription/providers/index.js'));
@@ -287,6 +288,14 @@ t('Qwen.createStreamSession: 非 wss:// endpoint 提前报错（不喂给 new We
   assert.throws(() => Q.createStreamSession({
     apiKey: 'k', model: 'fun-asr-realtime', endpoint: 'https://dashscope.aliyuncs.com/api/v1', onResult() {},
   }), (e) => e.code === 'UNKNOWN' && /not a WebSocket URL/.test(e.message));
+});
+t('Qwen.createStreamSession: 非 wss 错误消息不回显 endpoint 凭据路径', () => {
+  const secretEndpoint = 'https://dashscope.aliyuncs.com/sk-secret-token/api/v1';
+  assert.throws(() => Q.createStreamSession({
+    apiKey: 'k', model: 'fun-asr-realtime', endpoint: secretEndpoint, onResult() {},
+  }), (e) => e.code === 'UNKNOWN'
+    && /not a WebSocket URL/.test(e.message)
+    && !e.message.includes('sk-secret-token'));
 });
 t('Qwen.createStreamSession: 拒绝明文 ws:// endpoint，且不创建 socket', () => {
   withFakeSocket((sockets) => {

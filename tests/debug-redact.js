@@ -8,6 +8,7 @@
 globalThis.redactDebugText = function redactDebugText(value) {
   let text = String(value ?? '');
   const credentialHostLabel = /^(?:sk|pk|api[_-]?key|access[_-]?token|token|secret|credential)[-_]/i;
+  const credentialPathSegment = /^(?:sk|pk)-[A-Za-z0-9._~+=-]{8,}$|^(?:api[_-]?key|access[_-]?token|token|secret|credential)[-_][A-Za-z0-9._~+=-]{8,}$/i;
 
   function redactAuthority(authority) {
     const at = authority.lastIndexOf('@');
@@ -33,10 +34,18 @@ globalThis.redactDebugText = function redactDebugText(value) {
   // URL userinfo: wss://user:password@host/... — keep scheme/host, drop credentials.
   text = text.replace(/\b(https?|wss?):\/\/[^/\s@]+@/gi, '$1://<redacted>@');
 
-  // Credential-shaped hostname labels: wss://sk-secret.proxy.example/...
+  // Credential-shaped hostname labels and path segments:
+  // wss://sk-secret.proxy.example/... and wss://host/sk-live-abc123/...
   text = text.replace(
-    /\b(https?|wss?):\/\/([^/\s"'?#]+)/gi,
-    (match, scheme, authority) => `${scheme}://${redactAuthority(authority)}`,
+    /\b(https?|wss?):\/\/([^/\s"'?#]+)(\/[^\s"'?#]*)?/gi,
+    (match, scheme, authority, path) => {
+      const safePath = path
+        ? path.split('/').map((segment) => (
+          credentialPathSegment.test(segment) ? '<redacted>' : segment
+        )).join('/')
+        : '';
+      return `${scheme}://${redactAuthority(authority)}${safePath}`;
+    },
   );
 
   // Redact unknown URL query values, including provider-specific or user-chosen

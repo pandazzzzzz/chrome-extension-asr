@@ -89,10 +89,11 @@ mock WebSocket stream, 16k/8k run-task sample rates, partial/final text,
 floating subtitles, fill-text, history, and Record Tab, without network access.
 Install the browser once with
 `npx browsers install chrome@stable --path .cache/chrome`, or set
-`E2E_CHROME_PATH`. Set `ASR_TEST_API_KEY` to add the real-network handshake
-suite; set `ASR_TEST_SPEECH` to a local WAV to require a real transcript. The
-real-network suite runs in a fresh browser so earlier mock-offscreen documents
-cannot disturb fake microphone capture.
+`E2E_CHROME_PATH`. Set `ASR_TEST_API_KEY` and `ASR_TEST_SPEECH` (a local WAV
+used as the fake microphone input) to run the real-network suite. The suite is
+skipped with an explicit message when either variable is missing. It runs in a
+fresh browser so earlier mock-offscreen documents cannot disturb fake
+microphone capture.
 
 ## WebSocket authentication note
 
