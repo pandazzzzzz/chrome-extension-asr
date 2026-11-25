@@ -725,6 +725,58 @@ function shortenLongTimeouts(page) {
     console.log('PASS | TAB_RECORD_STOP timeout after SW restart self-heals');
   });
 
+  await test('stream start failure releases the lease when offscreen close fails', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.runtime.sendMessage = (msg, callback) => {
+      if (msg.target === 'offscreen' && msg.type === 'asr:stream-start') {
+        callback({ ok: false, error: { code: 'RECORD_ERROR', message: 'start failed' } });
+        return;
+      }
+      if (callback) callback({ ok: true });
+      else return Promise.resolve({ ok: true });
+    };
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      throw new Error('close failed');
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    const failed = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm' });
+    assert.strictEqual(failed?.error?.code, 'RECORD_ERROR', 'close failure must preserve the original start error');
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null, 'failed stream start must release the lease');
+    assert.strictEqual(await vm.runInContext('audioReservation', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+
+    const retried = await dispatch(page, 'asr:stream-start', { providerId: 'qwen', apiKey: 'x', model: 'm2' });
+    assert.notStrictEqual(retried?.error?.code, 'ALREADY_RECORDING', 'a failed start must not poison the next attempt');
+    console.log('PASS | failed stream start releases the lease when close fails');
+  });
+
+  await test('tab start failure releases the lease when offscreen close fails', async () => {
+    const page = makeSandbox();
+    page.sandbox.chrome.runtime.sendMessage = (msg, callback) => {
+      if (msg.target === 'offscreen' && msg.type === 'asr:tab-record-start') {
+        callback({ ok: false, error: { code: 'RECORD_ERROR', message: 'start failed' } });
+        return;
+      }
+      if (callback) callback({ ok: true });
+      else return Promise.resolve({ ok: true });
+    };
+    page.sandbox.chrome.offscreen.closeDocument = async () => {
+      throw new Error('close failed');
+    };
+    vm.runInContext(fs.readFileSync(path.join(root, 'background/background.js'), 'utf8'), page.sandbox, { filename: 'background/background.js' });
+
+    const failed = await dispatch(page, 'asr:tab-record-start', {});
+    assert.strictEqual(failed?.error?.code, 'RECORD_ERROR', 'close failure must preserve the original start error');
+    assert.strictEqual(await vm.runInContext('audioOwner', page.sandbox), null, 'failed tab start must release the lease');
+    assert.strictEqual(await vm.runInContext('audioReservation', page.sandbox), null);
+    assert.strictEqual(await vm.runInContext('activeOffscreenToken', page.sandbox), null);
+
+    const retried = await dispatch(page, 'asr:tab-record-start', {});
+    assert.notStrictEqual(retried?.error?.code, 'ALREADY_RECORDING', 'a failed tab start must not poison the next attempt');
+    console.log('PASS | failed tab start releases the lease when close fails');
+  });
+
   process.exit(newTestFailures ? 1 : 0);
 })().catch((e) => {
   console.error(e);

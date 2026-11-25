@@ -112,8 +112,6 @@ async function startRecording() {
 
   let stream = null;
   try {
-    discardAudioResult();
-
     // 先领租约，再打开麦克风：否则两个 UI 可以同时通过本地检查。
     await acquireMicRecordingLease();
     // 按 #audioInput 选择打开麦克风；授权成功后设备名才可见 → 刷新下拉框
@@ -124,6 +122,8 @@ async function startRecording() {
     recorder.attach(stream);
     recorder.start();
     if (!micLeasePort) throw new Error('Recording ownership was lost before capture started.');
+    // 新采集已真正启动，才允许替换上一段未保存结果；失败路径必须保留旧录音。
+    discardAudioResult();
     const requestedMime = els.audioTypeSelect.value;
     const actualMime = recorder.actualMimeType();
     const formatChanged = !!requestedMime && !!actualMime
@@ -245,11 +245,11 @@ async function startTabRecording() {
   isTabRecordingBusy = true;
 
   try {
-    discardAudioResult();
-
     // background 取 tabCapture streamId → 创建 offscreen → offscreen 开始录
     await globalThis.MessageClient.send(globalThis.MESSAGES.TAB_RECORD_START, {});
 
+    // 新 Tab 采集已真正启动，才允许替换上一段未保存结果。
+    discardAudioResult();
     isTabRecording = true;
     els.tabRecordBtn.textContent = 'Stop Tab Rec';
     disableOtherRecordButtons(els.tabRecordBtn);

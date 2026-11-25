@@ -120,6 +120,7 @@ async function makePopup(options = {}) {
       STREAM_UPDATE: 'asr:stream-update',
       STREAM_STOP: 'asr:stream-stop',
       STREAM_STATE: 'asr:stream-state',
+      TAB_RECORD_START: 'asr:tab-record-start',
       TAB_RECORD_STATE: 'asr:tab-record-state',
       TAB_RECORD_STOP: 'asr:tab-record-stop',
       MIC_RECORD_PORT: 'asr:mic-record',
@@ -237,12 +238,85 @@ async function makePopup(options = {}) {
     assert.strictEqual(denied.els.tabRecordBtn.disabled, false, 'failed mic start must unlock Tab');
     assert.strictEqual(denied.els.streamBtn.disabled, false, 'failed mic start must unlock Stream');
 
+    const staleRef = { file: 'tab-old.audio', mime: 'audio/webm', size: 4 };
+    let micStartRemovals = 0;
+    denied.sandbox.RecordingStore = {
+      isRef: (value) => value === staleRef,
+      read: async () => null,
+      remove: async () => { micStartRemovals += 1; return true; },
+    };
+    denied.sandbox.chrome.storage.local = {
+      values: { 'pendingTabRecording:popup': staleRef },
+      async get(key) {
+        if (key === 'pendingTabRecording:popup') {
+          return { 'pendingTabRecording:popup': this.values['pendingTabRecording:popup'] };
+        }
+        if (key === null) return { ...this.values };
+        return { [key]: this.values[key] };
+      },
+      async set(obj) { Object.assign(this.values, obj); },
+      async remove(key) { delete this.values[key]; },
+    };
+    await vm.runInContext(`
+      audioRecording = ${JSON.stringify(staleRef)};
+      startRecording();
+    `, denied.sandbox);
+    await flushAsync();
+    assert.strictEqual(micStartRemovals, 0, 'failed mic start must not delete the previous tab recording');
+    assert.strictEqual(
+      (await vm.runInContext('audioRecording', denied.sandbox))?.file,
+      staleRef.file,
+      'failed mic start must keep the previous tab recording',
+    );
+
     const granted = await makePopup();
     await vm.runInContext('startRecording()', granted.sandbox);
     await flushAsync();
     assert.strictEqual(granted.leaseRequests, 1, 'mic start must acquire before getUserMedia');
     assert.strictEqual(granted.micAcquisitions, 1, 'granted lease should allow microphone acquisition once');
     console.log('PASS | microphone recording acquires the shared background lease');
+  }
+  {
+    const denied = await makePopup({ leaseAccepted: false });
+    const staleRef = { file: 'tab-old.audio', mime: 'audio/webm', size: 4 };
+    let tabStartRemovals = 0;
+    denied.sandbox.RecordingStore = {
+      isRef: (value) => value === staleRef,
+      read: async () => null,
+      remove: async () => { tabStartRemovals += 1; return true; },
+    };
+    denied.sandbox.chrome.storage.local = {
+      values: { 'pendingTabRecording:popup': staleRef },
+      async get(key) {
+        if (key === 'pendingTabRecording:popup') {
+          return { 'pendingTabRecording:popup': this.values['pendingTabRecording:popup'] };
+        }
+        if (key === null) return { ...this.values };
+        return { [key]: this.values[key] };
+      },
+      async set(obj) { Object.assign(this.values, obj); },
+      async remove(key) { delete this.values[key]; },
+    };
+    denied.sandbox.MessageClient.send = async (type) => {
+      if (type === 'asr:tab-record-start') {
+        const error = new Error('capture failed');
+        error.code = 'TAB_CAPTURE';
+        throw error;
+      }
+      return { ok: true };
+    };
+    await vm.runInContext(`
+      audioRecording = ${JSON.stringify(staleRef)};
+      startTabRecording();
+    `, denied.sandbox);
+    await flushAsync();
+    assert.strictEqual(tabStartRemovals, 0, 'failed tab start must not delete the previous tab recording');
+    assert.strictEqual(
+      (await vm.runInContext('audioRecording', denied.sandbox))?.file,
+      staleRef.file,
+      'failed tab start must keep the previous tab recording',
+    );
+    console.log('PASS | failed recording starts keep the previous tab recording');
   }
   {
     const { sandbox } = await makePopup();
