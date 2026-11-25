@@ -345,7 +345,15 @@ async function makePopup(options = {}) {
     await flushAsync();
     assert.strictEqual(reads, 1, 'Save audio must read the OPFS-backed recording');
     assert.strictEqual(clicks, 1, 'Save audio must trigger one download');
-    assert.strictEqual(removals, 1, 'Save audio must delete the OPFS file after download');
+    assert.strictEqual(removals, 0, 'Save audio must keep the OPFS file after download for retry');
+    assert.strictEqual(
+      await vm.runInContext('audioRecording', sandbox), ref,
+      'Save audio must keep the reference so the user can retry after a cancelled download',
+    );
+
+    await vm.runInContext('cleanupSavedRecording()', sandbox);
+    await flushAsync();
+    assert.strictEqual(removals, 1, 'Cleanup removes the saved OPFS file after the delay window');
     assert.strictEqual(await vm.runInContext('audioRecording', sandbox), null);
     console.log('PASS | tab recording saves through OPFS metadata');
   }

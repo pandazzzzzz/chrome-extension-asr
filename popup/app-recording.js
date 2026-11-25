@@ -95,6 +95,15 @@ async function toggleRecording() {
 
 function discardAudioResult() {
   cancelPendingTabRecordingRestore();
+  if (savedRecordingTimer) {
+    clearTimeout(savedRecordingTimer);
+    savedRecordingTimer = null;
+  }
+  if (savedTabRef) {
+    const savedRef = savedTabRef;
+    savedTabRef = null;
+    void globalThis.RecordingStore.remove(savedRef).catch(() => {});
+  }
   const stale = audioRecording;
   audioBlob = null;
   audioRecording = null;
@@ -334,7 +343,25 @@ async function stopTabRecording() {
 // ---------- Save recording ----------
 
 // 麦克风结果在内存 Blob，Tab 结果在 OPFS；两者都通过 createObjectURL +
-// a[download] 落盘（无需 downloads 权限）。Tab 文件下载触发后即可删除。
+// a[download] 落盘（无需 downloads 权限）。Tab 文件在下载触发后保留一小段
+// 延迟再删，让用户取消或下载失败后仍可重试保存。
+function cleanupSavedRecording() {
+  const savedRef = savedTabRef;
+  savedTabRef = null;
+  if (savedRecordingTimer) {
+    clearTimeout(savedRecordingTimer);
+    savedRecordingTimer = null;
+  }
+  if (!savedRef) return;
+  if (audioRecording === savedRef) {
+    audioRecording = null;
+    audioBlob = null;
+  }
+  void globalThis.RecordingStore.remove(savedRef).catch((error) => {
+    console.warn('Failed to remove saved tab recording:', error);
+  });
+}
+
 async function handleSaveAudio() {
   if ((!audioBlob || !audioBlob.size) && !audioRecording) {
     showStatus('No recording yet. Record something first.', 'error');
@@ -368,13 +395,11 @@ async function handleSaveAudio() {
   if (tabRef) {
     if (audioRecording === tabRef) {
       audioBlob = null;
-      audioRecording = null;
       clearPendingTabRecording(tabRef);
-    }
-    try {
-      await globalThis.RecordingStore.remove(tabRef);
-    } catch (error) {
-      console.warn('Failed to remove saved tab recording:', error);
+      // 保留引用和 OPFS 文件一小段时间，供取消下载或失败后重试；延迟结束再清理。
+      savedTabRef = tabRef;
+      if (savedRecordingTimer) clearTimeout(savedRecordingTimer);
+      savedRecordingTimer = setTimeout(cleanupSavedRecording, 5000);
     }
   }
   debugEvt('audio-saved', { size: blob.size, mime });

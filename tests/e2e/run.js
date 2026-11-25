@@ -258,6 +258,20 @@ async function runSubtitleInteractionChecks(page) {
   H.check('subtitle overlay exposes a focusable drag handle', !!handle && !!overlay);
   if (!handle || !overlay) return;
 
+  const resolved = await cdp.send('DOM.resolveNode', { nodeId: overlay.nodeId });
+  const overlayComputed = await cdp.send('Runtime.callFunctionOn', {
+    objectId: resolved.object.objectId,
+    functionDeclaration: 'function () { const cs = getComputedStyle(this); return { maxHeight: cs.maxHeight, overflowY: cs.overflowY }; }',
+    returnByValue: true,
+  });
+  H.check(
+    'subtitle overlay caps its height and scrolls internally',
+    overlayComputed?.result?.value?.maxHeight !== 'none' &&
+      overlayComputed?.result?.value?.maxHeight !== '' &&
+      /scroll|auto/.test(String(overlayComputed?.result?.value?.overflowY)),
+    JSON.stringify(overlayComputed?.result?.value),
+  );
+
   const centerOf = async (nodeId) => {
     const { model } = await cdp.send('DOM.getBoxModel', { nodeId });
     const border = model.border;
@@ -657,8 +671,15 @@ async function runRecordTabSuite({ browser, extension, extensionId, targetPage, 
       (saved.size || saved.total) > 0,
       JSON.stringify(saved),
     );
-    H.check('saved OPFS recording is removed', beforeFiles === 1 && afterFiles === 0,
+    H.check('saved OPFS recording is kept for retry after download', beforeFiles === 1 && afterFiles === 1,
       JSON.stringify({ beforeFiles, afterFiles }));
+    await reopened.evaluate(() => globalThis.cleanupSavedRecording());
+    const cleaned = await H.waitFor(async () => {
+      const count = await reopened.evaluate(() => globalThis.RecordingStore.list().then((items) => items.length));
+      return count === 0 ? true : null;
+    }, { timeout: 5000, label: 'saved OPFS cleanup' }).then(() => true, () => false);
+    H.check('saved OPFS recording is removed after the retry window', cleaned,
+      JSON.stringify({ afterFiles, cleaned }));
     await waitForOffscreenClosed(browser);
     H.check('tab-recording offscreen document is reclaimed', offscreenClosed(browser));
     H.check('record-tab popup has no page or console errors',
@@ -673,6 +694,10 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
   const apiKey = process.env.ASR_TEST_API_KEY;
   if (!apiKey) {
     console.log('  SKIP | real network (ASR_TEST_API_KEY is not set)');
+    return;
+  }
+  if (!process.env.ASR_TEST_SPEECH) {
+    console.log('  SKIP | real network (ASR_TEST_SPEECH is required as the fake microphone input)');
     return;
   }
   const model = process.env.ASR_TEST_MODEL || 'qwen-audio-3.1-asr-flash-streaming';

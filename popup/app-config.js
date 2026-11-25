@@ -44,7 +44,7 @@ function applyConfigToUI(config) {
       config.endpoint,
     );
     els.regionSelect.value = resolved.value;
-    if (resolved.legacyCustom) debugEvt('legacy-endpoint-kept', { endpoint: config.endpoint });
+    if (resolved.legacyCustom) debugEvt('legacy-endpoint-kept', { endpoint: globalThis.Format.endpointForTelemetry(config.endpoint) });
   }
   els.endpointInput.value = config.endpoint || '';
   setEndpointRowVisible(!els.regionSelect || els.regionSelect.value === 'custom');

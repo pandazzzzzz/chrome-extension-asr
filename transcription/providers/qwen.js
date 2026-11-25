@@ -190,9 +190,10 @@ class QwenProvider extends BaseProvider {
     // 可能留了 https REST URL（如 https://dashscope.aliyuncs.com/api/v1/...）—— 直接喂给
     // new WebSocket('https://…') 会抛 SyntaxError，且每次 Live Stream 都起不来。这里提前报错。
     if (!/^wss:\/\//i.test(base)) {
+      const redacted = globalThis.Format?.endpointForTelemetry?.(base);
       throw globalThis.createError(
         globalThis.Errors.UNKNOWN,
-        `"${base}" is not a WebSocket URL; streaming requires wss:// (e.g. ${this.getDefaultStreamEndpoint()})`,
+        `"${redacted}" is not a WebSocket URL; streaming requires wss:// (e.g. ${this.getDefaultStreamEndpoint()})`,
       );
     }
     const sep = base.includes('?') ? '&' : '?';

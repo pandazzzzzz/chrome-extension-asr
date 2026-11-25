@@ -6,6 +6,8 @@
 let recorder = null;          // AudioRecorder 实例（麦克风）
 let audioBlob = null;         // 录音结果（由 Save audio 落盘）
 let audioRecording = null;    // 标签页录音的 OPFS 引用 { file, mime, size }
+let savedTabRef = null;       // 下载已触发、等待延迟清理的 Tab 录音引用
+let savedRecordingTimer = null; // 延迟清理 Tab 录音的定时器
 let isRecording = false;      // 麦克风录音中
 let isTabRecording = false;   // 标签页录音中（经 background → offscreen）
 let isRecordingBusy = false;  // 麦克风 start/stop 进行中（含 await），防重入
