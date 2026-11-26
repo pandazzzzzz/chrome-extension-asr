@@ -229,6 +229,9 @@
 
   function watchMicrophoneTracks(s) {
     const tracks = s.stream?.getAudioTracks?.() || s.stream?.getTracks?.() || [];
+    if (tracks.length === 0) {
+      throw new Error('No audio input track is available. Check the microphone or fake-audio test configuration.');
+    }
     if (tracks.some((track) => track.readyState === 'ended')) {
       throw new Error('Microphone disconnected. Check the input device and start again.');
     }

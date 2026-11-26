@@ -38,8 +38,10 @@ function applyConfigToUI(config) {
   // 残留的 https REST URL），一律归为 custom 保留原值 —— 不猜地域、不静默改写用户数据。
   // 两者都空时才落到 provider 首个地域。决策规则在 shared/config-ui.js（与 options 页共用）。
   if (els.regionSelect) {
+    const regions = getCurrentProvider()?.regions || [];
+    globalThis.ConfigUI.populateRegionOptions(els.regionSelect, regions, config.region);
     const resolved = globalThis.ConfigUI.resolveRegionSelection(
-      getCurrentProvider()?.regions,
+      regions,
       config.region,
       config.endpoint,
     );

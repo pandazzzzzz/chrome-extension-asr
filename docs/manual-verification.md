@@ -36,7 +36,7 @@
 | 1.3 | 再说 2–3 句 | final 逐句累加，顺序正确，无重复无丢句 | 丢开头首句 = `await wsSession.ready` 之前就开始采音（§7 决策 #4） |
 | 1.4 | 持续静音 10 秒以上 | 连接**不断**（`heartbeat: true` 保活） | 断连 = 心跳包未生效或被误当作结果 |
 | 1.5 | 说英文 | 出英文文本（**不应**被当中文） | 出中文 = `language_hints` 被硬编码成 `['zh']`（§7 决策 #6） |
-| 1.6 | 点 **Stop Stream** | 按钮回 `Live Stream`，状态 `Streaming stopped.`，**未定稿的 partial 被并入结果**（`flushPartial()` 兜底） | 最后半句丢失 = flushPartial 未执行 |
+| 1.6 | 点 **Stop Stream** | 按钮回 `Live Stream`，状态 `Streaming stopped.`，**未定稿的 partial 被并入结果**（offscreen 的 `finalizeSession` 合并） | 最后半句丢失 = offscreen 收尾合并未执行 |
 | 1.7 | **重入测试**：快速双击 **Live Stream** | 只开一条流；日志无两条 `start-begin` | 两条流 = busy 护栏失效（§7 决策 #8） |
 | 1.8 | 停止后看 options 页 | 历史**新增一条**，内容与结果一致，provider/model 正确 | 无记录 = offscreen `finalizeSession` 的 `asr:history-add` 未送达 background |
 | 1.9 | 下拉选 `paraformer-realtime-8k-v2`（或 Custom 手填 `fun-asr-flash-8k-realtime`）→ 点 **Live Stream** → 说一句 → 停止 | 正常出 `task-started`，partial/final 照常刷新；诊断页 `run-task-sent` 的 `sampleRate` = **8000**，`pcm-stats` 的 `ctxRate` / `target` 也都是 **8000** | 服务端回 `task-failed` = 声明速率与采集速率不一致（元数据回退），或该 Key 地域无此模型 |

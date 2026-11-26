@@ -59,7 +59,7 @@ function makeSandbox() {
     createError: (e, message) => ({ ...e, message: message || e.message }),
     withTimeout: (promise) => Promise.resolve(promise),
     PROVIDERS: [],
-    openMicrophone: async () => ({ stream: { getTracks: () => [] }, fellBack: false }),
+    openMicrophone: async () => ({ stream: { getTracks: () => [{ readyState: "live", addEventListener() {}, removeEventListener() {}, stop() {} }] }, fellBack: false }),
   };
   class FakeAudioContext {
     constructor(options) { this.sampleRate = 16000; lastAudioContextOptions = options || null; }
@@ -67,7 +67,7 @@ function makeSandbox() {
     close() { return Promise.resolve(); }
   }
   sandbox.AudioContext = FakeAudioContext;
-  sandbox.createPcmCapture = () => ({ start: async () => {} });
+  sandbox.createPcmCapture = () => ({ start: async () => {}, stop() {} });
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   // offscreen.html 先加载 audio/convert.js；流式启动要建状态化重采样器。
@@ -166,7 +166,7 @@ async function run() {
     sandbox.openMicrophone = () => {
       acquisitions += 1;
       return new Promise((resolve) => {
-        resolveMic = () => resolve({ stream: { getTracks: () => [] }, fellBack: false });
+        resolveMic = () => resolve({ stream: { getTracks: () => [{ readyState: "live", addEventListener() {}, removeEventListener() {}, stop() {} }] }, fellBack: false });
       });
     };
     sandbox.PROVIDERS.push({
@@ -209,11 +209,11 @@ async function run() {
     let resolveMic;
     let captureStarts = 0;
     sandbox.openMicrophone = () => new Promise((resolve) => {
-      resolveMic = () => resolve({ stream: { getTracks: () => [] }, fellBack: false });
+      resolveMic = () => resolve({ stream: { getTracks: () => [{ readyState: "live", addEventListener() {}, removeEventListener() {}, stop() {} }] }, fellBack: false });
     });
     sandbox.createPcmCapture = () => {
       captureStarts += 1;
-      return { start: async () => {} };
+      return { start: async () => {}, stop() {} };
     };
     sandbox.PROVIDERS.push({
       id: 'qwen',
@@ -291,7 +291,7 @@ async function run() {
     let dropFrames = true;
     sandbox.createPcmCapture = (opts) => {
       onFrame = opts.onFrame;
-      return { start: async () => {} };
+      return { start: async () => {}, stop() {} };
     };
     sandbox.PROVIDERS.push({
       id: 'qwen',
@@ -748,7 +748,7 @@ async function run() {
     let stopCalls = 0;
     let closeCalls = 0;
     let captureStops = 0;
-    const track = {
+    const track = { stop() {}, removeEventListener() {},
       addEventListener(type, listener) {
         if (type === 'ended') onEnded = listener;
       },
@@ -793,7 +793,7 @@ async function run() {
   await t('track ending during capture startup rolls back the stream', async () => {
     const { sandbox, sent, listeners } = makeCoexistenceSandbox();
     let closeCalls = 0;
-    const track = {
+    const track = { stop() {}, removeEventListener() {},
       readyState: 'live',
       addEventListener() {}, removeEventListener() {}, stop() {},
     };
@@ -829,3 +829,6 @@ async function run() {
 }
 
 run().catch((e) => { console.error('SUITE ERROR', e); process.exit(1); });
+
+
+

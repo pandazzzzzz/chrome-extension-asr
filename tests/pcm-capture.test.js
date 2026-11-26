@@ -50,6 +50,15 @@ function emit(node, samples) {
 }
 
 (async () => {
+  await t('start: a zero-track stream fails with an actionable message', async () => {
+    const { context } = makeContext();
+    context.createMediaStreamSource = () => null;
+    const capture = globalThis.createPcmCapture({
+      stream: {}, context, frameSize: 256, onFrame: () => {},
+    });
+    await assert.rejects(capture.start(), /No audio input track is available/);
+  });
+
   await t('fallback: 4096 样本缓冲区中的余数跨回调拼接成完整帧', async () => {
     const { context, created } = makeContext();
     const frames = [];
