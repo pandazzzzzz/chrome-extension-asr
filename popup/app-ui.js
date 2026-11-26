@@ -57,6 +57,7 @@ function syncAudioInputOptions(devices) {
   if (!els.audioInputSelect) return;
 
   const select = els.audioInputSelect;
+  const previous = selectedAudioInput;
   select.textContent = '';
 
   const defaultOption = document.createElement('option');
@@ -77,6 +78,12 @@ function syncAudioInputOptions(devices) {
   if (!stillPresent) {
     selectedAudioInput = '';
     debugEvt('audio-input-fallback', { reason: 'selected-device-gone' });
+    if (previous && missingAudioInputReported !== previous) {
+      showStatus('Selected microphone is unavailable — using system default.', 'error');
+      missingAudioInputReported = previous;
+    }
+  } else {
+    missingAudioInputReported = '';
   }
   select.value = selectedAudioInput;
 }
@@ -194,7 +201,7 @@ function populateModelOptions(provider, keep) {
   // 下拉为空值 = Custom 哨兵（或退化态）→ 显示手填框
   setModelCustomRowVisible(!els.modelInput.value);
   els.modelInput.title = provider?.supportsStreaming
-    ? `Live Stream 只接受本 provider 的 run-task 模型（白名单：${(provider.streamModels || []).join(', ')}）；不在下拉里的模型选 Custom 手填`
+    ? `Live Stream only accepts this provider's run-task models (allowlist: ${(provider.streamModels || []).join(', ')}). For an unlisted model, select Custom and enter it manually.`
     : '';
 }
 

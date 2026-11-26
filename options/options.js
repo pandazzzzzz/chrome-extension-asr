@@ -312,6 +312,10 @@ async function refreshHistory() {
 }
 
 async function clearHistory() {
+  const confirmed = globalThis.confirm?.(
+    'Clear all transcription history? This cannot be undone.',
+  );
+  if (!confirmed) return;
   try {
     await globalThis.HistoryStore.clear();
   } catch (error) {
@@ -324,8 +328,9 @@ async function clearHistory() {
 /**
  * 导出全部历史为 JSON 文件。
  *
- * 用 list() 的默认上限（maxEntries = 50）—— 与页面上看到的一致，不做「导出更多」，
- * 因为 HistoryStore 本来就会把超出上限的旧记录丢弃，库里没有第 51 条。
+ * Use list()'s default limit (maxEntries = 50). The page shows the 20 most
+ * recent entries, while the export includes up to 50; HistoryStore drops
+ * older records, so there is no 51st entry to export.
  * 下载走 createObjectURL + a[download]，与 popup 的 Save audio 同一套做法，
  * 因此**不需要 downloads 权限**。
  */

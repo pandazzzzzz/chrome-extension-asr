@@ -51,7 +51,16 @@ async function makePopup(options = {}) {
     optionsBtn: null,
     panelBtn: null,
     subtitleBtn: null,
-    audioInput: null,
+    audioInput: {
+      value: '',
+      options: [],
+      style: {},
+      addEventListener() {},
+      appendChild(option) { this.options.push(option); },
+      closest() { return { style: {} }; },
+      set textContent(value) { if (value === '') this.options = []; },
+      get textContent() { return ''; },
+    },
     status: makeField(),
   };
   const aliases = {
@@ -62,6 +71,7 @@ async function makePopup(options = {}) {
     modelInput: els.model,
     modelCustomInput: els.modelCustom,
     audioTypeSelect: els.audioType,
+    audioInputSelect: els.audioInput,
     statusDiv: els.status,
     resultText: els.result,
   };
@@ -73,7 +83,7 @@ async function makePopup(options = {}) {
     document: {
       getElementById: (id) => Object.prototype.hasOwnProperty.call(els, id) ? els[id] : null,
       addEventListener: (ev, fn) => { if (ev === 'DOMContentLoaded') listeners.domready.push(fn); },
-      createElement: () => ({ style: {}, click() {}, remove() {} }),
+      createElement: () => ({ value: '', textContent: '', style: {}, click() {}, remove() {} }),
       body: { appendChild() {} },
     },
     chrome: {
@@ -112,6 +122,7 @@ async function makePopup(options = {}) {
       offscreen: {},
     },
     navigator: { mediaDevices: { enumerateDevices: async () => [], addEventListener() {} }, clipboard: { writeText: async () => {} } },
+    isAudioInputSelectionSupported: () => true,
     setTimeout,
     clearTimeout,
     URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
@@ -171,6 +182,29 @@ async function makePopup(options = {}) {
 }
 
 (async () => {
+  {
+    const { sandbox, els } = await makePopup();
+    vm.runInContext('selectedAudioInput = "missing-device"', sandbox);
+    sandbox.navigator.mediaDevices.enumerateDevices = async () => [
+      { kind: 'audioinput', deviceId: 'present-device', label: 'Present mic' },
+    ];
+    sandbox.isAudioInputSelectionSupported = () => true;
+    await vm.runInContext(`syncAudioInputOptions([
+      { kind: 'audioinput', deviceId: 'present-device', label: 'Present mic' },
+    ])`, sandbox);
+    await flushAsync();
+    assert.strictEqual(vm.runInContext('selectedAudioInput', sandbox), '');
+    assert.strictEqual(els.audioInputSelect.value, '');
+    assert.match(els.statusDiv.textContent, /system default/i);
+    const firstMessage = els.statusDiv.textContent;
+    await vm.runInContext(`syncAudioInputOptions([
+      { kind: 'audioinput', deviceId: 'present-device', label: 'Present mic' },
+    ])`, sandbox);
+    await flushAsync();
+    assert.strictEqual(els.statusDiv.textContent, firstMessage,
+      'repeated enumeration must not restate the fallback');
+    console.log('PASS | missing microphone shows a single fallback status');
+  }
   {
     const { els, listeners } = await makePopup();
     // 模拟 stop 进行中：ended 广播先到，另一路已在录音/忙。
@@ -499,7 +533,7 @@ async function makePopup(options = {}) {
       'history failure must not be replaced by the success status',
     );
     assert.strictEqual(els.statusDiv.className, 'error');
-    assert.strictEqual(sandbox.showStatus.sticky, true,
+    assert.strictEqual(vm.runInContext('statusSticky', sandbox), true,
       'history failure warning must be sticky');
     assert.strictEqual(sandbox.showStatus.timer, null,
       'sticky warning must not schedule an auto-hide');
@@ -508,7 +542,7 @@ async function makePopup(options = {}) {
     await vm.runInContext('handleCopy()', sandbox);
     await flushAsync();
     assert.strictEqual(els.statusDiv.textContent, 'Copied to clipboard.');
-    assert.strictEqual(sandbox.showStatus.sticky, false,
+    assert.strictEqual(vm.runInContext('statusSticky', sandbox), false,
       'copying the transcript clears the sticky warning');
     console.log('PASS | history failure survives a manual stop (#143)');
   }
@@ -529,7 +563,7 @@ async function makePopup(options = {}) {
       'stream failure must not be replaced by the success status',
     );
     assert.strictEqual(els.statusDiv.className, 'error');
-    assert.strictEqual(sandbox.showStatus.sticky, true);
+    assert.strictEqual(vm.runInContext('statusSticky', sandbox), true);
     console.log('PASS | stream failure survives a manual stop (#144)');
   }
 

@@ -33,6 +33,9 @@ globalThis.createPcmCapture = function createPcmCapture({
   async function start() {
     if (node) return;
     source = context.createMediaStreamSource(stream);
+    if (!source) {
+      throw new Error('No audio input track is available. Check the microphone or fake-audio test configuration.');
+    }
     silentGain = context.createGain();
     silentGain.gain.value = 0;
 

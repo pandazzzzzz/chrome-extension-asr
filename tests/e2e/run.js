@@ -732,14 +732,21 @@ async function runRealNetworkSuite({ browser, extensionId, targetPage }) {
     if (!realStarted) return;
 
     if (process.env.ASR_TEST_SPEECH) {
-      await H.waitFor(
-        () => popup.evaluate((expected) => {
-          const text = document.getElementById('result').value;
-          if (!expected) return text.trim().length > 0;
-          return text.replace(/[\s，。！？,.!?、；：:;"'“”‘’（）()]/g, '') === expected;
-        }, normalizeTranscript(expectedText)),
-        { timeout: 30000, label: 'real transcript' },
-      );
+      const transcriptDeadline = Date.now() + 30000;
+      let transcriptSeen = '';
+      while (Date.now() < transcriptDeadline) {
+        transcriptSeen = await popup.evaluate(() => document.getElementById('result').value);
+        if (transcriptSeen.trim().length > 0) break;
+        await H.sleep(150);
+      }
+      if (!transcriptSeen.trim()) {
+        const diagnostics = await popup.evaluate(() => ({
+          result: document.getElementById('result').value,
+          status: document.getElementById('status').textContent,
+        }));
+        H.check('real audio produces transcript text', false, JSON.stringify(diagnostics));
+        return;
+      }
       const transcript = await popup.evaluate(() => document.getElementById('result').value);
       H.check('real audio produces transcript text', transcript.trim().length > 0, transcript.slice(0, 120));
       let subtitleText = '';

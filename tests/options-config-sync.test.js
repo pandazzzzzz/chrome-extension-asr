@@ -82,6 +82,9 @@ function makeSandbox() {
   const listeners = { changed: [], domready: [] };
   const page = {
     configStoreLoads: 0,
+    clears: 0,
+    confirmResult: true,
+    confirmMessage: '',
     nextConfigStoreLoad: null,
     nextConfigStoreSave: null,
     configStoreLoadResult: {
@@ -170,7 +173,7 @@ function makeSandbox() {
     HistoryStore: {
       list: async () => [],
       count: async () => 0,
-      clear: async () => {},
+      clear: async () => { page.clears += 1; },
     },
     CryptoStore: { hasKey: async () => true },
     Format: {
@@ -181,6 +184,7 @@ function makeSandbox() {
       },
     },
     emitDebug: (entry) => page.debugEvents.push(entry),
+    confirm: (message) => { page.confirmMessage = message; return page.confirmResult; },
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -272,6 +276,22 @@ function changeEvent(config) {
     assert.strictEqual(els.provider.children[0].value, 'qwen');
   });
 
+  await t('Clear history asks for confirmation', async () => {
+    const state = await initPage();
+    state.page.confirmResult = false;
+    await state.els.clearHistoryBtn.listeners.click();
+    await flushAsync();
+    assert.strictEqual(state.page.confirmResult, false);
+    assert.strictEqual(state.page.clears, 0, 'cancel must not clear history');
+    assert.match(state.page.confirmMessage, /cannot be undone/i);
+
+    state.page.confirmResult = true;
+    await state.els.clearHistoryBtn.listeners.click();
+    await flushAsync();
+    assert.strictEqual(state.page.clears, 1, 'confirmed click clears history');
+    console.log('PASS | clear history requires confirmation');
+  });
+
   await t('onChanged: external config does not overwrite unsaved options edits', async () => {
     const { els, listeners, page } = await initPage();
     page.configStoreLoadResult = {
@@ -299,7 +319,6 @@ function changeEvent(config) {
     assert.strictEqual(els.apiKey.value, 'sk-user-editing');
     assert.strictEqual(els.modelCustom.value, 'qwen3-asr-flash-realtime');
   });
-
   await t('onChanged: edit started while ConfigStore.load is pending is preserved', async () => {
     const { els, listeners, page } = await initPage();
     let resolveLoad;
