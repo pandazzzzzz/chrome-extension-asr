@@ -47,6 +47,16 @@ const t = (name, fn) => Promise.resolve()
     }
   });
 
+  await t('Options headings match the document language', () => {
+    const html = read('options/options.html');
+    const headings = [...html.matchAll(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/g)]
+      .map((match) => match[1]);
+    assert.ok(headings.length > 0);
+    for (const heading of headings) {
+      assert.doesNotMatch(heading, /[㐀-鿿]/);
+    }
+  });
+
   await t('Subtitles toggle exposes pressed state in both entry pages', () => {
     for (const file of ['popup/popup.html', 'sidepanel/sidepanel.html']) {
       const html = read(file);
